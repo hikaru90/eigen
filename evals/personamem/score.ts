@@ -19,6 +19,9 @@ export type GroupStats = {
   noMemoryAccuracy: number
   /** eigen − no-memory accuracy over the same questions. */
   lift: number
+  /** Eigen rows whose chooser context is non-empty. In evidence-only runs that is a retrieval hit. */
+  evidenceRetrieved: number
+  evidenceRetrievedRate: number
 }
 
 export type Score = {
@@ -33,12 +36,21 @@ export type Score = {
 
 type Pair = { eigen: AnswerRow; noMemory: AnswerRow }
 
+/** Items Eigen gave the chooser; an eigen row without the list is damaged, never "empty". */
+function retrievedItems(eigen: AnswerRow): number {
+  if (eigen.retrieved === undefined) {
+    throw new Error(`[personamem] eigen row for ${eigen.questionId} has no retrieved list`)
+  }
+  return eigen.retrieved.length
+}
+
 function statsFor(pairs: readonly Pair[]): GroupStats {
   const n = pairs.length
   const eigenCorrect = pairs.filter((p) => p.eigen.correct).length
   const noMemoryCorrect = pairs.filter((p) => p.noMemory.correct).length
   const eigenAccuracy = eigenCorrect / n
   const noMemoryAccuracy = noMemoryCorrect / n
+  const evidenceRetrieved = pairs.filter((p) => retrievedItems(p.eigen) > 0).length
   return {
     n,
     eigenCorrect,
@@ -46,6 +58,8 @@ function statsFor(pairs: readonly Pair[]): GroupStats {
     eigenAccuracy,
     noMemoryAccuracy,
     lift: eigenAccuracy - noMemoryAccuracy,
+    evidenceRetrieved,
+    evidenceRetrievedRate: evidenceRetrieved / n,
   }
 }
 

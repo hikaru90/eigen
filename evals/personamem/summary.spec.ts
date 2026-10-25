@@ -1,11 +1,22 @@
 import type { AnswerRow } from './types'
 import { describe, expect, it } from 'vitest'
 import { scoreAnswers } from './score'
-import { buildSummary, type SmokeBlock } from './summary'
+import { buildSummary, formatScoreLines, type SmokeBlock } from './summary'
 
 const meta = { prefType: 'neutral', updated: false, who: 'self' }
-function row(variant: AnswerRow['variant'], correct: boolean): AnswerRow {
+const retrievedItem = {
+  id: 'a',
+  normalizedText: 'Drinks only green tea',
+  score: 0.5,
+  createdAt: '2025-01-01T00:00:00.000Z',
+}
+function row(
+  variant: AnswerRow['variant'],
+  correct: boolean,
+  retrieved = [retrievedItem],
+): AnswerRow {
   return {
+    ...(variant === 'eigen' ? { retrieved } : {}),
     questionId: 'q1',
     personaId: 1,
     variant,
@@ -26,6 +37,7 @@ describe('buildSummary', () => {
     startedAt: '2026-10-25T10:00:00.000Z',
     finishedAt: '2026-10-25T11:00:00.000Z',
     config: { enrichConcurrency: 1 },
+    split: 'benchmark' as const,
     score,
     answerMode: 'compose' as const,
     evidenceOnly: false,
@@ -47,6 +59,44 @@ describe('buildSummary', () => {
       invalidLetters: 0,
     })
     expect(summary.config).toMatchObject({ gitSha: 'abc123', enrichConcurrency: 1 })
+  })
+
+  it('records the split in the config and the title', () => {
+    expect(summary.config).toMatchObject({ split: 'benchmark' })
+    expect(summary.title).toContain('benchmark split')
+  })
+
+  it('carries the evidence-retrieved rate and, per pref_type, accuracy, lift and the rate', () => {
+    expect(summary.metrics).toMatchObject({ evidenceRetrieved: 1, evidenceRetrievedRate: 1 })
+    expect(summary.metrics.byPrefType).toEqual({
+      neutral: {
+        n: 1,
+        eigenAccuracy: 1,
+        noMemoryAccuracy: 0,
+        lift: 1,
+        evidenceRetrievedRate: 1,
+      },
+    })
+  })
+
+  it('shows the evidence-retrieved rate in the overall and every breakdown table', () => {
+    const overall = summary.sections.find((s) => s.heading === 'Overall')!
+    expect(overall.table!.rows.map((r) => r[0])).toContain('evidence retrieved (context non-empty)')
+    const byPref = summary.sections.find((s) => s.heading === 'By pref_type')!
+    expect(byPref.table!.columns).toEqual([
+      'pref_type',
+      'n',
+      'eigen',
+      'no-memory',
+      'lift',
+      'evidence retrieved',
+    ])
+    expect(byPref.table!.rows[0]).toEqual(['neutral', 1, '100.0%', '0.0%', '+100.0 pp', '100.0%'])
+  })
+
+  it('says outside evidence-only that a non-empty context is not necessarily evidence', () => {
+    const overall = summary.sections.find((s) => s.heading === 'Overall')!
+    expect(overall.lines!.join(' ')).toMatch(/not necessarily evidence/)
   })
 
   it('splits USD into ingest and answer', () => {
@@ -95,6 +145,8 @@ describe('buildSummary --evidence-only', () => {
     context: [{ text: 'Drinks only green tea', storedAt: '2025-01-01T00:00:00.000Z' }],
     askTools: ['answer_question'],
     askAnsweredWithoutMemory: false,
+    prefType: 'neutral',
+    belowFloor: { thoughts: 0.19, notePassages: null },
     correctAnswer: 'Green tea',
     eigenLetter: 'A',
     noMemoryLetter: 'C',
@@ -107,6 +159,7 @@ describe('buildSummary --evidence-only', () => {
       startedAt: 'a',
       finishedAt: 'b',
       config: {},
+      split: 'val' as const,
       score,
       answerMode: 'ask',
       evidenceOnly: true,
@@ -145,7 +198,77 @@ describe('buildSummary --evidence-only', () => {
     expect(lines).toMatch(/NO answer_question call/)
   })
 
+  it('shows the split in the config and marks val as tuning data, not a reported score', () => {
+    const summary = build([block])
+    expect(summary.config).toMatchObject({ split: 'val' })
+    expect(summary.title).toContain('val split')
+    expect(
+      summary.sections.find((s) => s.heading === 'Decisions in effect')!.lines!.join(' '),
+    ).toMatch(/val split.*tuning/)
+  })
+
+  it('says per question what reached the chooser and the best candidate under the floor', () => {
+    const hit = build([block])
+      .sections.find((s) => s.heading === 'Smoke: q1')!
+      .lines!.join('\n')
+    expect(hit).toContain(
+      'retrieval: 1 item(s) reached the chooser; best candidate under the 0.22 floor: thoughts 0.190, note passages none',
+    )
+  })
+
+  it('tells "nothing retrieved, just below the floor" from "nothing retrieved, no candidate"', () => {
+    const lines = (b: SmokeBlock) =>
+      build([b])
+        .sections.find((s) => s.heading === 'Smoke: q1')!
+        .lines!.join('\n')
+    const empty = { ...block, context: [], askAnsweredWithoutMemory: false }
+    expect(lines({ ...empty, belowFloor: { thoughts: 0.19, notePassages: 0.04 } })).toContain(
+      'retrieval: NOTHING reached the chooser; best candidate under the 0.22 floor: thoughts 0.190, note passages 0.040',
+    )
+    expect(lines({ ...empty, belowFloor: { thoughts: null, notePassages: null } })).toContain(
+      'retrieval: NOTHING reached the chooser and no candidate fell under the 0.22 floor either (no candidate at all)',
+    )
+  })
+
+  it('lists the misses with their pref_type, context size and below-floor scores', () => {
+    const miss: SmokeBlock = {
+      ...block,
+      questionId: 'q2',
+      prefType: 'ask_to_forget',
+      context: [],
+      eigenLetter: 'B',
+      belowFloor: { thoughts: 0.18, notePassages: null },
+    }
+    const summary = build([block, miss])
+    const misses = summary.sections.find((s) => s.heading === 'Eigen misses (evidence-only)')!
+    expect(misses.table!.columns).toEqual([
+      'question',
+      'pref_type',
+      'context items',
+      'best under floor: thoughts',
+      'best under floor: note passages',
+    ])
+    expect(misses.table!.rows).toEqual([['q2', 'ask_to_forget', 0, '0.180', 'none']])
+  })
+
+  it('has no misses section when Eigen got every question right', () => {
+    expect(build([block]).sections.some((s) => s.heading === 'Eigen misses (evidence-only)')).toBe(
+      false,
+    )
+  })
+
   it('requires smoke blocks', () => {
     expect(() => build([])).toThrow(/smoke blocks/)
+  })
+})
+
+describe('formatScoreLines', () => {
+  const score = scoreAnswers([row('eigen', true), row('no-memory', false)], new Map([['q1', 100]]))
+
+  it('prints both metrics overall and per pref_type, for the console at the end of a run', () => {
+    expect(formatScoreLines(score)).toEqual([
+      'eigen 100.0%, no-memory 0.0%, lift +100.0 pp; evidence retrieved 100.0% (1/1)',
+      '  neutral: n=1 eigen 100.0%, no-memory 0.0%, lift +100.0 pp, evidence retrieved 100.0%',
+    ])
   })
 })

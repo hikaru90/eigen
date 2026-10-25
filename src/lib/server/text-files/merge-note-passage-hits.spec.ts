@@ -4,6 +4,7 @@ import {
   joinWindowPassages,
   NOTE_PASSAGE_NEIGHBOR_RADIUS,
   NOTE_PASSAGES_PER_NOTE_CAP,
+  bestPassageScoreBelowFloor,
   rankNotePassageHits,
   windowOrdinals,
   type PassageCandidate,
@@ -55,7 +56,10 @@ describe('rankNotePassageHits', () => {
   it('drops passages below the relevance floor (nothing relevant means no note evidence)', () => {
     const ranked = rankNotePassageHits({
       ...base,
-      passages: [candidate('a', 0, { vectorDistance: 0.9 }), candidate('b', 2, { vectorDistance: 0.95 })],
+      passages: [
+        candidate('a', 0, { vectorDistance: 0.9 }),
+        candidate('b', 2, { vectorDistance: 0.95 }),
+      ],
       noteLexical: [],
     })
     expect(ranked).toEqual([])
@@ -157,5 +161,33 @@ describe('joinWindowPassages', () => {
 
   it('returns an empty string for an empty window', () => {
     expect(joinWindowPassages([])).toBe('')
+  })
+})
+
+describe('bestPassageScoreBelowFloor', () => {
+  it('is the best passage score that the floor dropped, using the same scoring as ranking', () => {
+    const passages = [
+      candidate('a', 0, { vectorDistance: 0.85 }),
+      candidate('a', 1, { vectorDistance: 0.9 }),
+      candidate('b', 0, { lexicalRank: 0.05 }),
+      candidate('c', 0, { vectorDistance: 0.3 }),
+    ]
+    expect(
+      rankNotePassageHits({ ...base, passages, noteLexical: [] }).map((n) => n.textFileId),
+    ).toEqual(['c'])
+    expect(bestPassageScoreBelowFloor(passages, base.minScore)).toBeCloseTo(0.15)
+  })
+
+  it('merges the vector and lexical rows of one passage before scoring it', () => {
+    const passages = [
+      candidate('a', 0, { vectorDistance: 0.9 }),
+      candidate('a', 0, { lexicalRank: 0.06 }),
+    ]
+    expect(bestPassageScoreBelowFloor(passages, base.minScore)).toBeCloseTo(0.15)
+  })
+
+  it('is null when nothing fell below the floor', () => {
+    expect(bestPassageScoreBelowFloor([candidate('a', 0, { vectorDistance: 0.1 })], 0.2)).toBeNull()
+    expect(bestPassageScoreBelowFloor([], 0.2)).toBeNull()
   })
 })

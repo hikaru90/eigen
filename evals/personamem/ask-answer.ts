@@ -1,7 +1,9 @@
+import type { BelowFloor } from './types'
 import { getOrCreateSession, runAskTurn } from '$lib/server/chat/run-ask-turn'
 import type { RetrievalContextItem } from '$lib/server/qa/compose-answer'
 import { withComposeObserver } from '$lib/server/qa/compose-observer'
 import { withEvalDb } from '../harness/eval-context'
+import { mergeBelowFloor } from './below-floor'
 
 export type AskAnswer = {
   /** Ask's final answer text. */
@@ -11,6 +13,8 @@ export type AskAnswer = {
   context: RetrievalContextItem[]
   /** Ask never called answer_question: the chooser gets no memory. No composeAnswer fallback. */
   askAnsweredWithoutMemory: boolean
+  /** Best candidate scores the relevance floor dropped over all of Ask's answer_question calls. */
+  belowFloor: BelowFloor
 }
 
 /**
@@ -26,7 +30,7 @@ export async function answerViaAsk(input: {
   billing: { billingUserId: string; chatModel: string }
 }): Promise<AskAnswer> {
   const { tenantUserId, query, referenceTime, billing } = input
-  const { result, observed } = await withComposeObserver(tenantUserId, () =>
+  const { result, observed, belowFloor } = await withComposeObserver(tenantUserId, () =>
     withEvalDb(
       tenantUserId,
       async (db) => {
@@ -45,5 +49,6 @@ export async function answerViaAsk(input: {
     toolNames: result.toolCalls.map((c) => c.tool),
     context: [...byId.values()],
     askAnsweredWithoutMemory: observed.length === 0,
+    belowFloor: mergeBelowFloor(belowFloor),
   }
 }

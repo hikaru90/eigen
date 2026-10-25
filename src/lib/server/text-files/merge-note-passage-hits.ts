@@ -1,4 +1,4 @@
-import { normalizeLexicalRank } from '$lib/server/retrieval/rrf-scoring'
+import { bestScoreBelowFloor, normalizeLexicalRank } from '$lib/server/retrieval/rrf-scoring'
 
 /**
  * Merge of note-passage search signals (pgvector ANN + passage FTS + note-level keyword match)
@@ -38,16 +38,10 @@ function cosineSimilarity(distance: number): number {
   return Math.max(0, 1 - distance)
 }
 
-export function rankNotePassageHits(input: {
-  passages: PassageCandidate[]
-  noteLexical: NoteLexicalCandidate[]
-  /** Relevance floor on the 0..1 score; below it a signal is not evidence. */
-  minScore: number
-  perNoteCap: number
-  noteLimit: number
-}): RankedNoteHit[] {
+/** One candidate per passage: the vector and the lexical row of a passage are merged. */
+function mergePassageCandidates(passages: PassageCandidate[]): PassageCandidate[] {
   const byPassage = new Map<string, PassageCandidate>()
-  for (const c of input.passages) {
+  for (const c of passages) {
     const existing = byPassage.get(c.passageId)
     if (!existing) {
       byPassage.set(c.passageId, { ...c })
@@ -60,13 +54,49 @@ export function rankNotePassageHits(input: {
       existing.lexicalRank = Math.max(existing.lexicalRank ?? 0, c.lexicalRank)
     }
   }
+  return [...byPassage.values()]
+}
 
+function passageScore(c: PassageCandidate): {
+  score: number
+  vectorScore: number
+  lexicalRank: number
+} {
+  const vectorScore = c.vectorDistance !== undefined ? cosineSimilarity(c.vectorDistance) : 0
+  const lexicalRank = c.lexicalRank ?? 0
+  return {
+    score: Math.max(vectorScore, normalizeLexicalRank(lexicalRank)),
+    vectorScore,
+    lexicalRank,
+  }
+}
+
+/**
+ * The best passage score that the relevance floor drops (null: nothing was dropped). Eval
+ * observability only: it tells "no candidate at all" apart from "a candidate just under the floor".
+ */
+export function bestPassageScoreBelowFloor(
+  passages: PassageCandidate[],
+  minScore: number,
+): number | null {
+  return bestScoreBelowFloor(
+    mergePassageCandidates(passages).map((c) => passageScore(c).score),
+    minScore,
+  )
+}
+
+export function rankNotePassageHits(input: {
+  passages: PassageCandidate[]
+  noteLexical: NoteLexicalCandidate[]
+  /** Relevance floor on the 0..1 score; below it a signal is not evidence. */
+  minScore: number
+  perNoteCap: number
+  noteLimit: number
+}): RankedNoteHit[] {
   type Scored = { ordinal: number; score: number; vectorScore: number; lexicalRank: number }
   const byNote = new Map<string, Scored[]>()
-  for (const c of byPassage.values()) {
-    const vectorScore = c.vectorDistance !== undefined ? cosineSimilarity(c.vectorDistance) : 0
-    const lexicalRank = c.lexicalRank ?? 0
-    const score = Math.max(vectorScore, normalizeLexicalRank(lexicalRank))
+  for (const c of mergePassageCandidates(input.passages)) {
+    const { score, vectorScore, lexicalRank } = passageScore(c)
     if (score < input.minScore) continue
     const list = byNote.get(c.textFileId) ?? []
     list.push({ ordinal: c.ordinal, score, vectorScore, lexicalRank })
@@ -75,7 +105,10 @@ export function rankNotePassageHits(input: {
 
   const noteLexicalRank = new Map<string, number>()
   for (const n of input.noteLexical) {
-    noteLexicalRank.set(n.textFileId, Math.max(noteLexicalRank.get(n.textFileId) ?? 0, n.lexicalRank))
+    noteLexicalRank.set(
+      n.textFileId,
+      Math.max(noteLexicalRank.get(n.textFileId) ?? 0, n.lexicalRank),
+    )
   }
 
   const noteIds = new Set<string>([...byNote.keys()])

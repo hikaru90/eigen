@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answerRowSchema } from './types'
+import { answerRowSchema, splitSchema } from './types'
 
 const base = {
   questionId: 'p1-aaaaaaaaaaaa',
@@ -59,5 +59,25 @@ describe('answerRowSchema', () => {
         ],
       }),
     ).toThrow()
+  })
+
+  it('carries the best below-floor scores of an eigen row, null where nothing was dropped', () => {
+    const ok = answerRowSchema.parse({
+      ...base,
+      belowFloor: { thoughts: 0.19, notePassages: null },
+    })
+    expect(ok.belowFloor).toEqual({ thoughts: 0.19, notePassages: null })
+    expect(() => answerRowSchema.parse({ ...base, belowFloor: { thoughts: 0.19 } })).toThrow()
+    expect(() =>
+      answerRowSchema.parse({ ...base, belowFloor: { thoughts: 2, notePassages: null } }),
+    ).toThrow()
+  })
+})
+
+describe('splitSchema', () => {
+  it('knows benchmark and val only', () => {
+    expect(splitSchema.parse('val')).toBe('val')
+    expect(splitSchema.parse('benchmark')).toBe('benchmark')
+    expect(() => splitSchema.parse('test')).toThrow()
   })
 })

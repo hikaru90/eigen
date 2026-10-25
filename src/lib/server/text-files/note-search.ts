@@ -3,6 +3,7 @@ import {
   joinWindowPassages,
   NOTE_PASSAGE_NEIGHBOR_RADIUS,
   NOTE_PASSAGES_PER_NOTE_CAP,
+  bestPassageScoreBelowFloor,
   rankNotePassageHits,
   windowOrdinals,
   type NoteLexicalCandidate,
@@ -56,17 +57,25 @@ export type NoteSearchSources = {
   /** Visible notes among `ids` (author filter and tenant already applied). */
   loadNotes: (ids: string[]) => Promise<NoteMeta[]>
   /** Decrypted passage texts for the requested (note, ordinal) pairs that exist. */
-  loadPassages: (pairs: Array<{ textFileId: string; ordinal: number }>) => Promise<NotePassageText[]>
+  loadPassages: (
+    pairs: Array<{ textFileId: string; ordinal: number }>,
+  ) => Promise<NotePassageText[]>
 }
 
 export async function runNoteSearch(
   sources: NoteSearchSources,
-  params: { minScore: number; noteLimit: number },
+  params: {
+    minScore: number
+    noteLimit: number
+    /** Eval observability: the best passage score the floor dropped (null: none). Called once per search. */
+    onBelowFloor?: (best: number | null) => void
+  },
 ): Promise<TextFileSearchHit[]> {
   const [passages, noteLexical] = await Promise.all([
     sources.passageCandidates(),
     sources.noteLexical(),
   ])
+  params.onBelowFloor?.(bestPassageScoreBelowFloor(passages, params.minScore))
   const ranked = rankNotePassageHits({
     passages,
     noteLexical,

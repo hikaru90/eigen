@@ -17,6 +17,15 @@ export function normalizeRetrievalScore(score: number): number {
   return Math.min(1, Math.max(0, score / MAX_RETRIEVAL_MERGE_SCORE))
 }
 
+/** The highest score that is still under `floor` (the candidate that just missed it), or null. */
+export function bestScoreBelowFloor(scores: readonly number[], floor: number): number | null {
+  let best: number | null = null
+  for (const score of scores) {
+    if (score < floor && (best === null || score > best)) best = score
+  }
+  return best
+}
+
 /** Map raw FTS rank to a thought-similarity scale comparable with vector cosine sim. */
 export function normalizeLexicalRank(raw: number): number {
   if (raw <= 0) return 0

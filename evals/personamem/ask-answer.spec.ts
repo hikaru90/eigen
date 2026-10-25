@@ -13,7 +13,7 @@ vi.mock('$lib/server/chat/run-ask-turn', () => ({
 }))
 
 import type { ComposedAnswer } from '$lib/server/qa/compose-answer'
-import { observeComposedAnswer } from '$lib/server/qa/compose-observer'
+import { observeBelowFloor, observeComposedAnswer } from '$lib/server/qa/compose-observer'
 import { answerViaAsk } from './ask-answer'
 
 const TENANT = 'public-bench-personamem-v2-capture-gpt-4o-mini-p7-qaaaaaaaaaaaa'
@@ -92,6 +92,34 @@ describe('answerViaAsk', () => {
     })
     expect(result.context).toEqual([])
     expect(result.askAnsweredWithoutMemory).toBe(true)
+  })
+
+  it('reports the best candidate under the relevance floor over all answer_question calls', async () => {
+    m.runAskTurn.mockImplementation(async () => {
+      observeBelowFloor(TENANT, { thoughts: 0.1, notePassages: null })
+      observeComposedAnswer(TENANT, composed())
+      observeBelowFloor(TENANT, { thoughts: 0.18, notePassages: 0.07 })
+      observeComposedAnswer(TENANT, composed())
+      return { answer: 'x', toolCalls: [] }
+    })
+    const result = await answerViaAsk({
+      tenantUserId: TENANT,
+      query: 'q',
+      referenceTime: REFERENCE,
+      billing,
+    })
+    expect(result.belowFloor).toEqual({ thoughts: 0.18, notePassages: 0.07 })
+  })
+
+  it('has no below-floor scores when Ask never composed an answer', async () => {
+    m.runAskTurn.mockResolvedValue({ answer: 'I do not know.', toolCalls: [] })
+    const result = await answerViaAsk({
+      tenantUserId: TENANT,
+      query: 'q',
+      referenceTime: REFERENCE,
+      billing,
+    })
+    expect(result.belowFloor).toEqual({ thoughts: null, notePassages: null })
   })
 
   it('refuses a non-harness tenant', async () => {

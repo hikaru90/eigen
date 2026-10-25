@@ -2,11 +2,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { resolveRunDir } from '../public-bench/run-output'
-import { answerModeSchema } from './types'
+import { answerModeSchema, splitSchema } from './types'
 
 export const BENCH = 'personamem-v2'
 
 const runIdentitySchema = z.object({
+  split: splitSchema,
   chatModel: z.string(),
   answer: answerModeSchema,
   evidenceOnly: z.boolean(),
@@ -30,8 +31,8 @@ export type RunPaths = {
 
 /**
  * Creates the run directory, or (resume) verifies this invocation is the original one. A
- * different `--answer` is named explicitly: the two modes answer through different paths, so
- * their answers are not comparable within one run.
+ * different `--split` or `--answer` is named explicitly: rows of two splits (tuning vs reported)
+ * or of the two answer paths are not comparable within one run.
  */
 export function openRun(input: {
   runId: string
@@ -57,6 +58,11 @@ export function openRun(input: {
     if (!existsSync(paths.meta))
       throw new Error(`[personamem] cannot resume: ${paths.meta} not found`)
     const saved = runMetaSchema.parse(JSON.parse(readFileSync(paths.meta, 'utf8')))
+    if (saved.identity.split !== identity.split) {
+      throw new Error(
+        `[personamem] cannot resume ${runId}: it was started with --split ${saved.identity.split}, this invocation says --split ${identity.split}`,
+      )
+    }
     if (saved.identity.answer !== identity.answer) {
       throw new Error(
         `[personamem] cannot resume ${runId}: it was started with --answer ${saved.identity.answer}, this invocation says --answer ${identity.answer}`,

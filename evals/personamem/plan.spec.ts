@@ -1,26 +1,44 @@
 import { spawnSync } from 'node:child_process'
-import { resolve } from 'node:path'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { parsePersonaMemCli } from './cli'
+import { buildDevSetFile } from './dev-set'
 import { buildPlan, estimateUsd, formatPlan, tenantUserIdFor } from './plan'
 import { writeFixtureDataDir } from './test-fixtures'
 
 let dataDir = ''
+/** A `val` data dir with no history files, the way val is downloaded. */
+let valDir = ''
 
-beforeAll(() => {
-  dataDir = writeFixtureDataDir()
+function prepare(dir: string, split: string) {
   const res = spawnSync(
     'python3',
-    ['-I', resolve(import.meta.dirname, 'prepare.py'), '--data-dir', dataDir],
+    ['-I', resolve(import.meta.dirname, 'prepare.py'), '--data-dir', dir, '--split', split],
     { encoding: 'utf8' },
   )
   if (res.status !== 0) throw new Error(res.stderr)
+}
+
+beforeAll(() => {
+  dataDir = writeFixtureDataDir()
+  prepare(dataDir, 'benchmark')
+  valDir = writeFixtureDataDir({ split: 'val', skipHistoryFor: 'all' })
+  prepare(valDir, 'val')
 })
 
-function cliFor(selection: string[], extra: string[] = [], answer = 'compose') {
+function cliFor(
+  selection: string[],
+  extra: string[] = [],
+  answer = 'compose',
+  split = 'benchmark',
+) {
   return parsePersonaMemCli([
     '--data-dir',
-    dataDir,
+    split === 'val' ? valDir : dataDir,
+    '--split',
+    split,
     '--chat-model',
     'openai/gpt-4o-mini',
     '--tenant-concurrency',
@@ -36,14 +54,23 @@ function cliFor(selection: string[], extra: string[] = [], answer = 'compose') {
 
 describe('tenantUserIdFor', () => {
   it('embeds the model slug and persona id under the public-bench prefix', () => {
-    expect(tenantUserIdFor('openai/gpt-4o-mini', 521)).toBe(
+    expect(tenantUserIdFor('openai/gpt-4o-mini', 'benchmark', 521)).toBe(
       'public-bench-personamem-v2-capture-gpt-4o-mini-p521',
     )
   })
 
   it('adds the question id suffix for a per-question tenant', () => {
-    expect(tenantUserIdFor('openai/gpt-4o-mini', 7, 'p7-0123456789ab')).toBe(
+    expect(tenantUserIdFor('openai/gpt-4o-mini', 'benchmark', 7, 'p7-0123456789ab')).toBe(
       'public-bench-personamem-v2-capture-gpt-4o-mini-p7-q0123456789ab',
+    )
+  })
+
+  it('keeps val tenants apart from benchmark tenants (persona 78 is in both splits)', () => {
+    expect(tenantUserIdFor('openai/gpt-4o-mini', 'val', 78)).toBe(
+      'public-bench-personamem-v2-capture-gpt-4o-mini-val-p78',
+    )
+    expect(tenantUserIdFor('openai/gpt-4o-mini', 'val', 78, 'p78-0123456789ab')).toBe(
+      'public-bench-personamem-v2-capture-gpt-4o-mini-val-p78-q0123456789ab',
     )
   })
 })
@@ -176,5 +203,143 @@ describe('buildPlan --evidence-only', () => {
     expect(text).toMatch(
       /-q[0-9a-f]{12} {2}question=p7-[0-9a-f]{12} {2}evidence turns=2 {2}estimate=\$0\.011/,
     )
+  })
+})
+
+describe('buildPlan --split val', () => {
+  it('plans val questions in evidence-only mode without any history file', () => {
+    const plan = buildPlan(cliFor(['--persona-ids', '7'], ['--evidence-only'], 'compose', 'val'))
+    expect(plan.personas).toHaveLength(3)
+    for (const p of plan.personas) {
+      expect(p.tenantUserId).toMatch(
+        /^public-bench-personamem-v2-capture-gpt-4o-mini-val-p7-q[0-9a-f]{12}$/,
+      )
+      expect(p.captures.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('reads the val file, not the benchmark file', () => {
+    const plan = buildPlan(cliFor(['--all'], ['--evidence-only'], 'compose', 'val'))
+    expect(plan.totals.queries).toBe(6)
+    expect(() =>
+      buildPlan(cliFor(['--all'], ['--evidence-only'], 'compose', 'benchmark')),
+    ).not.toThrow()
+  })
+
+  it('full-history mode on val fails loud when the val histories are not downloaded', () => {
+    expect(() => buildPlan(cliFor(['--persona-ids', '7'], [], 'compose', 'val'))).toThrow(
+      /val histories not downloaded/,
+    )
+  })
+
+  it('the failure names the missing file and points at --evidence-only', () => {
+    expect(() => buildPlan(cliFor(['--all'], [], 'compose', 'val'))).toThrow(
+      /chat_history_fixture_persona7\.json/,
+    )
+    expect(() => buildPlan(cliFor(['--all'], [], 'compose', 'val'))).toThrow(/--evidence-only/)
+  })
+
+  it('full-history mode on val works once the history files exist', () => {
+    const full = writeFixtureDataDir({ split: 'val' })
+    prepare(full, 'val')
+    const cli = parsePersonaMemCli([
+      '--data-dir',
+      full,
+      '--split',
+      'val',
+      '--chat-model',
+      'openai/gpt-4o-mini',
+      '--tenant-concurrency',
+      '1',
+      '--enrich-concurrency',
+      '1',
+      '--answer',
+      'compose',
+      '--all',
+    ])
+    expect(buildPlan(cli).totals).toMatchObject({ personas: 2, captures: 10, queries: 6 })
+  })
+
+  it('a missing benchmark history keeps the plain history-file error', () => {
+    const broken = writeFixtureDataDir()
+    prepare(broken, 'benchmark')
+    rmSync(join(broken, 'data/chat_history_32k/chat_history_fixture_persona9.json'))
+    const cli = parsePersonaMemCli([
+      '--data-dir',
+      broken,
+      '--split',
+      'benchmark',
+      '--chat-model',
+      'openai/gpt-4o-mini',
+      '--tenant-concurrency',
+      '1',
+      '--enrich-concurrency',
+      '1',
+      '--answer',
+      'compose',
+      '--persona-ids',
+      '9',
+    ])
+    expect(() => buildPlan(cli)).toThrow(/history file not found/)
+  })
+
+  it('formatPlan prints the split', () => {
+    const cli = cliFor(['--all'], ['--evidence-only'], 'compose', 'val')
+    expect(formatPlan(buildPlan(cli), cli).join('\n')).toMatch(/split: val/)
+  })
+})
+
+describe('buildPlan --dev-set', () => {
+  function devSetFile(split: 'val' | 'benchmark' = 'val'): string {
+    const plan = buildPlan(cliFor(['--all'], ['--evidence-only'], 'compose', 'val'))
+    const candidates = plan.personas.map((p) => ({
+      questionId: p.questions[0]!.row.questionId,
+      personaId: p.personaId,
+      prefType: p.questions[0]!.row.prefType,
+    }))
+    const file = {
+      ...buildDevSetFile(candidates, {
+        seed: 'fixture',
+        size: 6,
+        minPerPrefType: 1,
+        maxPerPersona: 3,
+        excludePersonaIds: [],
+      }),
+      split,
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'personamem-devset-'))
+    const path = join(dir, 'dev-set.json')
+    writeFileSync(path, JSON.stringify(file))
+    return path
+  }
+
+  it('plans exactly the dev-set questions, one tenant each, in val', () => {
+    const path = devSetFile()
+    const plan = buildPlan(cliFor(['--dev-set', path], ['--evidence-only'], 'ask', 'val'))
+    expect(plan.totals).toMatchObject({ personas: 6, queries: 6 })
+    expect(new Set(plan.personas.map((p) => p.tenantUserId)).size).toBe(6)
+  })
+
+  it('refuses a dev set made for another split', () => {
+    const path = devSetFile('benchmark')
+    expect(() => buildPlan(cliFor(['--dev-set', path], ['--evidence-only'], 'ask', 'val'))).toThrow(
+      /dev set.*benchmark.*val/,
+    )
+  })
+
+  it('refuses a dev set that names a question the split does not have', () => {
+    const path = devSetFile()
+    const file = JSON.parse(readFileSync(path, 'utf8')) as { questionIds: string[] }
+    file.questionIds[0] = 'p7-000000000000'
+    writeFileSync(path, JSON.stringify(file))
+    expect(() => buildPlan(cliFor(['--dev-set', path], ['--evidence-only'], 'ask', 'val'))).toThrow(
+      /p7-000000000000/,
+    )
+  })
+
+  it('formatPlan names the dev set', () => {
+    const path = devSetFile()
+    const cli = cliFor(['--dev-set', path], ['--evidence-only'], 'ask', 'val')
+    expect(formatPlan(buildPlan(cli), cli).join('\n')).toContain(`dev set ${path}`)
   })
 })

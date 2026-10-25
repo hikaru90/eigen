@@ -19,7 +19,11 @@ function makeSources(patch: Partial<NoteSearchSources> = {}): {
   const loadPassages = vi.fn(async (pairs: Array<{ textFileId: string; ordinal: number }>) =>
     pairs
       .filter((p) => !(p.textFileId === 'trip' && p.ordinal > 9))
-      .map((p) => ({ textFileId: p.textFileId, ordinal: p.ordinal, ...passageText(p.textFileId, p.ordinal) })),
+      .map((p) => ({
+        textFileId: p.textFileId,
+        ordinal: p.ordinal,
+        ...passageText(p.textFileId, p.ordinal),
+      })),
   )
   const sources: NoteSearchSources = {
     passageCandidates: async () => [],
@@ -162,5 +166,37 @@ describe('runNoteSearch', () => {
     })
     const hits = await runNoteSearch(sources, params)
     expect(JSON.stringify(hits).toLowerCase()).not.toContain('embedding')
+  })
+
+  it('reports the best passage score under the floor to onBelowFloor, hits or not', async () => {
+    const onBelowFloor = vi.fn()
+    const { sources } = makeSources({
+      passageCandidates: async () => [
+        { passageId: 'trip-4', textFileId: 'trip', ordinal: 4, vectorDistance: 0.4 },
+        { passageId: 'trip-5', textFileId: 'trip', ordinal: 5, vectorDistance: 0.9 },
+        { passageId: 'trip-6', textFileId: 'trip', ordinal: 6, vectorDistance: 0.85 },
+      ],
+    })
+    const hits = await runNoteSearch(sources, { ...params, onBelowFloor })
+    expect(hits).toHaveLength(1)
+    expect(onBelowFloor).toHaveBeenCalledTimes(1)
+    expect(onBelowFloor.mock.calls[0]![0]).toBeCloseTo(0.15)
+  })
+
+  it('reports null when no passage candidate fell under the floor, and when there are none', async () => {
+    const onBelowFloor = vi.fn()
+    await runNoteSearch(makeSources().sources, { ...params, onBelowFloor })
+    expect(onBelowFloor).toHaveBeenCalledWith(null)
+  })
+
+  it('reports a below-floor score even when nothing is returned', async () => {
+    const onBelowFloor = vi.fn()
+    const { sources } = makeSources({
+      passageCandidates: async () => [
+        { passageId: 'trip-4', textFileId: 'trip', ordinal: 4, vectorDistance: 0.85 },
+      ],
+    })
+    expect(await runNoteSearch(sources, { ...params, onBelowFloor })).toEqual([])
+    expect(onBelowFloor.mock.calls[0]![0]).toBeCloseTo(0.15)
   })
 })

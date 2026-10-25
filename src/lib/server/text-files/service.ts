@@ -386,6 +386,8 @@ export async function searchTextFiles(
     queryEmbedding?: number[]
     /** Relevance floor on the 0..1 hit score. Default: the Q&A context floor for thoughts. */
     minScore?: number
+    /** Eval observability: the best passage score the floor dropped (null: none). */
+    onBelowFloor?: (best: number | null) => void
   },
 ): Promise<TextFileSearchHit[]> {
   const limit = Math.max(1, Math.min(input.topK ?? 10, 50))
@@ -397,7 +399,11 @@ export async function searchTextFiles(
       authorFilter: input.authorFilter,
       authorLayerKey: input.authorLayerKey,
     }),
-    { minScore: input.minScore ?? COMPOSE_ANSWER_RELEVANCE_MIN, noteLimit: limit },
+    {
+      minScore: input.minScore ?? COMPOSE_ANSWER_RELEVANCE_MIN,
+      noteLimit: limit,
+      onBelowFloor: input.onBelowFloor,
+    },
   )
 }
 

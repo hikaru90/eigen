@@ -6,14 +6,18 @@ import { FIXTURE_ROWS, writeFixtureDataDir, type CsvRow } from './test-fixtures'
 
 const PREPARE_PY = resolve(import.meta.dirname, 'prepare.py')
 
-function runPrepare(dataDir: string, extra: string[] = []) {
-  return spawnSync('python3', ['-I', PREPARE_PY, '--data-dir', dataDir, ...extra], {
-    encoding: 'utf8',
-  })
+function runPrepare(dataDir: string, extra: string[] = [], split = 'benchmark') {
+  return spawnSync(
+    'python3',
+    ['-I', PREPARE_PY, '--data-dir', dataDir, '--split', split, ...extra],
+    {
+      encoding: 'utf8',
+    },
+  )
 }
 
-function readPrepared(dataDir: string): Record<string, unknown>[] {
-  return readFileSync(join(dataDir, 'personamem.benchmark.jsonl'), 'utf8')
+function readPrepared(dataDir: string, split = 'benchmark'): Record<string, unknown>[] {
+  return readFileSync(join(dataDir, `personamem.${split}.jsonl`), 'utf8')
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line) as Record<string, unknown>)
@@ -149,8 +153,75 @@ describe('prepare.py', () => {
   })
 
   it('fails without --data-dir', () => {
-    const res = spawnSync('python3', ['-I', PREPARE_PY], { encoding: 'utf8' })
+    const res = spawnSync('python3', ['-I', PREPARE_PY, '--split', 'benchmark'], {
+      encoding: 'utf8',
+    })
     expect(res.status).not.toBe(0)
     expect(res.stderr).toMatch(/--data-dir/)
+  })
+
+  describe('--split', () => {
+    it('is required, with no default', () => {
+      const dir = writeFixtureDataDir()
+      const res = spawnSync('python3', ['-I', PREPARE_PY, '--data-dir', dir], { encoding: 'utf8' })
+      expect(res.status).not.toBe(0)
+      expect(res.stderr).toMatch(/--split/)
+      expect(existsSync(join(dir, 'personamem.benchmark.jsonl'))).toBe(false)
+    })
+
+    it('accepts only benchmark or val', () => {
+      const dir = writeFixtureDataDir()
+      const res = runPrepare(dir, [], 'test')
+      expect(res.status).not.toBe(0)
+      expect(res.stderr).toMatch(/--split/)
+      expect(res.stderr).toMatch(/benchmark/)
+      expect(res.stderr).toMatch(/val/)
+    })
+
+    it('benchmark reads benchmark.csv and writes personamem.benchmark.jsonl only', () => {
+      const dir = writeFixtureDataDir()
+      expect(runPrepare(dir).status).toBe(0)
+      expect(readPrepared(dir)).toHaveLength(6)
+      expect(existsSync(join(dir, 'personamem.val.jsonl'))).toBe(false)
+    })
+
+    it('val reads val.csv and writes personamem.val.jsonl, never touching the benchmark file', () => {
+      const dir = writeFixtureDataDir({ split: 'val', skipHistoryFor: 'all' })
+      const res = runPrepare(dir, [], 'val')
+      expect(res.status, res.stderr).toBe(0)
+      const rows = readPrepared(dir, 'val')
+      expect(rows).toHaveLength(6)
+      expect(rows[0]).toMatchObject({ personaId: 7, prefType: 'neutral' })
+      expect(rows[0]!.historyPath).toBe(
+        join(dir, 'data/chat_history_32k/chat_history_fixture_persona7.json'),
+      )
+      expect(existsSync(join(dir, 'personamem.benchmark.jsonl'))).toBe(false)
+    })
+
+    it('val does not need the history files (evidence-only runs read none)', () => {
+      const dir = writeFixtureDataDir({ split: 'val', skipHistoryFor: 'all' })
+      expect(runPrepare(dir, [], 'val').status).toBe(0)
+    })
+
+    it('benchmark still refuses when its history files are missing', () => {
+      const dir = writeFixtureDataDir({ skipHistoryFor: 'all' })
+      const res = runPrepare(dir)
+      expect(res.status).not.toBe(0)
+      expect(res.stderr).toContain('history file(s) missing')
+    })
+
+    it('names the missing split CSV', () => {
+      const dir = writeFixtureDataDir()
+      const res = runPrepare(dir, [], 'val')
+      expect(res.status).not.toBe(0)
+      expect(res.stderr).toContain(join(dir, 'benchmark/text/val.csv'))
+    })
+
+    it('--print-history-urls works for val without any history file', () => {
+      const dir = writeFixtureDataDir({ split: 'val', skipHistoryFor: 'all' })
+      const res = runPrepare(dir, ['--print-history-urls'], 'val')
+      expect(res.status, res.stderr).toBe(0)
+      expect(res.stdout.trim().split('\n')).toHaveLength(2)
+    })
   })
 })

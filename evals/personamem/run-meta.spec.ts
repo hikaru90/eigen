@@ -11,6 +11,7 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 const identity: RunIdentity = {
+  split: 'benchmark',
   chatModel: 'openai/gpt-4o-mini',
   answer: 'ask',
   evidenceOnly: false,
@@ -37,6 +38,11 @@ describe('openRun', () => {
   it('refuses to resume a run that used a different --answer, naming both', () => {
     open(identity, false)
     expect(() => open({ ...identity, answer: 'compose' }, true)).toThrow(/--answer.*ask.*compose/)
+  })
+
+  it('refuses to resume a run that used a different --split, naming both', () => {
+    open(identity, false)
+    expect(() => open({ ...identity, split: 'val' }, true)).toThrow(/--split.*benchmark.*val/)
   })
 
   it('refuses to resume when any other identity field differs', () => {

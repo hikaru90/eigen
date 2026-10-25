@@ -12,11 +12,7 @@ import { execFileSync } from 'node:child_process'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { PUBLIC_BENCH_OPERATOR_USER_ID } from '$lib/server/auth/harness-billing'
-import {
-  composeAnswer,
-  formatComposedAnswerForUser,
-  type RetrievalContextItem,
-} from '$lib/server/qa/compose-answer'
+import type { RetrievalContextItem } from '$lib/server/qa/compose-answer'
 import { mapWithConcurrency } from '../harness/concurrency'
 import { logEval, runEval, withEvalDb } from '../harness/eval-context'
 import { tenantTotalUsd } from '../public-bench/cost'
@@ -26,13 +22,14 @@ import { modelSlug } from '../public-bench/model-slug'
 import { appendJsonl, readJsonl, removeJsonlRows, writeSummary } from '../public-bench/run-output'
 import { answerViaAsk } from './ask-answer'
 import { chooseOption, llmComplete } from './choose-option'
+import { answerViaCompose } from './compose-direct'
 import { chooseFromComposed, storedContextItems } from './eigen-answer'
 import { buildChooserMessages } from './mcq'
 import { buildPlan, type Plan, type PlannedPersona, type PlannedQuestion } from './plan'
 import { openRun, type RunIdentity, type RunPaths } from './run-meta'
 import { scoreAnswers } from './score'
-import { buildSummary, type SmokeBlock } from './summary'
-import { answerRowSchema, type AnswerRow } from './types'
+import { buildSummary, formatScoreLines, type SmokeBlock } from './summary'
+import { answerRowSchema, type AnswerRow, type BelowFloor } from './types'
 
 const ingestRecordSchema = z.object({
   personaId: z.number().int(),
@@ -117,6 +114,7 @@ type EigenAnswer = {
   answerText: string
   context: RetrievalContextItem[]
   citedIds: string[]
+  belowFloor: BelowFloor
   askTools?: string[]
   askAnsweredWithoutMemory?: boolean
 }
@@ -139,20 +137,17 @@ async function eigenAnswerFor(
       answerText: asked.answer,
       context: asked.context,
       citedIds: [],
+      belowFloor: asked.belowFloor,
       askTools: asked.toolNames,
       askAnsweredWithoutMemory: asked.askAnsweredWithoutMemory,
     }
   }
-  const composed = await withEvalDb(
-    tenant,
-    () => composeAnswer({ userId: tenant, question: query, referenceTime: persona.referenceTime }),
+  return answerViaCompose({
+    tenantUserId: tenant,
+    query,
+    referenceTime: persona.referenceTime,
     billing,
-  )
-  return {
-    answerText: formatComposedAnswerForUser(composed.answer),
-    context: composed.context,
-    citedIds: composed.retrieved.map((item) => item.id),
-  }
+  })
 }
 
 async function answerQuestion(
@@ -211,6 +206,7 @@ async function answerQuestion(
     eigenAnswer: eigen.answerText,
     retrieved: storedContextItems(eigen),
     citedIds: eigen.citedIds,
+    belowFloor: eigen.belowFloor,
     ...(eigen.askTools ? { askTools: eigen.askTools } : {}),
     ...(eigen.askAnsweredWithoutMemory !== undefined
       ? { askAnsweredWithoutMemory: eigen.askAnsweredWithoutMemory }
@@ -296,8 +292,15 @@ function smokeBlocks(
     if (!eigen || !noMemory || !record) {
       throw new Error(`[personamem] smoke data for ${row.questionId} is incomplete; run is damaged`)
     }
+    if (!eigen.belowFloor) {
+      throw new Error(
+        `[personamem] eigen row for ${row.questionId} has no belowFloor; run is damaged or predates it`,
+      )
+    }
     return {
       questionId: row.questionId,
+      prefType: row.prefType,
+      belowFloor: eigen.belowFloor,
       query: row.query,
       preference: row.preference,
       evidenceUserTurns: persona.captures.map((c) => c.rawText),
@@ -320,7 +323,7 @@ async function run(cli: PersonaMemCli): Promise<void> {
   const startedMs = Date.now()
   const plan = buildPlan(cli)
   logEval(
-    `PersonaMem-v2 (--answer ${cli.answer}${cli.evidenceOnly ? ', SMOKE evidence-only' : ''}): ${plan.totals.personas} tenant(s), ` +
+    `PersonaMem-v2 (--split ${cli.split}, --answer ${cli.answer}${cli.evidenceOnly ? ', SMOKE evidence-only' : ''}): ${plan.totals.personas} tenant(s), ` +
       `${plan.totals.captures} capture(s), ${plan.totals.queries} query(ies), chat model ${cli.chatModel}`,
   )
 
@@ -333,6 +336,7 @@ async function run(cli: PersonaMemCli): Promise<void> {
   const runId =
     cli.runId ?? `${modelSlug(cli.chatModel)}-${new Date().toISOString().replace(/[:.]/g, '-')}`
   const identity: RunIdentity = {
+    split: cli.split,
     chatModel: cli.chatModel,
     answer: cli.answer,
     evidenceOnly: cli.evidenceOnly,
@@ -391,6 +395,7 @@ async function run(cli: PersonaMemCli): Promise<void> {
       chatModel: cli.chatModel,
       startedAt: meta.startedAt,
       finishedAt: new Date().toISOString(),
+      split: cli.split,
       config: {
         dataset: 'PersonaMem-v2 text, chat_history_32k',
         dataDir: cli.dataDir,
@@ -419,10 +424,8 @@ async function run(cli: PersonaMemCli): Promise<void> {
       gitDirty: git.dirty,
     }),
   )
-  logEval(
-    `done: eigen ${(score.overall.eigenAccuracy * 100).toFixed(1)}%, ` +
-      `no-memory ${(score.overall.noMemoryAccuracy * 100).toFixed(1)}%; summary in ${paths.dir}`,
-  )
+  logEval(`done (${cli.split} split): summary in ${paths.dir}`)
+  for (const line of formatScoreLines(score)) logEval(line)
 }
 
 export async function runLive(cli: PersonaMemCli): Promise<void> {

@@ -19,6 +19,7 @@ import {
 } from '$lib/server/memory/temporal-validity'
 import { isThoughtStaleByAge } from '$lib/server/memory/thought-staleness'
 import { loadOntologyForUser, neverStaleCategoryKeys } from '$lib/server/ontology-db'
+import { observeBelowFloor } from '$lib/server/qa/compose-observer'
 import {
   allowsComputedTimelineCitation,
   COMPUTED_TIMELINE_CITATION_ID,
@@ -43,6 +44,7 @@ import {
 } from '$lib/server/retrieval/resolve-temporal-hint-bindings'
 import type { RetrieveEvidenceExtras } from '$lib/server/retrieval/retrieve-evidence'
 import {
+  bestScoreBelowFloor,
   COMPOSE_ANSWER_RELEVANCE_MIN,
   normalizeRetrievalScore,
 } from '$lib/server/retrieval/rrf-scoring'
@@ -580,6 +582,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     communityThemes: [],
     temporalSeeds: [],
   }
+  let notePassagesBelowFloor: number | null = null
   const [searchResults, textFileHits] = await Promise.all([
     searchThoughts({
       userId: input.userId,
@@ -596,8 +599,18 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
       topK: TEXT_FILE_COMPOSE_TOP_K,
       queryEmbedding,
       minScore: COMPOSE_ANSWER_RELEVANCE_MIN,
+      onBelowFloor: (best) => {
+        notePassagesBelowFloor = best
+      },
     }),
   ])
+  observeBelowFloor(input.userId, {
+    thoughts: bestScoreBelowFloor(
+      searchResults.map((r) => normalizeRetrievalScore(r.score)),
+      COMPOSE_ANSWER_RELEVANCE_MIN,
+    ),
+    notePassages: notePassagesBelowFloor,
+  })
   const communityThemes = scope === 'global' ? retrievalExtras.communityThemes.slice(0, 6) : []
   const retrieved = searchResults.filter(
     (r) => normalizeRetrievalScore(r.score) >= COMPOSE_ANSWER_RELEVANCE_MIN,

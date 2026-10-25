@@ -2,6 +2,20 @@ import type { AnswerRow } from './types'
 import { describe, expect, it } from 'vitest'
 import { distanceBucket, scoreAnswers } from './score'
 
+const item = (id: string) => ({
+  id,
+  normalizedText: `text ${id}`,
+  score: 0.5,
+  createdAt: '2025-01-01T00:00:00.000Z',
+})
+
+/** What Eigen gave the chooser per question: q1 one item, q2 two, q3 nothing. */
+const RETRIEVED: Record<string, AnswerRow['retrieved']> = {
+  q1: [item('a')],
+  q2: [item('b'), item('c')],
+  q3: [],
+}
+
 function answer(
   questionId: string,
   variant: AnswerRow['variant'],
@@ -10,6 +24,7 @@ function answer(
   usd: number,
 ): AnswerRow {
   return {
+    ...(variant === 'eigen' ? { retrieved: RETRIEVED[questionId] } : {}),
     questionId,
     personaId: 1,
     variant,
@@ -62,6 +77,37 @@ describe('scoreAnswers', () => {
     expect(score.overall.eigenAccuracy).toBeCloseTo(2 / 3, 10)
     expect(score.overall.noMemoryAccuracy).toBeCloseTo(1 / 3, 10)
     expect(score.overall.lift).toBeCloseTo(1 / 3, 10)
+  })
+
+  it('counts the share of eigen rows whose chooser context is non-empty (evidence retrieved)', () => {
+    expect(score.overall.evidenceRetrieved).toBe(2)
+    expect(score.overall.evidenceRetrievedRate).toBeCloseTo(2 / 3, 10)
+    expect(score.byPrefType.pref_a).toMatchObject({
+      evidenceRetrieved: 2,
+      evidenceRetrievedRate: 1,
+    })
+    expect(score.byPrefType.pref_b).toMatchObject({
+      evidenceRetrieved: 0,
+      evidenceRetrievedRate: 0,
+    })
+    expect(score.byWho.self!.evidenceRetrievedRate).toBe(1)
+    expect(score.byDistance['24k+']!.evidenceRetrievedRate).toBe(0)
+  })
+
+  it('reads the rate from the eigen rows only (no-memory rows never carry a context)', () => {
+    const noMemoryOnly = rows.map((r) =>
+      r.variant === 'no-memory' ? { ...r, retrieved: [item('z')] } : r,
+    )
+    expect(scoreAnswers(noMemoryOnly, distance).overall.evidenceRetrieved).toBe(2)
+  })
+
+  it('throws when an eigen row has no retrieved list at all (never guess a retrieval hit)', () => {
+    const broken = rows.map((r) => {
+      if (r.questionId !== 'q2' || r.variant !== 'eigen') return r
+      const { retrieved: _retrieved, ...rest } = r
+      return rest
+    })
+    expect(() => scoreAnswers(broken, distance)).toThrow(/q2.*retrieved/)
   })
 
   it('breaks down by pref_type', () => {

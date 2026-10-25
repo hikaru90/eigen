@@ -1,7 +1,9 @@
-import type { PersonaMemCli } from './cli'
-import type { PreparedRow } from './types'
+import type { PersonaMemCli, PersonaSelection } from './cli'
+import type { PreparedRow, Split } from './types'
+import { existsSync } from 'node:fs'
 import { modelSlug } from '../public-bench/model-slug'
 import { seededSample } from '../public-bench/seeded'
+import { loadDevSet } from './dev-set'
 import {
   DAY_MS,
   evidenceToCaptures,
@@ -31,9 +33,19 @@ export type Plan = {
   totals: { personas: number; captures: number; queries: number; estimatedUsd: number }
 }
 
-/** `questionId` (evidence-only) gives each question its own tenant: `…-p<persona>-q<id suffix>`. */
-export function tenantUserIdFor(chatModel: string, personaId: number, questionId?: string): string {
-  const base = `public-bench-personamem-v2-capture-${modelSlug(chatModel)}-p${personaId}`
+/**
+ * `questionId` (evidence-only) gives each question its own tenant: `…-p<persona>-q<id suffix>`.
+ * `val` tenants carry `-val` because persona 78 is in both splits; benchmark tenants keep the
+ * ids of earlier runs.
+ */
+export function tenantUserIdFor(
+  chatModel: string,
+  split: Split,
+  personaId: number,
+  questionId?: string,
+): string {
+  const splitPart = split === 'val' ? '-val' : ''
+  const base = `public-bench-personamem-v2-capture-${modelSlug(chatModel)}${splitPart}-p${personaId}`
   return questionId === undefined
     ? base
     : `${base}-q${questionId.slice(questionId.indexOf('-') + 1)}`
@@ -54,8 +66,8 @@ function selectPersonas(all: PersonaQueries[], cli: PersonaMemCli): PersonaQueri
       return persona
     })
   }
-  if (selection.kind === 'questions') {
-    throw new Error('[personamem] --question-ids selects questions, not personas')
+  if (selection.kind === 'questions' || selection.kind === 'devSet') {
+    throw new Error('[personamem] --question-ids and --dev-set select questions, not personas')
   }
   return seededSample(all, selection.count, selection.seed)
 }
@@ -68,13 +80,38 @@ function limitedQueries(persona: PersonaQueries, cli: PersonaMemCli): PreparedRo
   return cli.limitQueries === null ? persona.queries : persona.queries.slice(0, cli.limitQueries)
 }
 
+function questionIdsOf(
+  selection: Extract<PersonaSelection, { kind: 'questions' | 'devSet' }>,
+  split: Split,
+): string[] {
+  if (selection.kind === 'questions') return selection.ids
+  const devSet = loadDevSet(selection.path)
+  if (devSet.split !== split) {
+    throw new Error(
+      `[personamem] dev set ${selection.path} was made for the ${devSet.split} split, this run says --split ${split}`,
+    )
+  }
+  return devSet.questionIds
+}
+
+/** Full-history mode needs the history files; `val` ships without them until downloaded. */
+function assertHistoriesPresent(personas: PersonaQueries[], split: Split): void {
+  if (split !== 'val') return
+  const missing = personas.filter((p) => !existsSync(p.historyPath))
+  if (missing.length === 0) return
+  throw new Error(
+    `[personamem] val histories not downloaded: ${missing.length} of ${personas.length} history file(s) are missing, e.g. ${missing[0]!.historyPath}. ` +
+      'Full-history runs on val need them (python3 -I evals/personamem/prepare.py --split val --print-history-urls lists the URLs); --evidence-only runs do not.',
+  )
+}
+
 /** --evidence-only: one tenant per question, holding only that question's evidence user turns. */
 function planEvidenceOnly(rows: PreparedRow[], cli: PersonaMemCli): PlannedPersona[] {
   const { selection } = cli
   let questions: PreparedRow[]
-  if (selection.kind === 'questions') {
+  if (selection.kind === 'questions' || selection.kind === 'devSet') {
     const byId = new Map(rows.map((r) => [r.questionId, r]))
-    questions = selection.ids.map((id) => {
+    questions = questionIdsOf(selection, cli.split).map((id) => {
       const row = byId.get(id)
       if (!row) throw new Error(`[personamem] question ${id} is not in the dataset`)
       return row
@@ -86,7 +123,7 @@ function planEvidenceOnly(rows: PreparedRow[], cli: PersonaMemCli): PlannedPerso
     const captures = evidenceToCaptures(row.evidenceTurns)
     return {
       personaId: row.personaId,
-      tenantUserId: tenantUserIdFor(cli.chatModel, row.personaId, row.questionId),
+      tenantUserId: tenantUserIdFor(cli.chatModel, cli.split, row.personaId, row.questionId),
       captures,
       referenceTime: new Date(captures[captures.length - 1]!.capturedAt.getTime() + DAY_MS),
       questions: [plannedQuestion(row)],
@@ -94,21 +131,26 @@ function planEvidenceOnly(rows: PreparedRow[], cli: PersonaMemCli): PlannedPerso
   })
 }
 
+/** One tenant per persona holding the whole history, then every (limited) query of that persona. */
+function planFullHistory(rows: PreparedRow[], cli: PersonaMemCli): PlannedPersona[] {
+  const selected = selectPersonas(groupByPersona(rows), cli)
+  assertHistoriesPresent(selected, cli.split)
+  return selected.map((persona): PlannedPersona => {
+    const captures = historyToCaptures(loadHistory(persona.historyPath))
+    return {
+      personaId: persona.personaId,
+      tenantUserId: tenantUserIdFor(cli.chatModel, cli.split, persona.personaId),
+      captures,
+      referenceTime: new Date(captures[captures.length - 1]!.capturedAt.getTime() + DAY_MS),
+      questions: limitedQueries(persona, cli).map(plannedQuestion),
+    }
+  })
+}
+
 /** Pure and offline: loads prepared data and histories, builds captures and options. */
 export function buildPlan(cli: PersonaMemCli): Plan {
-  const rows = loadPreparedRows(cli.dataDir)
-  const personas = cli.evidenceOnly
-    ? planEvidenceOnly(rows, cli)
-    : selectPersonas(groupByPersona(rows), cli).map((persona): PlannedPersona => {
-        const captures = historyToCaptures(loadHistory(persona.historyPath))
-        return {
-          personaId: persona.personaId,
-          tenantUserId: tenantUserIdFor(cli.chatModel, persona.personaId),
-          captures,
-          referenceTime: new Date(captures[captures.length - 1]!.capturedAt.getTime() + DAY_MS),
-          questions: limitedQueries(persona, cli).map(plannedQuestion),
-        }
-      })
+  const rows = loadPreparedRows(cli.dataDir, cli.split)
+  const personas = cli.evidenceOnly ? planEvidenceOnly(rows, cli) : planFullHistory(rows, cli)
   const captures = personas.reduce((n, p) => n + p.captures.length, 0)
   const queries = personas.reduce((n, p) => n + p.questions.length, 0)
   return {
@@ -127,6 +169,7 @@ function describeSelection(cli: PersonaMemCli): string {
   if (selection.kind === 'all') return 'all personas'
   if (selection.kind === 'ids') return `persona ids ${selection.ids.join(',')}`
   if (selection.kind === 'questions') return `question ids ${selection.ids.join(',')}`
+  if (selection.kind === 'devSet') return `dev set ${selection.path}`
   return `${selection.count} personas, seed ${JSON.stringify(selection.seed)}`
 }
 
@@ -137,6 +180,7 @@ export function formatPlan(plan: Plan, cli: PersonaMemCli): string[] {
     'PersonaMem-v2 dry run (nothing touched the database or an LLM)',
     ...(evidence ? ['SMOKE (evidence-only) - not a benchmark score'] : []),
     `data dir: ${cli.dataDir}`,
+    `split: ${cli.split}${cli.split === 'val' ? ' (tuning data, not a reported score)' : ''}`,
     `chat model: ${cli.chatModel}`,
     `ingest: capture${evidence ? ' (evidence user turns only, one tenant per question)' : ''}`,
     `answer: ${cli.answer}`,

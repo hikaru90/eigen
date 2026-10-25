@@ -1,11 +1,13 @@
 import { resolve } from 'node:path'
 import { assertEvalChatModel } from '$lib/server/llm/eval-chat-model'
-import { ANSWER_MODES, type AnswerMode } from './types'
+import { ANSWER_MODES, SPLITS, type AnswerMode, type Split } from './types'
 
 export const PERSONAMEM_USAGE = `Usage: npm run eval:personamem -- [options]
 
 Required:
-  --data-dir DIR            Contains personamem.benchmark.jsonl (from prepare.py) and data/chat_history_32k
+  --data-dir DIR            Contains personamem.<split>.jsonl (from prepare.py) and, for full-history runs, data/chat_history_32k
+  --split benchmark|val     Which PersonaMem-v2 split (no default). Tune on val, report on benchmark; val histories are
+                            not downloaded, so full-history runs on val need them fetched first
   --chat-model MODEL        vendor/name; drives capture enrich, Ask / composeAnswer and the chooser (e.g. openai/gpt-4o-mini)
   --answer ask|compose      How each question reaches Eigen (no default):
                               ask     the real Ask agent in a new session, bare query only; the chooser gets the full
@@ -18,6 +20,8 @@ Required:
     --persona-ids a,b,c     Explicit persona ids
     --all                   Every persona
     --question-ids a,b      Exact questionIds (only with --evidence-only)
+    --dev-set PATH          The questionIds listed in a dev-set file (evals/personamem/dev-set.val.json; only with
+                            --evidence-only; its split must be --split)
 
 Optional:
   --run-id NAME             Run directory name (evals/reports/public/personamem-v2/NAME); required with --resume
@@ -40,10 +44,12 @@ export type PersonaSelection =
   | { kind: 'sample'; count: number; seed: string }
   | { kind: 'ids'; ids: number[] }
   | { kind: 'questions'; ids: string[] }
+  | { kind: 'devSet'; path: string }
   | { kind: 'all' }
 
 export type PersonaMemCli = {
   dataDir: string
+  split: Split
   chatModel: string
   tenantConcurrency: number
   enrichConcurrency: number
@@ -59,6 +65,8 @@ export type PersonaMemCli = {
 
 const VALUE_FLAGS = new Set([
   '--data-dir',
+  '--split',
+  '--dev-set',
   '--chat-model',
   '--tenant-concurrency',
   '--enrich-concurrency',
@@ -151,6 +159,13 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
       `--chat-model: ${err instanceof Error ? err.message : String(err)}`,
     )
   }
+  const splitRaw = requireValue(values, '--split')
+  const split = SPLITS.find((s) => s === splitRaw)
+  if (split === undefined) {
+    throw new PersonaMemUsageError(
+      `--split must be one of ${SPLITS.join(', ')}, got: ${JSON.stringify(splitRaw)}`,
+    )
+  }
   const tenantConcurrency = positiveInt(
     '--tenant-concurrency',
     requireValue(values, '--tenant-concurrency'),
@@ -174,20 +189,27 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
     )
   }
 
+  if (values.has('--dev-set') && !evidenceOnly) {
+    throw new PersonaMemUsageError(
+      '--dev-set is only valid with --evidence-only (the dev set is a list of single questions, run as per-question tenants)',
+    )
+  }
+
   const chosen = [
     values.has('--personas'),
     values.has('--persona-ids'),
     values.has('--question-ids'),
+    values.has('--dev-set'),
     flags.has('--all'),
   ].filter(Boolean)
   if (chosen.length === 0) {
     throw new PersonaMemUsageError(
-      'select with exactly one of --personas N --seed S, --persona-ids a,b, --all, or --question-ids a,b (with --evidence-only)',
+      'select with exactly one of --personas N --seed S, --persona-ids a,b, --all, --question-ids a,b (with --evidence-only), or --dev-set PATH (with --evidence-only)',
     )
   }
   if (chosen.length > 1) {
     throw new PersonaMemUsageError(
-      'select with exactly one of --personas, --persona-ids, --all, or --question-ids (got several)',
+      'select with exactly one of --personas, --persona-ids, --all, --question-ids, or --dev-set (got several)',
     )
   }
 
@@ -207,7 +229,9 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
       ? { kind: 'ids', ids: parsePersonaIds(values.get('--persona-ids')!) }
       : values.has('--question-ids')
         ? { kind: 'questions', ids: parseQuestionIds(values.get('--question-ids')!) }
-        : { kind: 'all' }
+        : values.has('--dev-set')
+          ? { kind: 'devSet', path: resolve(requireValue(values, '--dev-set')) }
+          : { kind: 'all' }
   }
 
   const runId = values.get('--run-id') ?? null
@@ -220,9 +244,13 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
   if (values.has('--question-ids') && values.has('--limit-queries')) {
     throw new PersonaMemUsageError('--limit-queries is not valid with --question-ids')
   }
+  if (values.has('--dev-set') && values.has('--limit-queries')) {
+    throw new PersonaMemUsageError('--limit-queries is not valid with --dev-set')
+  }
 
   return {
     dataDir,
+    split,
     chatModel,
     tenantConcurrency,
     enrichConcurrency,

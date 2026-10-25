@@ -16,7 +16,14 @@ describe('personamem CLI launch', () => {
     const dataDir = writeFixtureDataDir()
     const prepare = spawnSync(
       'python3',
-      ['-I', resolve(import.meta.dirname, 'prepare.py'), '--data-dir', dataDir],
+      [
+        '-I',
+        resolve(import.meta.dirname, 'prepare.py'),
+        '--data-dir',
+        dataDir,
+        '--split',
+        'benchmark',
+      ],
       { encoding: 'utf8' },
     )
     if (prepare.status !== 0) throw new Error(prepare.stderr)
@@ -30,6 +37,8 @@ describe('personamem CLI launch', () => {
         'evals/personamem/run.ts',
         '--data-dir',
         dataDir,
+        '--split',
+        'benchmark',
         '--persona-ids',
         '7',
         '--chat-model',

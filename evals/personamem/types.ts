@@ -9,6 +9,11 @@ export const ANSWER_MODES = ['ask', 'compose'] as const
 export const answerModeSchema = z.enum(ANSWER_MODES)
 export type AnswerMode = z.infer<typeof answerModeSchema>
 
+/** PersonaMem-v2 ships two disjoint text splits: `benchmark` (reported numbers) and `val` (tuning). */
+export const SPLITS = ['benchmark', 'val'] as const
+export const splitSchema = z.enum(SPLITS)
+export type Split = z.infer<typeof splitSchema>
+
 export const VARIANTS = ['eigen', 'no-memory'] as const
 export const variantSchema = z.enum(VARIANTS)
 export type Variant = z.infer<typeof variantSchema>
@@ -64,6 +69,18 @@ export const retrievedItemSchema = z
   .strict()
 export type RetrievedItem = z.infer<typeof retrievedItemSchema>
 
+/**
+ * The best candidate scores (0..1) the Q&A relevance floor dropped while answering one question:
+ * thoughts, and note passages. null = nothing was dropped on that side. Never shown to Eigen.
+ */
+export const belowFloorSchema = z
+  .object({
+    thoughts: z.number().min(0).max(1).nullable(),
+    notePassages: z.number().min(0).max(1).nullable(),
+  })
+  .strict()
+export type BelowFloor = z.infer<typeof belowFloorSchema>
+
 /** One line of `answers.jsonl`: one row per (question, variant). Never carries embeddings. */
 export const answerRowSchema = z
   .object({
@@ -85,6 +102,8 @@ export const answerRowSchema = z
     askTools: z.array(nonEmpty).optional(),
     /** `--answer ask`: Ask never called answer_question, so the chooser got no context. */
     askAnsweredWithoutMemory: z.boolean().optional(),
+    /** Eigen rows: what just missed the relevance floor, to tell "nothing retrieved" from "below floor". */
+    belowFloor: belowFloorSchema.optional(),
     usd: z.number().nonnegative(),
     ms: z.number().nonnegative(),
   })

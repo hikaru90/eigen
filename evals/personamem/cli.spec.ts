@@ -13,6 +13,8 @@ const required = [
   '1',
   '--answer',
   'ask',
+  '--split',
+  'benchmark',
 ]
 const sample = ['--personas', '20', '--seed', 'pilot-1']
 
@@ -30,6 +32,7 @@ describe('parsePersonaMemCli', () => {
       tenantConcurrency: 4,
       enrichConcurrency: 1,
       answer: 'ask',
+      split: 'benchmark',
       evidenceOnly: false,
       selection: { kind: 'sample', count: 20, seed: 'pilot-1' },
       dryRun: true,
@@ -46,6 +49,7 @@ describe('parsePersonaMemCli', () => {
     '--tenant-concurrency',
     '--enrich-concurrency',
     '--answer',
+    '--split',
   ])('fails naming %s when it is missing', (flag) => {
     expect(() => parsePersonaMemCli([...without(required, flag), ...sample])).toThrow(
       new RegExp(flag),
@@ -61,6 +65,55 @@ describe('parsePersonaMemCli', () => {
     expect(() => parsePersonaMemCli([...required, ...sample, '--ingest', 'capture'])).toThrow(
       /--ingest/,
     )
+  })
+
+  it('--split takes benchmark or val and nothing else', () => {
+    const val = [...without(required, '--split'), '--split', 'val', ...sample]
+    expect(parsePersonaMemCli(val).split).toBe('val')
+    const bad = [...without(required, '--split'), '--split', 'test', ...sample]
+    expect(() => parsePersonaMemCli(bad)).toThrow(/--split.*benchmark.*val/)
+  })
+
+  it('--dev-set is a selection of its own, resolved to an absolute path, evidence-only', () => {
+    const cli = parsePersonaMemCli([
+      ...required,
+      '--dev-set',
+      'evals/personamem/dev-set.val.json',
+      '--evidence-only',
+    ])
+    expect(cli.selection).toEqual({
+      kind: 'devSet',
+      path: resolve('evals/personamem/dev-set.val.json'),
+    })
+  })
+
+  it('--dev-set requires --evidence-only', () => {
+    expect(() => parsePersonaMemCli([...required, '--dev-set', 'dev.json'])).toThrow(
+      /--dev-set.*--evidence-only/,
+    )
+  })
+
+  it.each([
+    [['--all']],
+    [['--personas', '3', '--seed', 's']],
+    [['--persona-ids', '7']],
+    [['--question-ids', 'p7-aaaaaaaaaaaa']],
+  ])('--dev-set cannot be combined with another selection (%j)', (other) => {
+    expect(() =>
+      parsePersonaMemCli([...required, '--evidence-only', '--dev-set', 'dev.json', ...other]),
+    ).toThrow(/exactly one/)
+  })
+
+  it('--dev-set rejects --limit-queries and --seed', () => {
+    const base = [...required, '--evidence-only', '--dev-set', 'dev.json']
+    expect(() => parsePersonaMemCli([...base, '--limit-queries', '2'])).toThrow(
+      /--limit-queries.*--dev-set/,
+    )
+    expect(() => parsePersonaMemCli([...base, '--seed', 'x'])).toThrow(/--seed/)
+  })
+
+  it('the selection error names --dev-set', () => {
+    expect(() => parsePersonaMemCli(required)).toThrow(/--dev-set/)
   })
 
   it('parses --evidence-only', () => {

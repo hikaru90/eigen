@@ -1,3 +1,4 @@
+import type { Split } from './types'
 import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -158,18 +159,26 @@ export function toCsv(rows: CsvRow[]): string {
 }
 
 /**
- * Lays out `<dir>/benchmark/text/benchmark.csv` and the two fixture history files under
- * `<dir>/data/chat_history_32k/`, the way the downloaded dataset is arranged.
+ * Lays out `<dir>/benchmark/text/<split>.csv` and the two fixture history files under
+ * `<dir>/data/chat_history_32k/`, the way the downloaded dataset is arranged. `skipHistoryFor:
+ * 'all'` leaves the history files out, as for the `val` split (its histories are not downloaded).
  */
 export function writeFixtureDataDir(
-  options: { rows?: CsvRow[]; skipHistoryFor?: 'persona7' | 'persona9' } = {},
+  options: {
+    rows?: CsvRow[]
+    split?: Split
+    skipHistoryFor?: 'persona7' | 'persona9' | 'all'
+  } = {},
 ): string {
   const dir = mkdtempSync(join(tmpdir(), 'personamem-fixture-'))
   mkdirSync(join(dir, 'benchmark/text'), { recursive: true })
   mkdirSync(join(dir, 'data/chat_history_32k'), { recursive: true })
-  writeFileSync(join(dir, 'benchmark/text/benchmark.csv'), toCsv(options.rows ?? FIXTURE_ROWS))
+  writeFileSync(
+    join(dir, `benchmark/text/${options.split ?? 'benchmark'}.csv`),
+    toCsv(options.rows ?? FIXTURE_ROWS),
+  )
   for (const persona of ['persona7', 'persona9'] as const) {
-    if (options.skipHistoryFor === persona) continue
+    if (options.skipHistoryFor === 'all' || options.skipHistoryFor === persona) continue
     const name = `chat_history_fixture_${persona}.json`
     copyFileSync(join(FIXTURES_DIR, name), join(dir, 'data/chat_history_32k', name))
   }

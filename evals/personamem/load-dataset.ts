@@ -1,8 +1,15 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { historySchema, preparedRowSchema, type ChatHistory, type PreparedRow } from './types'
+import {
+  historySchema,
+  preparedRowSchema,
+  type ChatHistory,
+  type PreparedRow,
+  type Split,
+} from './types'
 
-export const PREPARED_FILENAME = 'personamem.benchmark.jsonl'
+/** The file prepare.py writes for a split. */
+export const preparedFilename = (split: Split) => `personamem.${split}.jsonl`
 
 export type PersonaQueries = {
   personaId: number
@@ -14,13 +21,12 @@ function formatIssues(issues: readonly { path: PropertyKey[]; message: string }[
   return issues.map((i) => `${i.path.map(String).join('.') || '(row)'}: ${i.message}`).join('; ')
 }
 
-/** Reads and validates `personamem.benchmark.jsonl` (written by prepare.py). */
-export function loadPreparedRows(dataDir: string): PreparedRow[] {
-  const path = join(dataDir, PREPARED_FILENAME)
+/** Reads and validates `personamem.<split>.jsonl` (written by prepare.py --split <split>). */
+export function loadPreparedRows(dataDir: string, split: Split): PreparedRow[] {
+  const path = join(dataDir, preparedFilename(split))
+  const prepare = `python3 -I evals/personamem/prepare.py --data-dir ${dataDir} --split ${split}`
   if (!existsSync(path)) {
-    throw new Error(
-      `[personamem] ${path} not found; run: python3 -I evals/personamem/prepare.py --data-dir ${dataDir}`,
-    )
+    throw new Error(`[personamem] ${path} not found; run: ${prepare}`)
   }
   const rows: PreparedRow[] = []
   const seen = new Set<string>()
@@ -40,7 +46,7 @@ export function loadPreparedRows(dataDir: string): PreparedRow[] {
       !('evidenceTurns' in json && 'preference' in json)
     ) {
       throw new Error(
-        `[personamem] ${path} line ${i + 1} lacks evidenceTurns/preference; re-run: python3 -I evals/personamem/prepare.py --data-dir ${dataDir}`,
+        `[personamem] ${path} line ${i + 1} lacks evidenceTurns/preference; re-run: ${prepare}`,
       )
     }
     const parsed = preparedRowSchema.safeParse(json)

@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Turn PersonaMem-v2's benchmark.csv into clean, typed JSONL for the Eigen adapter.
+"""Turn a PersonaMem-v2 text split (benchmark.csv or val.csv) into clean, typed JSONL for the Eigen adapter.
 
-Run isolated and stdlib-only:  python3 -I evals/personamem/prepare.py --data-dir DIR
+Run isolated and stdlib-only:  python3 -I evals/personamem/prepare.py --data-dir DIR --split benchmark|val
+
+--split is required (no default): `benchmark` is the split reported numbers come from, `val`
+(personas disjoint from benchmark apart from persona 78) is the one all tuning runs on.
 
 DIR layout (see docs/planning/public-benchmarks.md section 5.1):
-  DIR/benchmark/text/benchmark.csv
-  DIR/<chat_history_32k_link>            (the 200 history files the CSV references)
+  DIR/benchmark/text/<split>.csv
+  DIR/<chat_history_32k_link>            (the history files the CSV references)
 
-Writes DIR/personamem.benchmark.jsonl. Refuses (non-zero exit) on any row it cannot parse;
-nothing is skipped. --print-history-urls prints the download URL of each distinct history
-file and exits (the files do not have to exist yet).
+Writes DIR/personamem.<split>.jsonl. Refuses (non-zero exit) on any row it cannot parse;
+nothing is skipped. The history files are required for `benchmark`; for `val` they are not
+(--evidence-only runs read none; full-history runs on val fail loud when they are missing).
+--print-history-urls prints the download URL of each distinct history file and exits (the
+files do not have to exist yet).
 """
 
 import argparse
@@ -21,8 +26,9 @@ import os
 import sys
 
 HF_BASE = "https://huggingface.co/datasets/bowen-upenn/PersonaMem-v2/resolve/main/"
-CSV_RELATIVE = os.path.join("benchmark", "text", "benchmark.csv")
-OUTPUT_NAME = "personamem.benchmark.jsonl"
+SPLITS = ("benchmark", "val")
+# The history files must be on disk to prepare these splits.
+SPLITS_WITH_HISTORIES = ("benchmark",)
 
 COLUMNS = [
     "persona_id",
@@ -137,8 +143,8 @@ def parse_row(number, raw):
     }
 
 
-def read_rows(data_dir):
-    csv_path = os.path.join(data_dir, CSV_RELATIVE)
+def read_rows(data_dir, split):
+    csv_path = os.path.join(data_dir, "benchmark", "text", f"{split}.csv")
     if not os.path.isfile(csv_path):
         fail(f"{csv_path} not found (see docs/planning/public-benchmarks.md section 5.1)")
     csv.field_size_limit(2**31 - 1)
@@ -158,11 +164,12 @@ def read_rows(data_dir):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--data-dir", required=True)
+    parser.add_argument("--split", required=True, choices=SPLITS)
     parser.add_argument("--print-history-urls", action="store_true")
     args = parser.parse_args()
 
     data_dir = os.path.abspath(args.data_dir)
-    rows = read_rows(data_dir)
+    rows = read_rows(data_dir, args.split)
 
     link_by_persona = {}
     for row in rows:
@@ -178,7 +185,7 @@ def main():
         return
 
     missing = [link for link in links if not os.path.isfile(os.path.join(data_dir, link))]
-    if missing:
+    if missing and args.split in SPLITS_WITH_HISTORIES:
         shown = "\n  ".join(os.path.join(data_dir, link) for link in missing[:10])
         fail(
             f"{len(missing)} history file(s) missing locally (fetch them with --print-history-urls):\n  {shown}"
@@ -190,7 +197,7 @@ def main():
             fail(f"duplicate questionId {row['questionId']}")
         seen.add(row["questionId"])
 
-    out_path = os.path.join(data_dir, OUTPUT_NAME)
+    out_path = os.path.join(data_dir, f"personamem.{args.split}.jsonl")
     tmp_path = out_path + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as handle:
         for row in rows:
@@ -200,6 +207,12 @@ def main():
             handle.write(json.dumps(ordered, ensure_ascii=False) + "\n")
     os.replace(tmp_path, out_path)
     print(f"wrote {len(rows)} rows for {len(link_by_persona)} personas to {out_path}")
+    if missing:
+        print(
+            f"note: {len(missing)} history file(s) of the {args.split} split are not on disk; "
+            "--evidence-only runs do not need them, full-history runs will fail until they are downloaded",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":

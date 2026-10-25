@@ -19,6 +19,7 @@ import {
   prioritizePersonNamedThoughts,
   type RetrievalContextItem,
 } from './compose-answer'
+import { withComposeObserver } from './compose-observer'
 
 const {
   searchThoughtsMock,
@@ -587,8 +588,49 @@ describe('composeAnswer', () => {
       topK: 5,
       queryEmbedding: new Array(1536).fill(0.1),
       minScore: 0.22,
+      onBelowFloor: expect.any(Function),
     })
     expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('tells an eval observer the best thought and note-passage scores that fell under the floor', async () => {
+    const harnessUser = 'public-bench-personamem-v2-capture-gpt-4o-mini-p1'
+    searchThoughtsMock.mockResolvedValue([
+      ...sampleRetrieval,
+      { ...sampleRetrieval[0]!, id: 't_low', score: 0.19 },
+      { ...sampleRetrieval[0]!, id: 't_lower', score: 0.05 },
+    ])
+    searchTextFilesMock.mockImplementation(
+      async (_user: string, input: { onBelowFloor?: (best: number | null) => void }) => {
+        input.onBelowFloor?.(0.11)
+        return []
+      },
+    )
+    const { result, belowFloor } = await withComposeObserver(harnessUser, () =>
+      composeAnswer({ userId: harnessUser, question: 'carbonara recipe' }),
+    )
+    expect(result.context.map((c) => c.id)).toEqual(['t_001', 't_002'])
+    expect(belowFloor).toEqual([{ thoughts: 0.19, notePassages: 0.11 }])
+  })
+
+  it('reports null for a side that dropped nothing, and the user never sees the scores', async () => {
+    const harnessUser = 'public-bench-personamem-v2-capture-gpt-4o-mini-p1'
+    searchTextFilesMock.mockImplementation(
+      async (_user: string, input: { onBelowFloor?: (best: number | null) => void }) => {
+        input.onBelowFloor?.(null)
+        return []
+      },
+    )
+    const { result, belowFloor } = await withComposeObserver(harnessUser, () =>
+      composeAnswer({ userId: harnessUser, question: 'carbonara recipe' }),
+    )
+    expect(belowFloor).toEqual([{ thoughts: null, notePassages: null }])
+    expect(JSON.stringify(result)).not.toMatch(/belowFloor/)
+  })
+
+  it('composes unchanged for a real user: no observer, no below-floor bookkeeping', async () => {
+    const result = await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
+    expect(result.context.map((c) => c.id)).toEqual(['t_001', 't_002'])
   })
 
   it('puts matched note passages in the compose prompt and in the returned context', async () => {

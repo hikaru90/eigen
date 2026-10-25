@@ -81,7 +81,14 @@ describe('dry-run isolation', () => {
       dataDir = writeFixtureDataDir()
       const res = spawnSync(
         'python3',
-        ['-I', resolve(import.meta.dirname, 'prepare.py'), '--data-dir', dataDir],
+        [
+          '-I',
+          resolve(import.meta.dirname, 'prepare.py'),
+          '--data-dir',
+          dataDir,
+          '--split',
+          'benchmark',
+        ],
         { encoding: 'utf8' },
       )
       if (res.status !== 0) throw new Error(res.stderr)
@@ -94,6 +101,8 @@ describe('dry-run isolation', () => {
         [
           '--data-dir',
           dataDir,
+          '--split',
+          'benchmark',
           '--chat-model',
           'openai/gpt-4o-mini',
           '--tenant-concurrency',
