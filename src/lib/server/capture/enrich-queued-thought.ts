@@ -3,6 +3,7 @@
  */
 import { and, eq, sql } from 'drizzle-orm'
 import { applyCaptureContentSplitIfNeeded } from '$lib/server/capture/apply-capture-content-split'
+import { readCaptureSplitState } from '$lib/server/capture/content-role'
 import { enrichThought, type EnrichThoughtOptions } from '$lib/server/capture/enrich'
 import { drainCaptureEnrichQueue } from '$lib/server/capture/enrich-queue-drain'
 import { extractEnrichThoughtBundle } from '$lib/server/capture/enrich-thought-bundle'
@@ -84,6 +85,25 @@ async function decryptQueuedRow(
       : Promise.resolve(row.normalizedText),
   ])
   return { rawText, normalizedText }
+}
+
+/** The row's decrypted metadata (empty when it has none). */
+async function decryptRowMetadata(
+  userId: string,
+  row: { metadata?: unknown; metadataEncrypted?: string | null },
+): Promise<Record<string, unknown>> {
+  if (row.metadataEncrypted) {
+    const json = await decryptTenantValue({
+      userId,
+      table: 'thought',
+      column: 'metadata',
+      ciphertext: row.metadataEncrypted,
+    })
+    return JSON.parse(json) as Record<string, unknown>
+  }
+  return row.metadata && typeof row.metadata === 'object'
+    ? { ...(row.metadata as Record<string, unknown>) }
+    : {}
 }
 
 async function prefetchEnrichExtractions(input: {
@@ -248,6 +268,8 @@ export async function enrichQueuedThought(
           rawTextEncrypted: thought.rawTextEncrypted,
           normalizedTextEncrypted: thought.normalizedTextEncrypted,
           createdAt: thought.createdAt,
+          metadata: thought.metadata,
+          metadataEncrypted: thought.metadataEncrypted,
         })
         .from(thought)
         .where(and(eq(thought.id, thoughtId), eq(thought.userId, userId)))
@@ -260,9 +282,15 @@ export async function enrichQueuedThought(
       const { rawText, normalizedText } = await decryptQueuedRow(userId, row)
 
       // Decision plane, enforced content_role (spec §6 P): one bounded call
-      // BEFORE the split phase — its answer decides whether the split LLM
-      // call runs at all. Throws into the ingest retry ladder on failure.
-      const contentRoleDecision = startContentRoleDecision({ userId, state: normalizedText })
+      // BEFORE the split phase — its answer is the capture's role (personal |
+      // reference | mixed) and drives the generation call. Throws into the
+      // ingest retry ladder on failure. Decided exactly once per capture: a span
+      // child IS its span, and a retried attempt resumes the persisted plan.
+      const splitState = readCaptureSplitState(await decryptRowMetadata(userId, row))
+      const roleUndecided = splitState.phase === 'undecided'
+      const contentRoleDecision = roleUndecided
+        ? startContentRoleDecision({ userId, state: normalizedText })
+        : null
       const enforcedContentRole: EnforcedContentRole | undefined = contentRoleDecision
         ? await time('decision_content_role', () => contentRoleDecision.decide())
         : undefined
@@ -274,7 +302,7 @@ export async function enrichQueuedThought(
           thoughtId,
           rawText,
           existingNormalizedText: normalizedText,
-          decidedMode: enforcedContentRole?.mode,
+          decidedRole: enforcedContentRole?.role,
         }),
       )
 
@@ -285,7 +313,9 @@ export async function enrichQueuedThought(
             userId,
             thoughtId,
             normalizedText: splitApplied.normalizedText,
-            rawText: splitApplied.rawText,
+            // never the whole capture of a split thought: the spans/note it gave away
+            // belong to other thoughts and must not feed this one's entities or cues
+            rawText: splitApplied.enrichRawText,
           }),
         ))
 
@@ -303,7 +333,7 @@ export async function enrichQueuedThought(
         entityTypeKinds: context.ontology.entityKinds
           .filter((k) => k.active && k.kindType === 'entity_type')
           .map((k) => ({ key: k.key, name: k.name, definition: k.definition })),
-        contentRoleEnabled: true,
+        contentRoleEnabled: roleUndecided,
         enforcedContentRole,
       })
 
@@ -352,7 +382,7 @@ export async function enrichQueuedThought(
       // P5); otherwise the bundle's decision stays authoritative.
       const settled = await decisionShadow?.({
         category: { choice: bundleCategory.key, confidence: bundleCategory.confidence },
-        contentRole: enforcedContentRole ? undefined : { choice: splitApplied.split.mode },
+        contentRole: enforcedContentRole ? undefined : { choice: splitApplied.role },
         entityType: dominantEntityType(prefetched.entityGraph.mentions) ?? undefined,
       })
       const category = settled?.category
