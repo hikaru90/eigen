@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { withEvalChatModel } from '$lib/server/llm/eval-chat-model'
 import {
   PLATFORM_CHAT_MODEL,
   PLATFORM_EMBEDDING_MODEL,
@@ -51,6 +52,50 @@ describe('loadPlatformLlmConfig', () => {
   it('throws when SERVICE_API_KEY_OPENROUTER is missing', async () => {
     mockEnv.OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
     await expect(loadPlatformLlmConfig('user-1')).rejects.toThrow(/SERVICE_API_KEY_OPENROUTER/)
+  })
+})
+
+describe('loadPlatformLlmConfig with an eval chat model override', () => {
+  beforeEach(() => {
+    for (const key of Object.keys(mockEnv)) {
+      delete mockEnv[key]
+    }
+    mockEnv.OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+    mockEnv.SERVICE_API_KEY_OPENROUTER = 'openrouter-service-key'
+  })
+
+  it('overrides only the chat model for a harness billing user', async () => {
+    const config = await withEvalChatModel('openai/gpt-4o-mini', () =>
+      loadPlatformLlmConfig('public-bench-runner'),
+    )
+    expect(config).toEqual({
+      provider: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKey: 'openrouter-service-key',
+      modelChat: 'openai/gpt-4o-mini',
+      modelEmbedding: PLATFORM_EMBEDDING_MODEL,
+    })
+  })
+
+  it('accepts every harness operator wallet', async () => {
+    for (const operator of ['longmemeval-runner', 'eval-runner-operator', 'graph-scale-runner']) {
+      const config = await withEvalChatModel('openai/gpt-4o-mini', () =>
+        loadPlatformLlmConfig(operator),
+      )
+      expect(config.modelChat).toBe('openai/gpt-4o-mini')
+    }
+  })
+
+  it('throws for a non-harness user and never returns the override', async () => {
+    await expect(
+      withEvalChatModel('openai/gpt-4o-mini', () => loadPlatformLlmConfig('user-1')),
+    ).rejects.toThrow(/harness/i)
+  })
+
+  it('without an override a harness user still gets the pinned models', async () => {
+    const config = await loadPlatformLlmConfig('public-bench-runner')
+    expect(config.modelChat).toBe(PLATFORM_CHAT_MODEL)
+    expect(config.modelEmbedding).toBe(PLATFORM_EMBEDDING_MODEL)
   })
 })
 

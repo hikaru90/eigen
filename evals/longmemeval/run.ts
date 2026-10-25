@@ -5,6 +5,7 @@
 import 'dotenv/config'
 import type { LongMemEvalHypothesis, LongMemEvalInstance, LongMemEvalRunCli } from './types'
 import { LONGMEMEVAL_OPERATOR_USER_ID } from '$lib/server/auth/harness-billing'
+import { PLATFORM_CHAT_MODEL } from '$lib/server/billing/platform-llm'
 import { resolveCaptureEnrichConcurrency } from '$lib/server/capture/enrich-queue-drain'
 import { composeAnswer } from '$lib/server/qa/compose-answer'
 import { logEval, runEval, withEvalDb } from '../harness/eval-context'
@@ -31,6 +32,7 @@ async function runInstance(
   await ingestTenant({
     tenantUserId: corpusUserId,
     billingUserId: LONGMEMEVAL_OPERATOR_USER_ID,
+    chatModel: PLATFORM_CHAT_MODEL,
     items: captureItems,
     enrichConcurrency,
     reset: true,
@@ -46,7 +48,7 @@ async function runInstance(
         question: instance.question,
         referenceTime,
       }),
-    { billingUserId: LONGMEMEVAL_OPERATOR_USER_ID },
+    { billingUserId: LONGMEMEVAL_OPERATOR_USER_ID, chatModel: PLATFORM_CHAT_MODEL },
   )
 
   return composed.answer
@@ -76,6 +78,7 @@ async function main(): Promise<void> {
   await ensurePublicBenchOperator({
     operatorUserId: LONGMEMEVAL_OPERATOR_USER_ID,
     displayName: 'LongMemEval Runner',
+    chatModel: PLATFORM_CHAT_MODEL,
   })
   const enrichConcurrency = resolveCaptureEnrichConcurrency(cli.enrichConcurrency ?? undefined)
 

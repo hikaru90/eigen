@@ -8,10 +8,13 @@ import {
   deactivateTenantDbSession,
   type AppDatabase,
 } from '$lib/server/db'
+import { withEvalChatModel } from '$lib/server/llm/eval-chat-model'
 
 export type WithEvalDbOptions = {
   /** Platform credits / BYOK checks and wallet debits use this user (e.g. eval operator). */
   billingUserId?: string
+  /** Eval-only chat model (`vendor/name`) for every LLM call inside `fn`; harness billing users only. */
+  chatModel?: string
 }
 
 /**
@@ -31,7 +34,11 @@ export async function withEvalDb<T>(
   try {
     await activateTenantDbSession(reserved, userId)
     const scopedDb = createScopedDrizzle(reserved)
-    const run = () => appDbAsyncLocal.run(scopedDb, () => fn(scopedDb))
+    const chatModel = options?.chatModel
+    const run = () =>
+      appDbAsyncLocal.run(scopedDb, () =>
+        chatModel === undefined ? fn(scopedDb) : withEvalChatModel(chatModel, () => fn(scopedDb)),
+      )
     const withTenant = () =>
       tenantUserAsyncLocal.run(userId, () => appReservedSqlAsyncLocal.run(reserved, run))
     const billingUserId = options?.billingUserId?.trim()

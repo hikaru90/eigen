@@ -38,6 +38,7 @@ const base = {
   billingUserId: 'public-bench-runner',
   items,
   enrichConcurrency: 1,
+  chatModel: 'openai/gpt-4o-mini',
 }
 
 describe('ingestTenant', () => {
@@ -95,13 +96,47 @@ describe('ingestTenant', () => {
           { id: 't2', normalizedText: 'n-t2' },
           { id: 't3', normalizedText: 'n-t3' },
         ],
-        withEvalDbOptions: { billingUserId: 'public-bench-runner' },
+        withEvalDbOptions: {
+          billingUserId: 'public-bench-runner',
+          chatModel: 'openai/gpt-4o-mini',
+        },
       }),
     )
     for (const call of m.withEvalDb.mock.calls) {
       expect(call[0]).toBe('public-bench-test-t1')
-      expect(call[2]).toEqual({ billingUserId: 'public-bench-runner' })
+      expect(call[2]).toEqual({
+        billingUserId: 'public-bench-runner',
+        chatModel: 'openai/gpt-4o-mini',
+      })
     }
+  })
+
+  it('passes chatModel to every withEvalDb call, including the wait kick options', async () => {
+    await ingestTenant({ ...base, chatModel: 'deepseek/deepseek-v4.1-flash-1017', reset: true })
+
+    expect(m.withEvalDb.mock.calls.length).toBeGreaterThan(0)
+    for (const call of m.withEvalDb.mock.calls) {
+      expect(call[2]).toEqual({
+        billingUserId: 'public-bench-runner',
+        chatModel: 'deepseek/deepseek-v4.1-flash-1017',
+      })
+    }
+    expect(m.waitForThoughtEnrichmentComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        withEvalDbOptions: {
+          billingUserId: 'public-bench-runner',
+          chatModel: 'deepseek/deepseek-v4.1-flash-1017',
+        },
+      }),
+    )
+  })
+
+  it('requires a non-blank chatModel before any DB work', async () => {
+    await expect(ingestTenant({ ...base, chatModel: ' ', reset: true })).rejects.toThrow(
+      /chatModel/,
+    )
+    expect(m.deleteEvalUserRow).not.toHaveBeenCalled()
+    expect(m.withEvalDb).not.toHaveBeenCalled()
   })
 
   it('does not swallow a failing tenant reset', async () => {
@@ -213,7 +248,11 @@ describe('ingestTenant', () => {
     const ids = await ingestTenant({ ...base, reset: false, listThoughtIds })
 
     expect(ids).toEqual(['a', 'b', 'c'])
-    expect(listThoughtIds).toHaveBeenCalledWith('public-bench-test-t1', 'public-bench-runner')
+    expect(listThoughtIds).toHaveBeenCalledWith(
+      'public-bench-test-t1',
+      'public-bench-runner',
+      'openai/gpt-4o-mini',
+    )
     expect(m.deleteEvalUserRow).not.toHaveBeenCalled()
     expect(m.queueCapture).not.toHaveBeenCalled()
     expect(m.processCaptureEnrichQueue).not.toHaveBeenCalled()

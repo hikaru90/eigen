@@ -1,18 +1,14 @@
 import { insertEvalUserRow } from '$lib/eval/store'
-import { PLATFORM_CHAT_MODEL, PLATFORM_EMBEDDING_MODEL } from '$lib/server/billing/platform-llm'
+import { PLATFORM_EMBEDDING_MODEL } from '$lib/server/billing/platform-llm'
+import { assertEvalChatModel } from '$lib/server/llm/eval-chat-model'
 
 /**
  * What `loadPlatformLlmConfig` needs. The product has no BYOK and no per-user model config
- * (removed in ecb31d6d): every call goes through OpenRouter on the service key, with models
- * pinned in code, and debits the billing user's platform-credit wallet.
+ * (removed in ecb31d6d): every call goes through OpenRouter on the service key and debits the
+ * billing user's platform-credit wallet. The chat model comes from the run's `--chat-model`
+ * flag (eval-only override); the embedding model stays pinned in the product.
  */
 const REQUIRED_ENV = ['OPENROUTER_BASE_URL', 'SERVICE_API_KEY_OPENROUTER'] as const
-
-/** Env that used to select models; the product ignores it, so a value that disagrees is an error. */
-const PINNED_MODEL_ENV = [
-  ['LLM_MODEL_CHAT', PLATFORM_CHAT_MODEL],
-  ['LLM_MODEL_EMBEDDING', PLATFORM_EMBEDDING_MODEL],
-] as const
 
 export type PublicBenchModels = {
   modelChat: string
@@ -26,23 +22,13 @@ export class PublicBenchConfigError extends Error {
   }
 }
 
-/** Pure env validation: throws ONE error listing every missing or conflicting variable. */
-export function resolvePublicBenchEnv(env: NodeJS.ProcessEnv): PublicBenchModels {
+/** Pure env validation: throws ONE error listing every missing variable. */
+export function assertPublicBenchGatewayEnv(env: NodeJS.ProcessEnv): void {
   const problems: string[] = []
   for (const name of REQUIRED_ENV) {
     if (!env[name]?.trim()) problems.push(`${name} is required and missing`)
   }
-  for (const [name, pinned] of PINNED_MODEL_ENV) {
-    const value = env[name]?.trim()
-    if (value && value !== pinned) {
-      problems.push(
-        `${name}=${value} conflicts with the model pinned in the product (${pinned}); ` +
-          'the product ignores this variable, so unset it or make it match',
-      )
-    }
-  }
   if (problems.length > 0) throw new PublicBenchConfigError(problems)
-  return { modelChat: PLATFORM_CHAT_MODEL, modelEmbedding: PLATFORM_EMBEDDING_MODEL }
 }
 
 /**
@@ -52,15 +38,18 @@ export function resolvePublicBenchEnv(env: NodeJS.ProcessEnv): PublicBenchModels
 export async function ensurePublicBenchOperator(input: {
   operatorUserId: string
   displayName: string
+  chatModel: string
 }): Promise<PublicBenchModels> {
   const { operatorUserId, displayName } = input
   if (!operatorUserId.trim()) throw new Error('[public-bench] operatorUserId must be non-empty')
   if (!displayName.trim()) throw new Error('[public-bench] displayName must be non-empty')
+  const chatModel = assertEvalChatModel(input.chatModel)
 
-  const models = resolvePublicBenchEnv(process.env)
+  assertPublicBenchGatewayEnv(process.env)
 
   await insertEvalUserRow(operatorUserId, displayName)
 
+  const models = { modelChat: chatModel, modelEmbedding: PLATFORM_EMBEDDING_MODEL }
   console.info(
     `[public-bench] operator ${operatorUserId} ready (platform credits via OpenRouter, ` +
       `chat=${models.modelChat}, embed=${models.modelEmbedding})`,

@@ -22,11 +22,17 @@ export type DrainQueue = (
   options: { concurrency: number },
 ) => Promise<unknown>
 
-export type ListThoughtIds = (tenantUserId: string, billingUserId: string) => Promise<string[]>
+export type ListThoughtIds = (
+  tenantUserId: string,
+  billingUserId: string,
+  chatModel: string,
+) => Promise<string[]>
 
 export type IngestTenantInput = {
   tenantUserId: string
   billingUserId: string
+  /** Chat model (`vendor/name`) for every LLM call of the ingest (capture, enrich). */
+  chatModel: string
   items: IngestItem[]
   enrichConcurrency: number
   /** true: wipe the tenant and ingest. false: assert it already holds exactly `items.length` thoughts and skip. */
@@ -48,7 +54,7 @@ const queueTenantItem: QueueItem = async (tenantUserId, item) => {
   return queued.thoughtId
 }
 
-const listTenantThoughtIds: ListThoughtIds = (tenantUserId, billingUserId) =>
+const listTenantThoughtIds: ListThoughtIds = (tenantUserId, billingUserId, chatModel) =>
   withEvalDb(
     tenantUserId,
     async (db) => {
@@ -61,7 +67,7 @@ const listTenantThoughtIds: ListThoughtIds = (tenantUserId, billingUserId) =>
         .orderBy(asc(thought.createdAt), asc(thought.id))
       return rows.map((r) => r.id)
     },
-    { billingUserId },
+    { billingUserId, chatModel },
   )
 
 /**
@@ -72,9 +78,10 @@ const listTenantThoughtIds: ListThoughtIds = (tenantUserId, billingUserId) =>
  * Returns the thought ids in item order.
  */
 export async function ingestTenant(input: IngestTenantInput): Promise<string[]> {
-  const { tenantUserId, billingUserId, items, enrichConcurrency, reset } = input
+  const { tenantUserId, billingUserId, chatModel, items, enrichConcurrency, reset } = input
   if (!tenantUserId.trim()) throw new Error('[public-bench] tenantUserId must be non-empty')
   if (!billingUserId.trim()) throw new Error('[public-bench] billingUserId must be non-empty')
+  if (!chatModel.trim()) throw new Error('[public-bench] chatModel must be non-empty')
   if (!Number.isInteger(enrichConcurrency) || enrichConcurrency < 1) {
     throw new Error(
       `[public-bench] enrichConcurrency must be a positive integer, got: ${enrichConcurrency}`,
@@ -93,6 +100,7 @@ export async function ingestTenant(input: IngestTenantInput): Promise<string[]> 
     const existing = await (input.listThoughtIds ?? listTenantThoughtIds)(
       tenantUserId,
       billingUserId,
+      chatModel,
     )
     if (existing.length !== items.length) {
       throw new Error(
@@ -110,7 +118,7 @@ export async function ingestTenant(input: IngestTenantInput): Promise<string[]> 
     `${tenantUserId}: ingesting ${items.length} capture(s), enrich_concurrency=${enrichConcurrency}`,
   )
 
-  const billing = { billingUserId }
+  const billing = { billingUserId, chatModel }
   const queueItem = input.queueItem ?? queueTenantItem
   const drainQueue = input.drainQueue ?? processCaptureEnrichQueue
   const thoughtIds: string[] = []

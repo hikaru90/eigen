@@ -33,8 +33,10 @@ These come from `AGENTS.md`; the ones below are the ones most likely to be viola
 5. **TDD:** write the unit specs listed in each phase first, watch them fail, then implement.
    Run `npm run test:unit` (only the new specs while iterating; full suite before handing back),
    `npm run lint`, `npm run check`.
-6. **Do not run paid benchmark runs.** Agents may run `--dry-run` (no DB, no LLM). Smoke / pilot /
-   full runs spend OpenRouter money and are started by the operator (§5).
+6. **Agents never run a benchmark** (operator instruction, 2026-10-25). No smoke, pilot or full
+   run, nothing that calls an LLM or writes benchmark tenants, and an agent is never the answering
+   model. Agents may run unit tests and `--dry-run` (offline: no DB, no LLM). Every real run is
+   started by the operator (§5).
 7. **Do not touch unrelated working-tree changes** (at plan time: `capture-kept.svelte`,
    `thought-sheet.svelte`, `src/lib/thought/*`, `.pi/`). **Do not commit.** The coordinating
    session reviews and commits.
@@ -79,7 +81,7 @@ These come from `AGENTS.md`; the ones below are the ones most likely to be viola
 
 | ID | Decision | Proposal | Why |
 | --- | --- | --- | --- |
-| D1 | Models — **⚠ revision pending:** the gpt-4o-mini setup below is not runnable since BYOK removal (§1); operator to choose shipped models vs. an eval-only override | One chat model for the whole pipeline **and** the benchmark answer/extract step, passed explicitly: `LLM_MODEL_CHAT=openai/gpt-4o-mini`, `LLM_MODEL_EMBEDDING=openai/text-embedding-3-small`, `--answer-model openai/gpt-4o-mini`. | MemoryAgentBench's published RAG/memory baselines (Mem0, Zep, HippoRAG-v2, BM25 …) use gpt-4o-mini, so CR numbers are directly comparable. One model across both keeps the story simple. A second run with a frontier model is optional later. |
+| D1 | Models (**revised 2026-10-25**) | Every benchmark runs **twice**, once per chat model: `openai/gpt-4o-mini` (comparability) and the shipped `PLATFORM_CHAT_MODEL` (`deepseek/deepseek-v4.1-flash-1017`, "Eigen as shipped"). One chat model per run drives the whole pipeline (capture, enrich, `composeAnswer`) **and** the benchmark's choose/extract step, selected with the required flag `--chat-model`. The embedding model stays the pinned `PLATFORM_EMBEDDING_MODEL` in both runs (stored vectors are 1536-d; changing it would mean re-embedding). Needs the eval-only override from Phase 0b (§3b). | MemoryAgentBench's published baselines (Mem0, Zep, HippoRAG-v2, BM25 …) use gpt-4o-mini as backbone, so the gpt-4o-mini run is the comparable one; the deepseek run shows whether the shipped model changes the result. Summaries state the chat model in the title. |
 | D2 | PersonaMem persona system message | **Exclude.** Each 32k history starts with a `system` message holding the persona's demographics (no preferences). Eigen learns from what the user says, not from a profile dump. | Harder and more honest; report it in the summary. |
 | D3 | PersonaMem capture granularity | One capture per **user** turn; assistant turns and the system message are not captured. `capturedAt = 2025-01-01T00:00Z + turnIndex minutes` (histories have no dates; order matters for `updated` preferences). | Mirrors LongMemEval `user-turn` mode, which is the adapter's default. |
 | D4 | MAB fact capture | One capture per fact sentence, **serial number stripped**, `capturedAt = 2025-01-01T00:00Z + serial minutes`. Recency is conveyed only by time, like a real user. | The official long-context prompt tells the model "larger serial = newer". We deliberately give Eigen less: it must know newer from older by itself. Documented as a protocol deviation (conservative). |
@@ -132,6 +134,44 @@ LongMemEval now also requires explicit model env vars). Add `'evals/public-bench
 
 ---
 
+## 3b. Phase 0b — eval-only chat model override (product change, small)
+
+**Goal:** a harness run can drive the whole pipeline on a chosen chat model without any way for a
+normal user request to change models.
+
+- New `src/lib/server/llm/eval-chat-model.ts`: an `AsyncLocalStorage<string>` plus
+  `withEvalChatModel(model, fn)` and `currentEvalChatModel()`. `withEvalChatModel` rejects a
+  blank model or one without a `vendor/name` shape (format check only).
+- `loadPlatformLlmConfig(userId)` (`src/lib/server/billing/platform-llm.ts`): when an eval chat
+  model is set, it **requires** `resolveHarnessBillingUserId(userId)` to be defined (callers pass
+  the billing user; harness operators map to themselves) and throws otherwise — a non-harness user
+  can never run on an override. Then `modelChat` = the override; `modelEmbedding` stays
+  `PLATFORM_EMBEDDING_MODEL`. Without an override, behaviour is unchanged.
+- `withEvalDb` options (`evals/harness/eval-context.ts`) gain `chatModel?: string`, which wraps
+  the callback in `withEvalChatModel` — so `ingestTenant` and `composeAnswer` calls made through
+  `withEvalDb` pick it up, including the enrich drain workers started inside it.
+- `ingestTenant` gains a required `chatModel: string` passed through to every `withEvalDb` call.
+  LongMemEval passes `PLATFORM_CHAT_MODEL` (unchanged behaviour).
+- `ensurePublicBenchOperator` takes the chosen `chatModel` and returns
+  `{ modelChat: chatModel, modelEmbedding: PLATFORM_EMBEDDING_MODEL }`. Drop the
+  `LLM_MODEL_CHAT` / `LLM_MODEL_EMBEDDING` env checks (the flag replaces them).
+- Tenant ids include a model slug so runs on different models never share a corpus:
+  `public-bench-<bench>-<modelSlug>-<suffix>`, with `modelSlug(model)` in `evals/public-bench/`
+  (`openai/gpt-4o-mini` → `gpt-4o-mini`, `deepseek/deepseek-v4.1-flash-1017` →
+  `deepseek-v4.1-flash-1017`; lowercase, `[a-z0-9.-]` only).
+
+**Tests first:**
+- `eval-chat-model.spec.ts`: nested/isolated contexts; blank or malformed model rejected.
+- `platform-llm.spec.ts`: no override → pinned models; override + harness user → override chat,
+  pinned embedding; override + non-harness user → throws.
+- `ingest-tenant.spec.ts`: `chatModel` reaches every `withEvalDb` call (inject/spy).
+- `model-slug.spec.ts`: the two examples above; a model producing an empty slug → throws.
+
+**Done when:** specs green; `test:unit`, `lint`, `check` green. Risk: **high** (touches the LLM
+config path every request uses — the no-override path must stay byte-for-byte the same behaviour).
+
+---
+
 ## 4. Phase 1 — PersonaMem-v2 ("it knows you")
 
 ### 4.1 Dataset facts (verified by downloading, 2026-10-25)
@@ -161,7 +201,7 @@ LongMemEval now also requires explicit model env vars). Add `'evals/public-bench
 ```
 benchmark.csv row ──► prepare.py ──► personamem.benchmark.jsonl (clean, typed)
                                            │
-per persona (tenant  personamem-v2-p<id>): │
+per persona (tenant public-bench-personamem-v2-<modelSlug>-p<id>):
   chat_history_32k user turns ─► ingestTenant (D2, D3, D6)
   for each query of that persona:
      composeAnswer({ userId: tenant, question: query.content })     ← Eigen product path, options NOT shown
@@ -205,8 +245,9 @@ each distinct `chat_history_32k_link` (200 files) so the operator fetches only t
 without that flag fails naming any history file that is missing locally.
 
 The chooser call: use the same LLM client / model plumbing Eigen uses for structured JSON calls
-(find the existing helper used by e.g. `classifyQueryIntent`; do not hand-roll fetch). Model =
-`--answer-model`. Log its USD under the operator like every other call.
+(find the existing helper used by e.g. `classifyQueryIntent`; do not hand-roll fetch). It runs
+inside `withEvalDb(…, { billingUserId, chatModel })` so the model is the run's `--chat-model`
+(D1) — there is no separate answer model. Its USD is logged like every other call.
 
 ### 4.4 CLI
 
@@ -214,7 +255,7 @@ The chooser call: use the same LLM client / model plumbing Eigen uses for struct
 npm run eval:personamem -- \
   --data-dir evals/.data/personamem-v2          # required; contains prepared JSONL + data/chat_history_32k
   --personas 20 --seed pilot-1                  # or --persona-ids 0,5,12  or --all   (exactly one required)
-  --answer-model openai/gpt-4o-mini             # required
+  --chat-model openai/gpt-4o-mini               # required (D1); pipeline + chooser model
   --tenant-concurrency 4 --enrich-concurrency 1 # required
   [--run-id NAME] [--resume] [--skip-ingest] [--limit-queries N] [--dry-run]
 ```
@@ -283,8 +324,10 @@ MemoryAgentBench CR: `curl -L -o evals/.data/memoryagentbench/Conflict_Resolutio
 Wall time is dominated by serial enrich inside each persona (D6). The smoke run measures the real
 per-capture time; re-estimate pilot/full from it before starting them.
 
-Prereqs: `npm run db:migrate && npm run db:rls`, `OPENROUTER_API_KEY`, `LLM_MODEL_CHAT`,
-`LLM_MODEL_EMBEDDING` in `.env`. Re-answering with another `--answer-model` uses `--skip-ingest`.
+Prereqs: `npm run db:migrate && npm run db:rls`, `OPENROUTER_BASE_URL` and
+`SERVICE_API_KEY_OPENROUTER` in `.env`. Every step runs once with `--chat-model openai/gpt-4o-mini`
+and once with `--chat-model deepseek/deepseek-v4.1-flash-1017` (D1); the two runs use separate
+tenants (model slug in the tenant id), so cost and time per step double.
 
 After the pilot: read `summary.md`, look at the 20 worst `pref_type` rows by hand, and decide
 whether we go to full or first fix a *generalized* product issue (separate task).
@@ -328,7 +371,7 @@ Start only after Phase 1's pilot has run (shared harness proven).
 
 ```
 parquet ─► prepare.py (pyarrow, in a scratch venv) ─► mab-cr.jsonl { source, length, hop, facts[{serial,text}], qas[{id,question,answers[]}] }
-per length L ∈ {6k, 32k}:  tenant mab-cr-<L>
+per length L ∈ {6k, 32k}:  tenant public-bench-mab-cr-<modelSlug>-<L>
   facts ─► ingestTenant (D4: no serial in text, capturedAt = epoch + serial min; D6)
   for each of the 200 questions (sh + mh):
      composeAnswer({ userId: tenant, question })            ← product path, question verbatim
@@ -349,7 +392,7 @@ evals/memoryagentbench/
   extract-answer.ts  score.ts  cli.ts  run.ts
 ```
 
-`npm run eval:mab-cr -- --data-dir … --lengths 6k,32k --answer-model … --enrich-concurrency 1 [--hops sh,mh] [--limit-questions N] [--skip-ingest] [--resume] [--dry-run]`
+`npm run eval:mab-cr -- --data-dir … --lengths 6k,32k --chat-model … --enrich-concurrency 1 [--hops sh,mh] [--limit-questions N] [--skip-ingest] [--resume] [--dry-run]`
 
 Tests first:
 - `normalize.spec.ts`: test vectors computed once with the official Python function and pasted as
