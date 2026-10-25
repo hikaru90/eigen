@@ -83,8 +83,8 @@ These come from `AGENTS.md`; the ones below are the ones most likely to be viola
 | --- | --- | --- | --- |
 | D1 | Models (**revised 2026-10-25**) | Every benchmark runs **twice**, once per chat model: `openai/gpt-4o-mini` (comparability) and the shipped `PLATFORM_CHAT_MODEL` (`deepseek/deepseek-v4.1-flash-1017`, "Eigen as shipped"). One chat model per run drives the whole pipeline (capture, enrich, `composeAnswer`) **and** the benchmark's choose/extract step, selected with the required flag `--chat-model`. The embedding model stays the pinned `PLATFORM_EMBEDDING_MODEL` in both runs (stored vectors are 1536-d; changing it would mean re-embedding). Needs the eval-only override from Phase 0b (§3b). | MemoryAgentBench's published baselines (Mem0, Zep, HippoRAG-v2, BM25 …) use gpt-4o-mini as backbone, so the gpt-4o-mini run is the comparable one; the deepseek run shows whether the shipped model changes the result. Summaries state the chat model in the title. |
 | D2 | PersonaMem persona system message | **Exclude.** Each 32k history starts with a `system` message holding the persona's demographics (no preferences). Eigen learns from what the user says, not from a profile dump. | Harder and more honest; report it in the summary. |
-| D3 | PersonaMem capture granularity | One capture per **user** turn; assistant turns and the system message are not captured. `capturedAt = 2025-01-01T00:00Z + turnIndex minutes` (histories have no dates; order matters for `updated` preferences). | Mirrors LongMemEval `user-turn` mode, which is the adapter's default. |
-| D4 | MAB fact capture | One capture per fact sentence, **serial number stripped**, `capturedAt = 2025-01-01T00:00Z + serial minutes`. Recency is conveyed only by time, like a real user. | The official long-context prompt tells the model "larger serial = newer". We deliberately give Eigen less: it must know newer from older by itself. Documented as a protocol deviation (conservative). |
+| D3 | PersonaMem capture granularity | One capture per **user** turn; assistant turns and the system message are not captured. `capturedAt = 2025-01-01T00:00Z + userTurnIndex days`, `referenceTime` = last turn + 1 day (histories have no dates; order matters for `updated` preferences, and `composeAnswer` shows memory dates by day, so minute spacing would hide the order; ≤ 136 turns stays under the 6-month staleness threshold). The chooser sees the same `stored YYYY-MM-DD` dates. | Mirrors LongMemEval `user-turn` mode, which is the adapter's default. |
+| D4 | MAB fact capture | One capture per fact sentence, **serial number stripped**, `capturedAt = 2025-01-01T00:00Z + serial × <step>`. Recency is conveyed only by time, like a real user. **Open for Phase 2:** the step must survive `composeAnswer`'s day-granular `stored=` dates (minutes collapse to one date) without pushing old facts past the 6-month staleness flag (2,310 facts × 1 day ≈ 6 years) — decide before Phase 2 starts. | The official long-context prompt tells the model "larger serial = newer". We deliberately give Eigen less: it must know newer from older by itself. Documented as a protocol deviation (conservative). |
 | D5 | MAB context lengths | Pilot and headline on **6k** (455 facts) and **32k** (2,310 facts). 64k/262k out of scope for v1 (4,580 / 18,332 captures). | Third-party comparisons publish sh/mh × 6k/32k. |
 | D6 | Enrich concurrency within one tenant | `--enrich-concurrency 1` for both benchmarks (order-faithful). Parallelism comes from running tenants (personas) side by side: `--tenant-concurrency`. | Supersession/contradiction relations are computed at enrich time against existing thoughts; racing enrich is not how a real user's memory grows. Record the value in every summary. |
 | D7 | Consolidation (nightly sleep job) | Not run in v1. | Benchmarks measure capture-time behaviour; add `--consolidate` later if wanted. |
@@ -254,7 +254,7 @@ inside `withEvalDb(…, { billingUserId, chatModel })` so the model is the run's
 ```
 npm run eval:personamem -- \
   --data-dir evals/.data/personamem-v2          # required; contains prepared JSONL + data/chat_history_32k
-  --personas 20 --seed pilot-1                  # or --persona-ids 0,5,12  or --all   (exactly one required)
+  --personas 20 --seed pilot-1                  # or --persona-ids 78,370  or --all   (exactly one required)
   --chat-model openai/gpt-4o-mini               # required (D1); pipeline + chooser model
   --tenant-concurrency 4 --enrich-concurrency 1 # required
   [--run-id NAME] [--resume] [--skip-ingest] [--limit-queries N] [--dry-run]
@@ -303,6 +303,10 @@ evals-only code, but it is the evidence for a public claim).
 
 ### 5.1 Data download (once, ~80 MB, into the gitignored `evals/.data/`)
 
+**PersonaMem-v2 status (2026-10-25):** already downloaded and prepared on the operator's machine
+(`evals/.data/personamem-v2/`: CSV, 200 history files, `personamem.benchmark.jsonl`). On another
+machine, repeat the steps below.
+
 ```bash
 mkdir -p evals/.data/personamem-v2/benchmark/text evals/.data/personamem-v2/data
 curl -L -o evals/.data/personamem-v2/benchmark/text/benchmark.csv https://huggingface.co/datasets/bowen-upenn/PersonaMem-v2/resolve/main/benchmark/text/benchmark.csv
@@ -314,10 +318,23 @@ MemoryAgentBench CR: `curl -L -o evals/.data/memoryagentbench/Conflict_Resolutio
 
 ### 5.2 Run ladder (each step must be green and reviewed before the next)
 
+PersonaMem-v2 commands (operator runs these; run each step for both models, D1):
+
+```bash
+# smoke — gpt-4o-mini, then the same with --chat-model deepseek/deepseek-v4.1-flash-1017
+npm run eval:personamem -- --data-dir evals/.data/personamem-v2 --persona-ids 78 --limit-queries 5 --chat-model openai/gpt-4o-mini --tenant-concurrency 1 --enrich-concurrency 1
+# pilot
+npm run eval:personamem -- --data-dir evals/.data/personamem-v2 --personas 20 --seed pilot-1 --chat-model openai/gpt-4o-mini --tenant-concurrency 4 --enrich-concurrency 1
+# interrupted? add --resume --run-id <the run id printed at start>
+```
+
+Results land in `evals/reports/public/personamem-v2/<runId>/` (`answers.jsonl`, `ingest.jsonl`,
+`summary.md`). `summary.md` is only written once every planned question has both variants.
+
 | Step | PersonaMem-v2 | Est. USD | Est. wall |
 | --- | --- | --- | --- |
 | dry run | `--dry-run --personas 20 --seed pilot-1` | 0 | seconds |
-| smoke | `--persona-ids 0 --limit-queries 5` | < $0.50 | ~25–55 min (128 captures serial at 10–25 s) |
+| smoke | `--persona-ids 78 --limit-queries 5` (persona 78: 122 captures, 6 queries; there is no persona 0 in the benchmark split) | < $0.50 | ~20–50 min (122 captures serial at 10–25 s) |
 | pilot | `--personas 20 --seed pilot-1 --tenant-concurrency 4` (~500 queries) | ~$5–10 | ~2–4.5 h |
 | full | `--all --tenant-concurrency 8` (5,000 queries) | ~$50–80 | ~10–22 h |
 

@@ -1,0 +1,52 @@
+import { z } from 'zod'
+import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
+import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
+import { optionLetterSchema, type OptionLetter } from './types'
+
+const MAX_ATTEMPTS = 3
+
+const responseSchema = z.object({ letter: optionLetterSchema })
+
+export type Complete = (messages: ChatMessage[]) => Promise<string>
+
+/** JSON-mode chat completion on the run's chat model (call inside `withEvalDb`). */
+export function llmComplete(userId: string): Complete {
+  return async (messages) => {
+    const raw = await llmChatCompletion({
+      userId,
+      messages,
+      temperature: 0,
+      maxTokens: 64,
+      responseFormat: 'json_object',
+      logContext: 'personamem_choose_option',
+    })
+    const content = (
+      raw as { choices?: Array<{ message?: { content?: string } }> }
+    ).choices?.[0]?.message?.content?.trim()
+    if (!content) throw new Error('[personamem] chooser: empty LLM response')
+    return content
+  }
+}
+
+/**
+ * One JSON-schema LLM call returning `{ "letter": "A".."D" }`. A response that is not that
+ * object is asked again, up to 3 attempts in total, then the call fails; transport errors
+ * propagate untouched (the client already retries those).
+ */
+export async function chooseOption(input: {
+  messages: ChatMessage[]
+  complete: Complete
+}): Promise<OptionLetter> {
+  let lastProblem = ''
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const content = await input.complete(input.messages)
+    try {
+      return responseSchema.parse(parseLlmJsonPayload(content)).letter
+    } catch (err) {
+      lastProblem = err instanceof Error ? err.message : String(err)
+    }
+  }
+  throw new Error(
+    `[personamem] chooser returned no valid {"letter":"A".."D"} after ${MAX_ATTEMPTS} attempts: ${lastProblem}`,
+  )
+}

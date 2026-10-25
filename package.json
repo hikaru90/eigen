@@ -50,6 +50,7 @@
     "eval:all": "vite-node --config evals/vite.config.ts evals/run.ts -- --mode all",
     "eval:reset-fixture": "vite-node --config evals/vite.config.ts evals/reset-fixture.ts",
     "eval:longmemeval": "vite-node --config evals/vite.config.ts evals/longmemeval/run.ts",
+    "eval:personamem": "vite-node --config evals/vite.config.ts evals/personamem/run.ts",
     "graph-scale": "vite-node --config evals/vite.config.ts evals/graph-scale/run.ts",
     "graph-scale:bench": "vite-node --config evals/vite.config.ts evals/graph-scale/run.ts -- --sizes 50,100 --tracks capture,qa",
     "graph-scale:full": "vite-node --config evals/vite.config.ts evals/graph-scale/run.ts -- --sizes 50,100,250 --tracks capture,qa,consolidation",
