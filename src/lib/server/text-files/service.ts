@@ -106,7 +106,13 @@ async function decryptTextFileRow<
 
 export async function createTextFile(
   userId: string,
-  input: { title?: string; body?: string; authorship?: MemoryAuthorship },
+  input: {
+    title?: string
+    body?: string
+    authorship?: MemoryAuthorship
+    /** Source time for notes derived from an older thought; defaults to the database clock. */
+    createdAt?: Date
+  },
 ): Promise<TextFileRecord> {
   const title = normalizeTitle(input.title)
   const body = assertBodyWithinLimit(typeof input.body === 'string' ? input.body : '')
@@ -129,6 +135,7 @@ export async function createTextFile(
       bodyTextEncrypted,
       lexicalText,
       ...authorValues,
+      ...(input.createdAt ? { createdAt: input.createdAt, updatedAt: input.createdAt } : {}),
     })
     .returning({
       id: textFile.id,

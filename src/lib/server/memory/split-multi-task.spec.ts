@@ -65,6 +65,7 @@ function thoughtRow(overrides: Record<string, unknown> = {}) {
     author: 'user',
     authorLabel: null,
     authorKeyId: null,
+    createdAt: new Date('2025-03-01T09:00:00.000Z'),
     metadata: {},
     metadataEncrypted: null,
     ...overrides,
@@ -161,6 +162,23 @@ describe('fanOutMultipleTasks', () => {
     }
     // one worker schedule for the whole batch
     expect(scheduleCaptureEnrichWorkerMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('children inherit the parent createdAt as their capture time, not wall clock', async () => {
+    const parentCreatedAt = new Date('2024-11-05T08:30:00.000Z')
+    chainSelect([thoughtRow({ createdAt: parentCreatedAt })])
+    llm('{"multiple":true,"tasks":["Buy milk","Call mom"]}')
+
+    await fanOutMultipleTasks({
+      userId: 'u1',
+      thoughtId: 'parent-1',
+      normalizedText: 'Buy milk. Call mom.',
+    })
+
+    expect(queueCaptureMock).toHaveBeenCalledTimes(2)
+    for (const call of queueCaptureMock.mock.calls) {
+      expect((call[2] as { capturedAt?: Date }).capturedAt).toEqual(parentCreatedAt)
+    }
   })
 
   it('a split child (metadata.splitFrom) is never split again', async () => {

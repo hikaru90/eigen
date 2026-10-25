@@ -4,6 +4,7 @@ import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso'
 import { getDb } from '$lib/server/db'
 import { thought, type MemoryAuthor } from '$lib/server/db/schema'
+import { evalClockFor } from '$lib/server/llm/eval-clock'
 import { thoughtSnippet } from '$lib/server/mcp/snippet'
 import {
   resolveMcpCaptureAuthorship,
@@ -206,7 +207,8 @@ export async function runCaptureThoughtTool(context: McpToolContext, args: unkno
   if (!raw.trim()) {
     throw new Error('raw is required')
   }
-  const capturedAt = parseOptionalIsoTimestamp(body.captured_at, 'captured_at')
+  const evalClock = evalClockFor(context.userId)
+  const capturedAt = parseOptionalIsoTimestamp(body.captured_at, 'captured_at') ?? evalClock
   const authorPrefix = typeof body.author === 'string' ? body.author : undefined
   const asUser = body.as_user === true
   const authorship = await resolveMcpCaptureAuthorship({
@@ -355,7 +357,8 @@ export async function runAnswerQuestionTool(context: McpToolContext, args: unkno
     throw new Error('question is required')
   }
   const topK = typeof body.top_k === 'number' ? body.top_k : undefined
-  const referenceTime = parseOptionalIsoTimestamp(body.reference_time, 'reference_time')
+  const evalClock = evalClockFor(context.userId)
+  const referenceTime = parseOptionalIsoTimestamp(body.reference_time, 'reference_time') ?? evalClock
   const authorFilter = parseAuthorScope(body)
   const answerStart = Date.now()
   console.info('[mcp.tool:answer_question] start', { question, topK: topK ?? null })

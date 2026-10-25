@@ -15,6 +15,7 @@ vi.mock('$lib/server/db', () => ({
 }))
 
 import { currentEvalChatModel } from '$lib/server/llm/eval-chat-model'
+import { currentEvalClock, withEvalClock } from '$lib/server/llm/eval-clock'
 import { withEvalDb } from './eval-context'
 
 describe('withEvalDb chatModel', () => {
@@ -50,6 +51,62 @@ describe('withEvalDb chatModel', () => {
     await expect(
       withEvalDb('public-bench-x', async () => 1, { chatModel: 'nope' }),
     ).rejects.toThrow(/eval chat model/i)
+    expect(m.release).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('withEvalDb clock', () => {
+  const CLOCK = new Date('2025-03-01T09:00:00.000Z')
+
+  it('runs the callback (and everything it awaits) under the eval clock', async () => {
+    m.reserve.mockResolvedValue({ release: m.release })
+    const seen = await withEvalDb(
+      'public-bench-x',
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1))
+        return currentEvalClock()?.toISOString()
+      },
+      { billingUserId: 'public-bench-runner', clock: CLOCK },
+    )
+    expect(seen).toBe(CLOCK.toISOString())
+    expect(currentEvalClock()).toBeUndefined()
+  })
+
+  it('leaves the clock unset without the option', async () => {
+    m.reserve.mockResolvedValue({ release: m.release })
+    const seen = await withEvalDb('public-bench-x', async () => currentEvalClock())
+    expect(seen).toBeUndefined()
+  })
+
+  it('a per-turn withEvalClock inside the callback shadows the option', async () => {
+    m.reserve.mockResolvedValue({ release: m.release })
+    const seen = await withEvalDb(
+      'public-bench-x',
+      async () =>
+        withEvalClock(new Date('2025-03-02T09:00:00.000Z'), async () =>
+          currentEvalClock()?.toISOString(),
+        ),
+      { clock: CLOCK },
+    )
+    expect(seen).toBe('2025-03-02T09:00:00.000Z')
+  })
+
+  it('combines with chatModel', async () => {
+    m.reserve.mockResolvedValue({ release: m.release })
+    const seen = await withEvalDb(
+      'public-bench-x',
+      async () => [currentEvalChatModel(), currentEvalClock()?.toISOString()],
+      { chatModel: 'openai/gpt-4o-mini', clock: CLOCK },
+    )
+    expect(seen).toEqual(['openai/gpt-4o-mini', CLOCK.toISOString()])
+  })
+
+  it('rejects an invalid clock and still releases the connection', async () => {
+    m.release.mockClear()
+    m.reserve.mockResolvedValue({ release: m.release })
+    await expect(
+      withEvalDb('public-bench-x', async () => 1, { clock: new Date('nope') }),
+    ).rejects.toThrow(/eval clock/i)
     expect(m.release).toHaveBeenCalledTimes(1)
   })
 })

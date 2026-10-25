@@ -132,7 +132,10 @@ export type ConflictPair = {
 export type ComposedAnswer = {
   answer: string
   citations: string[]
+  /** The items cited by the answer. */
   retrieved: RetrievalContextItem[]
+  /** Every item given to the answer model, before citation filtering (`retrieved` is a subset). */
+  context: RetrievalContextItem[]
   /** Contradiction pairs detected among retrieved thoughts, if any. */
   conflicts: ConflictPair[]
   retrievalPath?: 'local' | 'global'
@@ -771,6 +774,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     answer,
     citations,
     retrieved: contextItems.filter((c) => citedIds.has(c.id)),
+    context: contextItems,
     conflicts,
     retrievalPath,
   }

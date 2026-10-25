@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { withEvalClock } from '$lib/server/llm/eval-clock'
 import {
+  runAnswerQuestionTool,
   runCaptureThoughtTool,
   runCreateTextFileTool,
   runDeleteThoughtTool,
@@ -31,6 +33,7 @@ const {
   loadOpenThreadsMock,
   retrieveThoughtRowsForDeleteRequestMock,
   resolveDeleteTargetsMock,
+  composeAnswerMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   captureThoughtMock: vi.fn(),
@@ -53,6 +56,11 @@ const {
   loadOpenThreadsMock: vi.fn(),
   retrieveThoughtRowsForDeleteRequestMock: vi.fn(),
   resolveDeleteTargetsMock: vi.fn(),
+  composeAnswerMock: vi.fn(),
+}))
+
+vi.mock('$lib/server/qa/compose-answer', () => ({
+  composeAnswer: composeAnswerMock,
 }))
 
 vi.mock('$lib/server/memory/project-list', () => ({
@@ -255,6 +263,78 @@ describe('MCP tools', () => {
       author: 'user',
       authorLabel: null,
       authorKeyId: null,
+    })
+  })
+
+  describe('eval clock', () => {
+    const CLOCK = new Date('2025-03-01T09:00:00.000Z')
+    const HARNESS_USER = 'public-bench-personamem-v2-ask-gpt-4o-mini-p78'
+
+    it('capture_thought without captured_at uses the eval clock as the capture time', async () => {
+      captureThoughtMock.mockResolvedValue({ id: 't1', queueStatus: 'pending' })
+      await withEvalClock(CLOCK, () =>
+        runCaptureThoughtTool({ userId: HARNESS_USER }, { raw: 'I am vegetarian', as_user: true }),
+      )
+      const options = captureThoughtMock.mock.calls[0]?.[2] as { capturedAt?: Date }
+      expect(options.capturedAt?.toISOString()).toBe(CLOCK.toISOString())
+    })
+
+    it('an explicit captured_at wins over the eval clock', async () => {
+      captureThoughtMock.mockResolvedValue({ id: 't1', queueStatus: 'pending' })
+      await withEvalClock(CLOCK, () =>
+        runCaptureThoughtTool(
+          { userId: HARNESS_USER },
+          { raw: 'old fact', captured_at: '2024-01-05T00:00:00.000Z' },
+        ),
+      )
+      const options = captureThoughtMock.mock.calls[0]?.[2] as { capturedAt?: Date }
+      expect(options.capturedAt?.toISOString()).toBe('2024-01-05T00:00:00.000Z')
+    })
+
+    it('without a clock capture_thought sets no capturedAt (wall clock)', async () => {
+      captureThoughtMock.mockResolvedValue({ id: 't1', queueStatus: 'pending' })
+      await runCaptureThoughtTool({ userId: HARNESS_USER }, { raw: 'hi' })
+      expect(captureThoughtMock.mock.calls[0]?.[2]).not.toHaveProperty('capturedAt')
+    })
+
+    it('a clock for a non-harness user throws before anything is stored', async () => {
+      await expect(
+        withEvalClock(CLOCK, () => runCaptureThoughtTool({ userId: 'u1' }, { raw: 'hi' })),
+      ).rejects.toThrow(/harness/i)
+      expect(captureThoughtMock).not.toHaveBeenCalled()
+    })
+
+    it('answer_question defaults reference_time to the eval clock; an explicit one wins', async () => {
+      composeAnswerMock.mockResolvedValue({ answer: 'a', citations: [], retrieved: [], context: [] })
+      await withEvalClock(CLOCK, () =>
+        runAnswerQuestionTool({ userId: HARNESS_USER }, { question: 'what do I eat?' }),
+      )
+      expect(composeAnswerMock.mock.calls[0]?.[0].referenceTime.toISOString()).toBe(
+        CLOCK.toISOString(),
+      )
+
+      await withEvalClock(CLOCK, () =>
+        runAnswerQuestionTool(
+          { userId: HARNESS_USER },
+          { question: 'what do I eat?', reference_time: '2025-06-01T00:00:00.000Z' },
+        ),
+      )
+      expect(composeAnswerMock.mock.calls[1]?.[0].referenceTime.toISOString()).toBe(
+        '2025-06-01T00:00:00.000Z',
+      )
+    })
+
+    it('answer_question with no clock leaves referenceTime unset', async () => {
+      composeAnswerMock.mockResolvedValue({ answer: 'a', citations: [], retrieved: [], context: [] })
+      await runAnswerQuestionTool({ userId: 'u1' }, { question: 'q?' })
+      expect(composeAnswerMock.mock.calls[0]?.[0]).not.toHaveProperty('referenceTime')
+    })
+
+    it('answer_question under a clock for a non-harness user throws', async () => {
+      await expect(
+        withEvalClock(CLOCK, () => runAnswerQuestionTool({ userId: 'u1' }, { question: 'q?' })),
+      ).rejects.toThrow(/harness/i)
+      expect(composeAnswerMock).not.toHaveBeenCalled()
     })
   })
 

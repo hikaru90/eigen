@@ -81,7 +81,7 @@ vi.mock('$lib/server/mcp/registry', () => {
     'link_text_file_to_thought',
     'unlink_text_file_from_thought',
   ]
-  const CHAT_TOOLS = ALL_AGENT_TOOLS.filter((name) => name !== 'capture_thought')
+  const CHAT_TOOLS = ALL_AGENT_TOOLS
   return {
     MCP_EXPOSED_TOOL_MAP: mcpToolMap,
     MCP_TOOL_MAP: mcpToolMap,
@@ -639,43 +639,107 @@ describe('agentChat', () => {
     )
   })
 
-  it('never captures from ask: a capture_thought call is rejected and the question is answered instead', async () => {
+  it('captures a durable fact the user revealed, then answers the question in the same turn', async () => {
     captureThoughtMock.mockResolvedValue({ thoughtId: 't-new', status: 'queued' })
     answerQuestionMock.mockResolvedValue({
-      answer:
-        'Answer: You noted mirin for the glaze.\nEvidence:\n- mirin glaze [id=t1]\nUnknown:\n- none',
-      citations: ['t1'],
+      answer: 'Answer: Try a lentil curry.\nEvidence:\n- none\nUnknown:\n- none',
+      citations: [],
       retrieved: [],
       conflicts: [],
     })
     llmChatCompletionMock
       .mockResolvedValueOnce(
-        llmJson({ tool: 'capture_thought', arguments: { raw: 'what did I note about mirin?' } }),
+        llmJson({
+          tool: 'capture_thought',
+          arguments: { raw: 'I am vegetarian now', as_user: true },
+        }),
       )
       .mockResolvedValueOnce(
-        llmJson({
-          tool: 'answer_question',
-          arguments: { question: 'what did I note about mirin?' },
-        }),
+        llmJson({ tool: 'answer_question', arguments: { question: 'what should I cook tonight?' } }),
       )
 
     const result = await agentChat({
       userId: 'u1',
-      messages: [{ role: 'user', content: 'what did I note about mirin?' }],
+      messages: [
+        { role: 'user', content: 'I went vegetarian last month. What should I cook tonight?' },
+      ],
     })
 
-    // the ask loop must never store the user's question as a thought
-    expect(captureThoughtMock).not.toHaveBeenCalled()
+    expect(captureThoughtMock).toHaveBeenCalledTimes(1)
+    expect(captureThoughtMock).toHaveBeenCalledWith(expect.anything(), {
+      raw: 'I am vegetarian now',
+      as_user: true,
+    })
+    // the user's question itself is not stored: it goes to answer_question
     expect(answerQuestionMock).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ question: 'what did I note about mirin?' }),
+      expect.objectContaining({ question: 'what should I cook tonight?' }),
     )
     expect(result.response).not.toBe('')
   })
 
-  it('system prompt is capture-free: Ask never offers storing new thoughts', () => {
-    expect(AGENT_SYSTEM_PROMPT).not.toContain('capture_thought')
-    expect(AGENT_SYSTEM_PROMPT).toContain('ask-only')
+  it('stores one capture per distinct fact', async () => {
+    captureThoughtMock.mockResolvedValue({ thoughtId: 't-new', status: 'queued' })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'capture_thought', arguments: { raw: 'I moved to Lisbon', as_user: true } }),
+      )
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'capture_thought', arguments: { raw: 'I am learning Portuguese', as_user: true } }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'Noted both.' }))
+
+    const result = await agentChat({
+      userId: 'u1',
+      messages: [{ role: 'user', content: 'I moved to Lisbon and I am learning Portuguese.' }],
+    })
+
+    expect(captureThoughtMock).toHaveBeenCalledTimes(2)
+    // a capture is a write: a final answer after it needs no answer_question
+    expect(result.response).toBe('Noted both.')
+  })
+
+  it('a turn that reveals nothing durable stores nothing', async () => {
+    answerQuestionMock.mockResolvedValue({
+      answer: 'Answer: You noted mirin.\nEvidence:\n- mirin [id=t1]\nUnknown:\n- none',
+      citations: ['t1'],
+      retrieved: [],
+      conflicts: [],
+    })
+    llmChatCompletionMock.mockResolvedValueOnce(
+      llmJson({ tool: 'answer_question', arguments: { question: 'what did I note about mirin?' } }),
+    )
+
+    await agentChat({
+      userId: 'u1',
+      messages: [{ role: 'user', content: 'what did I note about mirin?' }],
+    })
+
+    expect(captureThoughtMock).not.toHaveBeenCalled()
+  })
+
+  describe('system prompt: capturing what the user reveals', () => {
+    it('lets the agent decide when the user revealed something durable about themselves', () => {
+      expect(AGENT_SYSTEM_PROMPT).toContain('capture_thought')
+      expect(AGENT_SYSTEM_PROMPT).toMatch(/durable/)
+      expect(AGENT_SYSTEM_PROMPT).toMatch(/as_user/)
+      expect(AGENT_SYSTEM_PROMPT).toMatch(/first-person/)
+      expect(AGENT_SYSTEM_PROMPT).toMatch(/one capture_thought call per distinct fact/)
+    })
+
+    it('never stores the question or request itself, and captures before answer_question', () => {
+      expect(AGENT_SYSTEM_PROMPT).toMatch(/Never store the question or request itself/)
+      expect(AGENT_SYSTEM_PROMPT).toMatch(/answer_question ends the turn/)
+    })
+
+    it('routes "forget X" to the existing find-and-delete tools', () => {
+      expect(AGENT_SYSTEM_PROMPT).toMatch(/forget/i)
+    })
+
+    it('no longer calls the surface ask-only or tells the user to go to the Capture page', () => {
+      expect(AGENT_SYSTEM_PROMPT).not.toMatch(/ask-only/)
+      expect(AGENT_SYSTEM_PROMPT).not.toMatch(/Capture page/)
+    })
   })
 
   it('creates a text note via create_text_file when the model chooses it', async () => {

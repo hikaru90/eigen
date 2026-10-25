@@ -8,9 +8,7 @@ describe('agent Notes contract', () => {
     expect(AGENT_SYSTEM_PROMPT).toMatch(/Never create_text_file for additive requests/i)
     expect(AGENT_SYSTEM_PROMPT).toMatch(/add milk to my shopping list/)
     expect(AGENT_SYSTEM_PROMPT).toMatch(/Create a NEW note\/list only/)
-    // ask surface is ask-only: the prompt never offers capture and notes are text documents
-    expect(AGENT_SYSTEM_PROMPT).toMatch(/They are not memory thoughts/)
-    expect(AGENT_SYSTEM_PROMPT).not.toMatch(/capture_thought/)
+    expect(AGENT_SYSTEM_PROMPT).toMatch(/never capture_thought for these/i)
   })
 
   it('lists append_text_file in the agent tool description block', () => {

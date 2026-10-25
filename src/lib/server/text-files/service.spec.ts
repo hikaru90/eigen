@@ -77,6 +77,29 @@ describe('text-files service', () => {
     )
   })
 
+  it('createTextFile stamps createdAt and updatedAt with the given source time, else leaves them to the database', async () => {
+    const stored = new Date('2025-03-01T09:00:00.000Z')
+    const insertSpy = makeReturningInsert({
+      id: 'f1',
+      title: 'Notes',
+      bodyText: '',
+      bodyTextEncrypted: 'enc:hello',
+      createdAt: stored,
+      updatedAt: stored,
+    })
+    getDbMock.mockReturnValue({ insert: vi.fn(() => insertSpy) })
+
+    await createTextFile('u1', { title: 'Notes', body: 'hello', createdAt: stored })
+    expect(insertSpy.values).toHaveBeenLastCalledWith(
+      expect.objectContaining({ createdAt: stored, updatedAt: stored }),
+    )
+
+    await createTextFile('u1', { title: 'Notes', body: 'hello' })
+    const plain = insertSpy.values.mock.calls.at(-1)![0] as Record<string, unknown>
+    expect(plain).not.toHaveProperty('createdAt')
+    expect(plain).not.toHaveProperty('updatedAt')
+  })
+
   it('createTextFile allows title-only notes with empty body', async () => {
     const createdAt = new Date('2026-06-05T12:00:00.000Z')
     getDbMock.mockReturnValue({

@@ -86,6 +86,7 @@ export async function fanOutMultipleTasks(input: {
       author: thought.author,
       authorLabel: thought.authorLabel,
       authorKeyId: thought.authorKeyId,
+      createdAt: thought.createdAt,
       metadata: thought.metadata,
       metadataEncrypted: thought.metadataEncrypted,
     })
@@ -140,6 +141,8 @@ export async function fanOutMultipleTasks(input: {
       author: row.author as MemoryAuthor,
       ...(row.authorLabel !== null ? { authorLabel: row.authorLabel } : {}),
       ...(row.authorKeyId !== null ? { authorKeyId: row.authorKeyId } : {}),
+      // a child is as old as the capture it came from, not as old as the enrich pass
+      capturedAt: row.createdAt,
     })
 
     // the child is already known to be a task — set its kind and provenance now,

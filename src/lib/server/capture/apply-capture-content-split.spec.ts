@@ -231,6 +231,49 @@ describe('applyCaptureContentSplitIfNeeded', () => {
     expect(updatePayload.normalizedText).toBe('Pasta carbonara recipe from Nonna')
   })
 
+  it('split: the attached note inherits the source thought createdAt, not wall clock', async () => {
+    const sourceCreatedAt = new Date('2025-03-01T09:00:00.000Z')
+    resolveCaptureContentSplitMock.mockResolvedValue({
+      mode: 'split',
+      thoughtText: 'Please polish my email',
+      attachmentTitle: 'Email draft',
+      attachmentBody: 'Dear team, I just got back from my knee surgery…',
+      rationale: 'pasted body',
+    } satisfies CaptureContentSplitResult)
+    createTextFileMock.mockResolvedValue({ id: 'file-1' })
+    linkTextFileToThoughtMock.mockResolvedValue({ linked: true })
+
+    const setMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) })
+    let selectCall = 0
+    getDbMock.mockReturnValue({
+      select: vi.fn().mockImplementation(() => ({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: async () => {
+              selectCall += 1
+              return selectCall === 1
+                ? [{ author: 'user', authorLabel: null, authorKeyId: null, createdAt: sourceCreatedAt }]
+                : [{ metadata: {}, metadataEncrypted: null }]
+            },
+          }),
+        }),
+      })),
+      update: vi.fn().mockReturnValue({ set: setMock }),
+    })
+
+    await applyCaptureContentSplitIfNeeded({
+      userId: 'u1',
+      thoughtId: 't1',
+      rawText: 'Please polish my email\n\nDear team, I just got back from my knee surgery…',
+      decidedMode: 'split',
+    })
+
+    expect(createTextFileMock).toHaveBeenCalledWith(
+      'u1',
+      expect.objectContaining({ createdAt: sourceCreatedAt }),
+    )
+  })
+
   it('passes a decision-model decidedMode through to the split resolver', async () => {
     resolveCaptureContentSplitMock.mockResolvedValue({
       mode: 'split',

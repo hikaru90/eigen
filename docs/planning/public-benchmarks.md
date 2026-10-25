@@ -298,6 +298,84 @@ evals-only code, but it is the evidence for a public claim).
 
 ---
 
+## 4b. Phase 1b — replay PersonaMem through Ask, with capture back in Ask
+
+### 4b.1 Why (smoke run 2026-10-25, persona 78, gpt-4o-mini: eigen 0/5, no-memory 0/5)
+
+Findings from the smoke run, most severe first:
+
+1. **Wrong surface.** The adapter turned every chatbot user turn into a Capture. PersonaMem's
+   evidence is implicit, inside pasted emails/posts/translations (~70% of scenarios). Capture's
+   content split (`src/lib/server/capture/apply-capture-content-split.ts:105-125`) stores the
+   request as the thought and moves the pasted body into a text note, which is never embedded or
+   enriched (only keyword-matched at answer time). So the preference evidence left memory.
+   PersonaMem models a user talking to an assistant that learns; in Eigen that surface is Ask, and
+   Ask has never stored anything since `5141f7f6` (2026-10-23) removed `capture_thought` from it.
+   **Operator decision (2026-10-25):** re-enable capture in Ask and replay PersonaMem through Ask.
+2. **Harness: the chooser only saw cited thoughts.** `composeAnswer().retrieved` is filtered to
+   cited ids (`src/lib/server/qa/compose-answer.ts:773`). Eigen answered "Not in memory" with no
+   citations, so the `eigen` variant got zero memories and collapsed into `no-memory`.
+3. **Timestamps.** Thoughts created by split / multi-task fanout and the attached text notes get
+   wall-clock time (`2026-10-25`) instead of the source thought's backdated capture time.
+4. With no memories the chooser prefers the generic reply, which is always a distractor — hence
+   0% < 25% random. Expected for `no-memory`; not a bug.
+
+### 4b.2 Product changes (Phase 1b-a)
+
+- **P1 — Ask can capture again.** Put `capture_thought` back into `CHAT_AGENT_TOOL_NAMES`
+  (`src/lib/server/mcp/registry.ts:770-781`) and remove the steering rejection in
+  `src/lib/server/llm/agent-loop.ts` (lines ~31-55, ~107). The agent (LLM-as-judge, no string
+  rules) decides per turn whether the user revealed something durable about themselves — a
+  preference, circumstance, health or life fact, a change to an earlier fact, a plan — and if so
+  calls `capture_thought` with `as_user: true` and a short first-person statement in the user's
+  words (one capture per distinct fact). It never stores the user's question or request itself
+  (the guarantee `5141f7f6` protected). When the user asks Eigen to forget something, it finds and
+  deletes/archives the thought with the existing tools. The rest of the turn (answering, helping)
+  is unchanged. Update the code comments that describe Ask as ask-only.
+- **P2 — Ask turn callable without HTTP.** Extract the core of `handleAgentChatPost`
+  (`src/lib/server/chat/handle-agent-chat-post.ts`: store user message → load history →
+  `agentChat` → persist assistant turn) into a function the route and the harness both call, e.g.
+  `runAskTurn({ db, userId, sessionId, message })` → `{ answer, toolCalls }`. The route keeps its
+  HTTP/streaming shell. Behaviour of the route must not change.
+- **P3 — eval clock.** `withEvalClock(date, fn)` + `currentEvalClock()` (AsyncLocalStorage, same
+  shape and same harness-only guard as `src/lib/server/llm/eval-chat-model.ts`). When set:
+  `capture_thought` without `captured_at` uses it as the capture time, and whatever date/time the
+  Ask agent is told is "now" uses it. Non-harness users with a clock set → throw.
+- **P4 — timestamps follow the source thought.** Thoughts created from another thought (content
+  split, multi-task fanout) and text notes attached at capture inherit the source thought's
+  `createdAt`, not wall clock. Generic fix (affects every backdated capture, not just benchmarks).
+- **P5 — expose answer context.** `composeAnswer` additionally returns `context` = every item it
+  gave the answer model (the pre-citation `contextItems`). `retrieved` keeps its meaning. No
+  behaviour change.
+
+Tests first (unit): Ask tool list includes `capture_thought`; agent-loop no longer rejects it
+(update the specs that assert the rejection); `runAskTurn` persists user + assistant messages as
+the route did; eval clock nested/guarded/defaults `captured_at`; split/fanout children and text
+notes carry the source `createdAt`; `composeAnswer` returns `context ⊇ retrieved`. Risk: **high**
+(Ask is a user-facing surface; P1 reverses a deliberate decision on the operator's instruction).
+
+### 4b.3 Harness changes (Phase 1b-b)
+
+- `--ingest ask|capture` (required, no default). `capture` = today's path. `ask` = per persona one
+  Ask chat session; for each user turn in history order: `withEvalClock(epoch + n days)` →
+  `runAskTurn` with the user's message (inside `withEvalDb(tenant, …, { billingUserId, chatModel })`)
+  → drain and wait for enrichment of any thoughts the turn created (D6 order) → next turn. The
+  dataset's assistant turns are not replayed; Ask writes its own replies. Turns where Ask captured
+  nothing are fine.
+- Tenant ids include the mode: `public-bench-personamem-v2-<mode>-<modelSlug>-p<id>`.
+- Question side unchanged in mechanism: `composeAnswer` on the bare query (what Ask's
+  `answer_question` tool calls), `referenceTime` = last turn + 1 day; the chooser now gets
+  `composed.context` (all items, dated) instead of `composed.retrieved`.
+- Outputs/summary add per persona: user turns replayed, captures Ask made, turns with ≥1 capture,
+  deletes Ask made, Ask USD vs enrich USD. `--dry-run` prints turns per persona and an estimate.
+- Tests first: ask-mode plan/tenant naming; ingest loop order (turn → drain → next) with injected
+  `runAskTurn`/drain; chooser receives context items; cli requires `--ingest`.
+
+### 4b.4 Run ladder after Phase 1b
+
+Smoke again (operator): persona 78, `--ingest ask`, `--limit-queries 5`, gpt-4o-mini, then
+deepseek. Read `summary.md` + how many turns Ask captured before going to the pilot.
+
 ## 5. Running (operator-owned)
 
 ### 5.1 Data download (once, ~80 MB, into the gitignored `evals/.data/`)

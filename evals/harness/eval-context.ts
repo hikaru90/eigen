@@ -9,12 +9,15 @@ import {
   type AppDatabase,
 } from '$lib/server/db'
 import { withEvalChatModel } from '$lib/server/llm/eval-chat-model'
+import { withEvalClock } from '$lib/server/llm/eval-clock'
 
 export type WithEvalDbOptions = {
   /** Platform credits / BYOK checks and wallet debits use this user (e.g. eval operator). */
   billingUserId?: string
   /** Eval-only chat model (`vendor/name`) for every LLM call inside `fn`; harness billing users only. */
   chatModel?: string
+  /** Eval-only wall clock for the whole callback (per-turn `withEvalClock` shadows it); harness billing users only. */
+  clock?: Date
 }
 
 /**
@@ -35,9 +38,12 @@ export async function withEvalDb<T>(
     await activateTenantDbSession(reserved, userId)
     const scopedDb = createScopedDrizzle(reserved)
     const chatModel = options?.chatModel
+    const clock = options?.clock
+    const withClock = () =>
+      clock === undefined ? fn(scopedDb) : withEvalClock(clock, () => fn(scopedDb))
     const run = () =>
       appDbAsyncLocal.run(scopedDb, () =>
-        chatModel === undefined ? fn(scopedDb) : withEvalChatModel(chatModel, () => fn(scopedDb)),
+        chatModel === undefined ? withClock() : withEvalChatModel(chatModel, withClock),
       )
     const withTenant = () =>
       tenantUserAsyncLocal.run(userId, () => appReservedSqlAsyncLocal.run(reserved, run))

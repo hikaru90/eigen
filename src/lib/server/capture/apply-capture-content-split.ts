@@ -108,6 +108,7 @@ export async function applyCaptureContentSplitIfNeeded(input: {
         author: thought.author,
         authorLabel: thought.authorLabel,
         authorKeyId: thought.authorKeyId,
+        createdAt: thought.createdAt,
       })
       .from(thought)
       .where(eq(thought.id, input.thoughtId))
@@ -120,6 +121,8 @@ export async function applyCaptureContentSplitIfNeeded(input: {
         authorLabel: thoughtAuthorship?.authorLabel ?? null,
         authorKeyId: thoughtAuthorship?.authorKeyId ?? null,
       },
+      // the attached body is as old as the thought it came with (backdated captures stay coherent)
+      ...(thoughtAuthorship?.createdAt ? { createdAt: thoughtAuthorship.createdAt } : {}),
     })
     const link = await linkTextFileToThought(input.userId, input.thoughtId, file.id)
     if (!link.linked) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { persistStreamedAssistantTurn } from './handle-agent-chat-post'
+import { persistStreamedAssistantTurn } from './run-ask-turn'
 
 describe('persistStreamedAssistantTurn', () => {
   it('inserts compacted tool steps before the final assistant text', async () => {

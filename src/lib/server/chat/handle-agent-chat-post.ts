@@ -1,15 +1,22 @@
 import type { RequestEvent } from '@sveltejs/kit'
 import { error, json } from '@sveltejs/kit'
-import { asc, eq, sql } from 'drizzle-orm'
-import { formatToolResultForDisplay, sanitizeFinalAnswerText } from '$lib/chat/chat-stream-types'
-import { compactChatIntermediateSteps } from '$lib/chat/normalize-messages'
 import { runWithTrace } from '$lib/server/activity/trace-context'
 import { tenantUserAsyncLocal } from '$lib/server/billing/context'
 import {
   insufficientCreditsPayload,
   isInsufficientCreditsError,
 } from '$lib/server/billing/insufficient-credits'
-import { sessionMessagesToAgentHistory } from '$lib/server/chat/session-history-for-agent'
+import {
+  beginAskTurn,
+  finalAnswerText,
+  getOrCreateSession,
+  intermediateStepFromEvent,
+  persistAssistantMessage,
+  persistStreamedAssistantTurn,
+  runAskTurn,
+  titleSessionFromMessage,
+  type IntermediateStep,
+} from '$lib/server/chat/run-ask-turn'
 import {
   appDbAsyncLocal,
   appSql,
@@ -18,7 +25,7 @@ import {
   activateTenantDbSession,
   deactivateTenantDbSession,
 } from '$lib/server/db'
-import { chatSession, chatMessage, type ChatSessionMode } from '$lib/server/db/brain.schema'
+import type { ChatSessionMode } from '$lib/server/db/brain.schema'
 import { agentChat } from '$lib/server/llm/agent-loop'
 
 function collectErrorMessages(input: unknown): string[] {
@@ -80,79 +87,6 @@ export const BRIEFING_BOOTSTRAP_MESSAGES: Record<string, string> = {
     'Give my weekly review: completions this week, overdue debt, patterns, and 2–3 focus suggestions for next week. Use list_projects, get_project_timeline, answer_question, and retrieve_thoughts only to browse recent thoughts.',
 }
 
-async function getOrCreateSession(
-  db: ReturnType<typeof getDb>,
-  userId: string,
-  sessionId: string | null,
-  mode: ChatSessionMode,
-): Promise<{ sessionId: string; mode: ChatSessionMode }> {
-  if (!sessionId) {
-    const [s] = await db
-      .insert(chatSession)
-      .values({
-        userId,
-        mode,
-        title: '',
-      })
-      .returning({ id: chatSession.id, mode: chatSession.mode })
-    return { sessionId: s.id, mode: s.mode }
-  }
-  const [existing] = await db
-    .select({ id: chatSession.id, mode: chatSession.mode })
-    .from(chatSession)
-    .where(eq(chatSession.id, sessionId))
-    .limit(1)
-  if (!existing) error(404, 'Session not found')
-  if (existing.mode !== mode) {
-    error(400, `Session mode mismatch: expected ${mode}`)
-  }
-  return { sessionId, mode: existing.mode }
-}
-
-async function persistAssistantMessage(
-  db: ReturnType<typeof getDb>,
-  sessionId: string,
-  userId: string,
-  content: string,
-  metadata?: Record<string, unknown> | null,
-) {
-  const [msg] = await db
-    .insert(chatMessage)
-    .values({ sessionId, userId, role: 'assistant', content, ...(metadata ? { metadata } : {}) })
-    .returning({ id: chatMessage.id })
-  return msg.id
-}
-
-/**
- * Persist a completed streamed turn in live-UI order: compacted tool/thinking steps,
- * then the final assistant text. Callers should emit `done` after this returns.
- */
-export async function persistStreamedAssistantTurn(input: {
-  db: ReturnType<typeof getDb>
-  sessionId: string
-  userId: string
-  responseText: string
-  intermediateSteps: Array<{ content: string; metadata: Record<string, unknown> }>
-}): Promise<{ messageId: string; storedStepCount: number }> {
-  const storedSteps = compactChatIntermediateSteps(input.intermediateSteps)
-  for (const step of storedSteps) {
-    await input.db.insert(chatMessage).values({
-      sessionId: input.sessionId,
-      userId: input.userId,
-      role: 'assistant',
-      content: step.content,
-      metadata: step.metadata,
-    })
-  }
-  const messageId = await persistAssistantMessage(
-    input.db,
-    input.sessionId,
-    input.userId,
-    input.responseText,
-  )
-  return { messageId, storedStepCount: storedSteps.length }
-}
-
 export type AgentChatPostBody = {
   message?: unknown
   history?: unknown
@@ -206,46 +140,18 @@ export async function handleAgentChatPost(
     options.sessionMode,
   )
 
-  // Load prior turns before inserting this user message so history excludes the current turn.
-  const priorRows = await db
-    .select({
-      role: chatMessage.role,
-      content: chatMessage.content,
-      metadata: chatMessage.metadata,
-    })
-    .from(chatMessage)
-    .where(eq(chatMessage.sessionId, sessionId))
-    .orderBy(asc(chatMessage.createdAt))
-  const history = sessionMessagesToAgentHistory(
-    priorRows.map((row) => ({
-      role: row.role,
-      content: row.content,
-      metadata:
-        row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
-          ? (row.metadata as Record<string, unknown>)
-          : null,
-    })),
-  )
-
-  if (!bootstrap) {
-    await db.insert(chatMessage).values({
-      sessionId,
-      userId: user.id,
-      role: 'user',
-      content: message,
-    })
-  }
-
-  const countResult = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(chatMessage)
-    .where(eq(chatMessage.sessionId, sessionId))
-  const isFirstMessage = bootstrap || countResult[0]?.count === 1
-
   const accept = event.request.headers?.get('accept') ?? ''
   const streamNdjson = accept.includes('application/x-ndjson')
 
   if (streamNdjson) {
+    // The streaming shell keeps its own agent run (reserved connection, ndjson events);
+    // it shares the turn's begin/persist helpers with runAskTurn.
+    const { history, isFirstMessage } = await beginAskTurn(db, {
+      userId: user.id,
+      sessionId,
+      message,
+      bootstrap,
+    })
     const encoder = new TextEncoder()
     const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>(
       {},
@@ -287,58 +193,7 @@ export async function handleAgentChatPost(
       void writer.abort(new Error('client disconnected')).catch(() => {})
     })
 
-    const intermediateSteps: Array<{ content: string; metadata: Record<string, unknown> }> = []
-
-    const recordIntermediateStep = (evt: {
-      type: string
-      content?: string
-      tool?: string
-      arguments?: Record<string, unknown>
-      preview?: string
-      failed?: boolean
-      phase?: string
-      label?: string
-    }) => {
-      if (evt.type === 'thinking' && evt.content) {
-        intermediateSteps.push({
-          content: evt.content,
-          metadata: { variant: 'thinking' },
-        })
-      } else if (evt.type === 'tool_call') {
-        const args = evt.arguments ?? {}
-        intermediateSteps.push({
-          content: JSON.stringify({ tool: evt.tool, arguments: args }),
-          metadata: { variant: 'tool_call', tool: evt.tool, arguments: args },
-        })
-      } else if (evt.type === 'tool_executing') {
-        intermediateSteps.push({
-          content: evt.tool ?? '',
-          metadata: { variant: 'tool_executing', tool: evt.tool },
-        })
-      } else if (evt.type === 'tool_progress') {
-        intermediateSteps.push({
-          content: evt.label ?? '',
-          metadata: {
-            variant: 'tool_progress',
-            tool: evt.tool,
-            phase: evt.phase,
-            label: evt.label,
-          },
-        })
-      } else if (evt.type === 'tool_result') {
-        const preview = evt.preview ?? ''
-        const failed = evt.failed === true
-        intermediateSteps.push({
-          content: preview,
-          metadata: {
-            variant: 'tool_result',
-            tool: evt.tool,
-            failed,
-            displaySummary: formatToolResultForDisplay(evt.tool ?? '', preview),
-          },
-        })
-      }
-    }
+    const intermediateSteps: IntermediateStep[] = []
 
     const chatWork = (async () => {
       let reserved: Awaited<ReturnType<typeof appSql.reserve>> | null = null
@@ -359,7 +214,8 @@ export async function handleAgentChatPost(
                   if (!streamClosed) {
                     writeLine(evt)
                   }
-                  recordIntermediateStep(evt)
+                  const step = intermediateStepFromEvent(evt)
+                  if (step) intermediateSteps.push(step)
                 },
                 db: scopedDb,
               }),
@@ -367,17 +223,7 @@ export async function handleAgentChatPost(
           ),
         )
 
-        let lastAnswerQuestionPreview: string | undefined
-        for (const step of intermediateSteps) {
-          if (step.metadata.variant === 'tool_result' && step.metadata.tool === 'answer_question') {
-            lastAnswerQuestionPreview = step.content
-          }
-        }
-        const rawResponse =
-          typeof result.response === 'string' && result.response.trim().length > 0
-            ? result.response
-            : 'The assistant did not produce a response.'
-        const responseText = sanitizeFinalAnswerText(rawResponse, lastAnswerQuestionPreview)
+        const responseText = finalAnswerText(result.response, intermediateSteps)
         const { messageId } = await persistStreamedAssistantTurn({
           db: scopedDb,
           sessionId,
@@ -393,8 +239,7 @@ export async function handleAgentChatPost(
         })
 
         if (isFirstMessage && !bootstrap && message.length > 0) {
-          const title = message.length > 80 ? message.slice(0, 77) + '...' : message
-          await scopedDb.update(chatSession).set({ title }).where(eq(chatSession.id, sessionId))
+          await titleSessionFromMessage(scopedDb, sessionId, message)
         }
       } catch (err) {
         const details = collectErrorMessages(err)
@@ -448,28 +293,20 @@ export async function handleAgentChatPost(
   }
 
   try {
-    const result = await runWithTrace(crypto.randomUUID(), () =>
-      agentChat({
-        userId: user.id,
-        messages: [...history, { role: 'user', content: agentUserMessage }],
-        mode: sessionMode,
-        aiSessionId: sessionId,
-      }),
-    )
-
-    const responseText = sanitizeFinalAnswerText(result.response)
-    const messageId = await persistAssistantMessage(db, sessionId, user.id, responseText)
-
-    if (isFirstMessage && !bootstrap && message.length > 0) {
-      const title = message.length > 80 ? message.slice(0, 77) + '...' : message
-      await db.update(chatSession).set({ title }).where(eq(chatSession.id, sessionId))
-    }
+    const result = await runAskTurn({
+      db,
+      userId: user.id,
+      sessionId,
+      message: agentUserMessage,
+      mode: sessionMode,
+      bootstrap,
+    })
 
     return json({
-      response: responseText,
+      response: result.answer,
       history: result.messages.filter((m) => m.role !== 'system'),
       sessionId,
-      messageId,
+      messageId: result.messageId,
     })
   } catch (err) {
     console.error(`[${options.logTag ?? 'api/chat'}] agentChat threw`, {

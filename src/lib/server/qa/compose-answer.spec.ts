@@ -490,6 +490,42 @@ describe('composeAnswer', () => {
     expect(result.citations).not.toContain(GROUNDING_PROFILE_CITATION_ID)
   })
 
+  it('returns context = every item given to the answer model, a superset of the cited retrieved', async () => {
+    llmChatCompletionMock.mockResolvedValue(
+      chatResponse(
+        'Answer: Marcus suggested rice flour.\nEvidence:\n- Rice flour suggestion [id=t_001]\nUnknown:\n- none',
+      ),
+    )
+
+    const result = await composeAnswer({ userId: 'u1', question: 'who suggested rice flour?' })
+
+    expect(result.citations).toEqual(['t_001'])
+    expect(result.retrieved.map((r) => r.id)).toEqual(['t_001'])
+    const contextIds = result.context.map((c) => c.id)
+    expect(contextIds).toEqual(expect.arrayContaining(['t_001', 't_002']))
+    expect(contextIds.length).toBeGreaterThan(result.retrieved.length)
+    for (const item of result.retrieved) {
+      expect(contextIds).toContain(item.id)
+    }
+    // the same items the answer model saw
+    const userMessage = llmChatCompletionMock.mock.calls[0][0].messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )
+    for (const id of contextIds) {
+      expect(userMessage.content).toContain(id)
+    }
+  })
+
+  it('returns an empty context when nothing was retrieved (insufficient-memory path)', async () => {
+    searchThoughtsMock.mockResolvedValue([])
+    searchTextFilesMock.mockResolvedValue([])
+
+    const result = await composeAnswer({ userId: 'u1', question: 'where do I work?' })
+
+    expect(result.retrieved).toEqual([])
+    expect(result.context).toEqual([])
+  })
+
   it('does not answer from grounding profile alone when nothing is retrieved', async () => {
     loadGroundingProfileForEnrichmentMock.mockResolvedValue({
       narrativeSummary: '',
