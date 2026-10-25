@@ -279,4 +279,4 @@ async function main(): Promise<void> {
   }
 }
 
-void runEval(main)
+await runEval(main)
