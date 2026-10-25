@@ -208,4 +208,138 @@ describe('db/index', () => {
     if (prev === undefined) delete process.env.DB_POOL_MAX
     else process.env.DB_POOL_MAX = prev
   })
+
+  describe('billing pool and bounded acquisition', () => {
+    function makeReserved() {
+      const release = vi.fn(async () => undefined)
+      const reserved = Object.assign(
+        vi.fn(async () => undefined),
+        { release, unsafe: vi.fn(async () => undefined) },
+      )
+      return { reserved, release }
+    }
+
+    it('withBillingDbUser scopes the session user and releases the billing connection', async () => {
+      vi.resetModules()
+      const { reserved, release } = makeReserved()
+      reserveMock.mockReset()
+      reserveMock.mockResolvedValue(reserved)
+      const { withBillingDbUser } = await import('./index')
+      const { tenantUserAsyncLocal } = await import('$lib/server/billing/context')
+
+      const seen = await withBillingDbUser('operator-1', async () =>
+        tenantUserAsyncLocal.getStore(),
+      )
+
+      expect(seen).toBe('operator-1')
+      expect(reserved).toHaveBeenCalled()
+      expect(release).toHaveBeenCalledTimes(1)
+    })
+
+    it('getDb() inside a billing scope is the billing connection', async () => {
+      vi.resetModules()
+      const { reserved } = makeReserved()
+      reserveMock.mockReset()
+      reserveMock.mockResolvedValue(reserved)
+      const { withBillingDbUser, getDb } = await import('./index')
+
+      const scoped = await withBillingDbUser('operator-1', async (db) => ({ db, ambient: getDb() }))
+
+      expect(scoped.ambient).toBe(scoped.db)
+    })
+
+    it('nested billing scope for the same user reuses the held connection', async () => {
+      vi.resetModules()
+      const { reserved } = makeReserved()
+      reserveMock.mockReset()
+      reserveMock.mockResolvedValue(reserved)
+      const { withBillingDbUser } = await import('./index')
+
+      const out = await withBillingDbUser('operator-1', (outer) =>
+        withBillingDbUser('operator-1', async (inner) => inner === outer),
+      )
+
+      expect(out).toBe(true)
+      expect(reserveMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('nested billing scope for another user fails loud instead of taking a second connection', async () => {
+      vi.resetModules()
+      const { reserved, release } = makeReserved()
+      reserveMock.mockReset()
+      reserveMock.mockResolvedValue(reserved)
+      const { withBillingDbUser } = await import('./index')
+
+      await expect(
+        withBillingDbUser('operator-1', () => withBillingDbUser('tenant-2', async () => 'x')),
+      ).rejects.toThrow(/must not nest across users/)
+      expect(reserveMock).toHaveBeenCalledTimes(1)
+      expect(release).toHaveBeenCalledTimes(1)
+    })
+
+    it('appSql.reserve() rejects with DbPoolAcquireTimeoutError when the pool never frees up', async () => {
+      vi.resetModules()
+      process.env.DB_POOL_ACQUIRE_TIMEOUT_MS = '20'
+      process.env.DB_POOL_MAX = '3'
+      try {
+        reserveMock.mockReset()
+        reserveMock.mockReturnValue(new Promise(() => {}))
+        const { appSql, DbPoolAcquireTimeoutError, withDbUser } = await import('./index')
+
+        const err = await appSql.reserve().catch((e: unknown) => e)
+        expect(err).toBeInstanceOf(DbPoolAcquireTimeoutError)
+        expect(err).toMatchObject({ poolName: 'app', max: 3, timeoutMs: 20 })
+        await expect(withDbUser('u', async () => 'x')).rejects.toBeInstanceOf(
+          DbPoolAcquireTimeoutError,
+        )
+      } finally {
+        delete process.env.DB_POOL_ACQUIRE_TIMEOUT_MS
+        delete process.env.DB_POOL_MAX
+      }
+    })
+
+    it('withBillingDbUser times out on a saturated billing pool and names it', async () => {
+      vi.resetModules()
+      process.env.DB_POOL_ACQUIRE_TIMEOUT_MS = '20'
+      process.env.DB_BILLING_POOL_MAX = '2'
+      try {
+        reserveMock.mockReset()
+        reserveMock.mockReturnValue(new Promise(() => {}))
+        const { withBillingDbUser, DbPoolAcquireTimeoutError } = await import('./index')
+        const err = await withBillingDbUser('u', async () => 'x').catch((e: unknown) => e)
+        expect(err).toBeInstanceOf(DbPoolAcquireTimeoutError)
+        expect(err).toMatchObject({ poolName: 'billing', max: 2 })
+      } finally {
+        delete process.env.DB_POOL_ACQUIRE_TIMEOUT_MS
+        delete process.env.DB_BILLING_POOL_MAX
+      }
+    })
+
+    it('closing the app pool also closes the billing pool', async () => {
+      vi.resetModules()
+      const { reserved } = makeReserved()
+      reserveMock.mockReset()
+      reserveMock.mockResolvedValue(reserved)
+      endMock.mockClear()
+      const { withBillingDbUser, closeAppDbPool } = await import('./index')
+      await withBillingDbUser('operator-1', async () => 'ok')
+
+      await closeAppDbPool()
+
+      expect(endMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('throws when DB_BILLING_POOL_MAX is not a positive integer', async () => {
+      vi.resetModules()
+      process.env.DB_BILLING_POOL_MAX = '0'
+      try {
+        const { withBillingDbUser } = await import('./index')
+        await expect(withBillingDbUser('u', async () => 'x')).rejects.toThrow(
+          /DB_BILLING_POOL_MAX must be a positive integer/,
+        )
+      } finally {
+        delete process.env.DB_BILLING_POOL_MAX
+      }
+    })
+  })
 })

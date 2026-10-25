@@ -1,9 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { InsufficientCreditsError, adminGrantCredits, chargePlatformUsageMicroUsd } from './wallet'
 
-const { mockEnv, withDbUserMock } = vi.hoisted(() => ({
+const { mockEnv, withBillingDbUserMock } = vi.hoisted(() => ({
   mockEnv: {} as Record<string, string | undefined>,
-  withDbUserMock: vi.fn(),
+  withBillingDbUserMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/env/private-env', () => ({
@@ -12,7 +12,7 @@ vi.mock('$lib/server/env/private-env', () => ({
 
 vi.mock('$lib/server/db', () => ({
   getDb: vi.fn(),
-  withDbUser: withDbUserMock,
+  withBillingDbUser: withBillingDbUserMock,
 }))
 
 function makeWalletRow(
@@ -63,7 +63,7 @@ function mockChargeTransaction(wallet: ReturnType<typeof makeWalletRow>) {
     insert,
   }
   const transaction = vi.fn(async (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx))
-  withDbUserMock.mockImplementation(
+  withBillingDbUserMock.mockImplementation(
     async (_userId: string, fn: (db: { transaction: typeof transaction }) => Promise<unknown>) =>
       fn({ transaction }),
   )
@@ -107,7 +107,7 @@ describe('adminGrantCredits', () => {
     })
 
     expect(result).toEqual({ availableCredits: 41 })
-    expect(withDbUserMock).toHaveBeenCalledWith('u1', expect.any(Function))
+    expect(withBillingDbUserMock).toHaveBeenCalledWith('u1', expect.any(Function))
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({ availableCredits: 41 }))
     expect(ledgerValues).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -1,7 +1,9 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import { tenantUserAsyncLocal } from '$lib/server/billing/context'
 import { appDbAsyncLocal, appReservedSqlAsyncLocal, type AppDatabase } from './context'
+import { poolAcquireTimeoutMs, reserveWithTimeout } from './pool-acquire'
 import { getRuntimeDatabaseUrl } from './runtime-url'
 import * as schema from './schema'
 import { activateTenantDbSession, deactivateTenantDbSession } from './tenant-session'
@@ -9,7 +11,7 @@ import { activateTenantDbSession, deactivateTenantDbSession } from './tenant-ses
 export { getDb, appDbAsyncLocal, appReservedSqlAsyncLocal } from './context'
 export type { AppDatabase } from './context'
 export { activateTenantDbSession, deactivateTenantDbSession, appDbRole } from './tenant-session'
-export { withBillingUserDbRead } from './billing-db-read'
+export { DbPoolAcquireTimeoutError } from './pool-acquire'
 
 /**
  * Run `fn` with RLS scoped to `userId` (eval metadata tables, etc.).
@@ -32,6 +34,77 @@ export async function withDbUser<T>(
   }
 }
 
+/** Held billing scope: the wallet connection and the user whose RLS session it carries. */
+const billingScopeAsyncLocal = new AsyncLocalStorage<{ userId: string; db: AppDatabase }>()
+
+/**
+ * Run wallet work (`fn`) with RLS scoped to `userId` on a connection from the dedicated
+ * **billing pool**, never from the app pool.
+ *
+ * Billing is reached from inside scopes that already hold an app-pool connection (a request, an
+ * eval tenant, an enrich drain) and from many LLM calls in parallel. It needs its own
+ * connection because wallet debits are transactions (`db.transaction` on the held app connection
+ * would interleave with the scope's other queries) and because the billing user is not always the
+ * tenant (eval harness: the operator wallet pays). Taking that connection from the app pool
+ * deadlocks it; taking it from this leaf pool cannot (see the pool rules above `appSql`).
+ *
+ * Scopes opened inside `fn` for the same user reuse the held connection; a different user fails
+ * loud, since it would be a second leaf connection held at once.
+ */
+export async function withBillingDbUser<T>(
+  userId: string,
+  fn: (db: AppDatabase) => Promise<T>,
+): Promise<T> {
+  const held = billingScopeAsyncLocal.getStore()
+  if (held) {
+    if (held.userId !== userId) {
+      throw new Error(
+        `withBillingDbUser(${userId}) was called inside the billing scope of ${held.userId}: ` +
+          `billing scopes are leaves and must not nest across users`,
+      )
+    }
+    return fn(held.db)
+  }
+
+  const reserved = await reserveWithTimeout(() => getBillingSql().reserve(), {
+    poolName: 'billing',
+    max: billingPoolMax(),
+    timeoutMs: poolAcquireTimeoutMs(),
+  })
+  try {
+    await activateTenantDbSession(reserved, userId)
+    const scopedDb = createScopedDrizzle(reserved)
+    // getDb() inside `fn` (e.g. creditFromPayment) must resolve to this connection.
+    const run = () =>
+      appDbAsyncLocal.run(scopedDb, () =>
+        billingScopeAsyncLocal.run({ userId, db: scopedDb }, () => fn(scopedDb)),
+      )
+    return await tenantUserAsyncLocal.run(userId, () => appReservedSqlAsyncLocal.run(reserved, run))
+  } finally {
+    await deactivateTenantDbSession(reserved).catch(() => {})
+    await reserved.release()
+  }
+}
+
+function envPoolMax(name: string, fallback: number): number {
+  const raw = (typeof process !== 'undefined' ? process.env[name] : undefined) ?? ''
+  if (!raw.trim()) return fallback
+  const parsed = Number(raw.trim())
+  if (!Number.isFinite(parsed) || parsed < 1 || !Number.isInteger(parsed)) {
+    throw new Error(`${name} must be a positive integer, got: ${raw}`)
+  }
+  return parsed
+}
+
+function poolMax(): number {
+  return envPoolMax('DB_POOL_MAX', 10)
+}
+
+/** Billing leaf pool: short wallet transactions only, so it needs far fewer connections. */
+function billingPoolMax(): number {
+  return envPoolMax('DB_BILLING_POOL_MAX', 5)
+}
+
 /**
  * App-facing Postgres pool. Use `getDb()` inside request handlers (RLS session var is set in hooks).
  *
@@ -49,18 +122,23 @@ export async function withDbUser<T>(
  * Pool size: controlled by `DB_POOL_MAX` env var, defaulting to 10. A capture pipeline holds its
  * connection for the full request duration (including LLM calls), so you need at least as many
  * connections as you expect concurrent in-flight captures plus background requests.
+ *
+ * POOL RULES (a violation deadlocks the process, silently, under load):
+ *  1. A scope that holds a connection must NEVER wait for another connection from the SAME pool.
+ *     With max=M, N scopes that each hold one connection and then nest one more hang forever
+ *     once N >= M (every connection is held by a scope waiting for a connection); a scope that
+ *     nests twice (hold, hold, wait) already hangs at 2N+1 > M. Reuse the held connection
+ *     (`getDb()`), or take the connection from a pool that is strictly later in this order:
+ *     app pool -> billing pool (leaf).
+ *  2. The billing pool is a leaf: a scope holding a billing connection acquires nothing else
+ *     (`withBillingDbUser`), so waiting on it always ends. All wallet work goes through it.
+ *  3. Every `reserve()` waits at most `DB_POOL_ACQUIRE_TIMEOUT_MS` (default 60s, see
+ *     `pool-acquire.ts`) and then throws `DbPoolAcquireTimeoutError`; postgres.js itself has no
+ *     acquisition timeout. Direct queries on the pool (the tagged-template call without
+ *     `reserve()`) are NOT bounded - do not run them while holding a connection.
  */
-function poolMax(): number {
-  const raw = (typeof process !== 'undefined' ? process.env.DB_POOL_MAX : undefined) ?? ''
-  if (!raw.trim()) return 10
-  const parsed = Number(raw.trim())
-  if (!Number.isFinite(parsed) || parsed < 1 || !Number.isInteger(parsed)) {
-    throw new Error(`DB_POOL_MAX must be a positive integer, got: ${raw}`)
-  }
-  return parsed
-}
-
 let appSqlInstance: postgres.Sql | undefined
+let billingSqlInstance: postgres.Sql | undefined
 
 function getAppSql(): postgres.Sql {
   appSqlInstance ??= (() => {
@@ -70,18 +148,42 @@ function getAppSql(): postgres.Sql {
   return appSqlInstance
 }
 
+function getBillingSql(): postgres.Sql {
+  billingSqlInstance ??= (() => {
+    const max = billingPoolMax()
+    return postgres(getRuntimeDatabaseUrl(), { max, idle_timeout: 30 })
+  })()
+  return billingSqlInstance
+}
+
 /**
  * Lazy proxy over the real pool: importing this module must not read env or
  * throw (CI runs env-less); the pool (and its `DATABASE_URL` requirement) is
  * only materialized when a connection is actually requested. Every access in
  * this codebase is a property read (`reserve()`, `end()`, `options`), which the
- * proxy forwards to the lazily-created pool.
+ * proxy forwards to the lazily-created pool. `reserve` is bounded (pool rule 3)
+ * and `end` also closes the billing pool.
  */
 export const appSql: postgres.Sql = new Proxy({} as postgres.Sql, {
   get(_target, prop) {
     const real = getAppSql() as postgres.Sql & Record<string | symbol, unknown>
+    if (prop === 'reserve') {
+      return () =>
+        reserveWithTimeout(() => real.reserve(), {
+          poolName: 'app',
+          max: poolMax(),
+          timeoutMs: poolAcquireTimeoutMs(),
+        })
+    }
+    if (prop === 'end') {
+      return async (endOptions?: { timeout?: number }) => {
+        await Promise.all([real.end(endOptions), billingSqlInstance?.end(endOptions)])
+      }
+    }
     const value = real[prop]
-    return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(real) : value
+    return typeof value === 'function'
+      ? (value as (...args: unknown[]) => unknown).bind(real)
+      : value
   },
   has(_target, prop) {
     return prop in getAppSql()

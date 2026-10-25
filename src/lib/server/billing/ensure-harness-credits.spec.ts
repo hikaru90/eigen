@@ -3,17 +3,16 @@ import { GRAPH_SCALE_OPERATOR_USER_ID } from '$lib/server/auth/harness-billing'
 import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits'
 import { HARNESS_TEST_TOP_UP_CREDITS } from './ensure-harness-credits'
 
-const { withDbUserMock, getOrCreateWalletMock, creditFromPaymentMock, dbInsertMock } = vi.hoisted(
-  () => ({
-    withDbUserMock: vi.fn(),
+const { withBillingDbUserMock, getOrCreateWalletMock, creditFromPaymentMock, dbInsertMock } =
+  vi.hoisted(() => ({
+    withBillingDbUserMock: vi.fn(),
     getOrCreateWalletMock: vi.fn(),
     creditFromPaymentMock: vi.fn(),
     dbInsertMock: vi.fn(),
-  }),
-)
+  }))
 
 vi.mock('$lib/server/db', () => ({
-  withDbUser: withDbUserMock,
+  withBillingDbUser: withBillingDbUserMock,
 }))
 
 vi.mock('$lib/server/billing/wallet', () => ({
@@ -24,7 +23,7 @@ vi.mock('$lib/server/billing/wallet', () => ({
 describe('ensureHarnessWalletCredits', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    withDbUserMock.mockImplementation(
+    withBillingDbUserMock.mockImplementation(
       async (_userId: string, fn: (db: unknown) => Promise<unknown>) =>
         fn({ insert: dbInsertMock }),
     )
@@ -58,8 +57,11 @@ describe('ensureHarnessWalletCredits', () => {
       .mockResolvedValueOnce({ availableCredits: HARNESS_TEST_TOP_UP_CREDITS })
     const { ensureHarnessWalletCredits } = await import('./ensure-harness-credits')
     const result = await ensureHarnessWalletCredits('graph-scale-corpus-run-uuid-1')
-    expect(withDbUserMock).toHaveBeenCalledWith(GRAPH_SCALE_OPERATOR_USER_ID, expect.any(Function))
-    expect(withDbUserMock).toHaveBeenCalledWith(
+    expect(withBillingDbUserMock).toHaveBeenCalledWith(
+      GRAPH_SCALE_OPERATOR_USER_ID,
+      expect.any(Function),
+    )
+    expect(withBillingDbUserMock).toHaveBeenCalledWith(
       'graph-scale-corpus-run-uuid-1',
       expect.any(Function),
     )

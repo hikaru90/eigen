@@ -6,7 +6,7 @@ import {
   microUsdToWholeCredits,
   STARTING_FREE_CREDITS,
 } from '$lib/server/billing/credits'
-import { getDb, withDbUser, type AppDatabase } from '$lib/server/db'
+import { getDb, withBillingDbUser, type AppDatabase } from '$lib/server/db'
 import { user } from '$lib/server/db/auth.schema'
 import {
   paymentOrder,
@@ -99,7 +99,7 @@ export async function getWalletSnapshot(userId: string): Promise<WalletSnapshot 
 
 /** Wallet rows are RLS-scoped; always open a session for `userId`. */
 export async function getOrCreateWallet(userId: string): Promise<WalletSnapshot> {
-  return withDbUser(userId, async (db) => {
+  return withBillingDbUser(userId, async (db) => {
     await db
       .insert(userWallet)
       .values({
@@ -134,7 +134,7 @@ export async function getOrCreateWallet(userId: string): Promise<WalletSnapshot>
 export async function grantStartingFreeCredits(
   userId: string,
 ): Promise<{ granted: boolean; availableCredits: number }> {
-  return withDbUser(userId, async (db) => {
+  return withBillingDbUser(userId, async (db) => {
     const [account] = await db
       .select({ accountKind: user.accountKind })
       .from(user)
@@ -234,7 +234,7 @@ export async function adminGrantCredits(input: {
     throw new Error('userId is required')
   }
 
-  return withDbUser(userId, async (db) => {
+  return withBillingDbUser(userId, async (db) => {
     return db.transaction(async (tx) => {
       await tx
         .insert(userWallet)
@@ -414,7 +414,7 @@ export async function chargePlatformUsageMicroUsd(
   }
   if (actualMicroUsd === 0) return 0
 
-  return withDbUser(userId, (db) =>
+  return withBillingDbUser(userId, (db) =>
     db.transaction(async (tx) => {
       const [wallet] = await tx
         .select()
@@ -753,7 +753,7 @@ export async function assertCanAfford(userId: string, requiredCredits: number): 
  * adjustment such as the starting grant). No wallet yet → null, not a guess.
  */
 export async function loadCreditMeter(userId: string): Promise<CreditMeter | null> {
-  return withDbUser(userId, async (db) => {
+  return withBillingDbUser(userId, async (db) => {
     const [wallet] = await db
       .select({ availableCredits: userWallet.availableCredits })
       .from(userWallet)
@@ -807,7 +807,7 @@ export async function grantIdeaShippedReward(input: {
   if (!userId) throw new Error('userId is required')
   if (!ideaId) throw new Error('ideaId is required')
 
-  return withDbUser(userId, async (db) =>
+  return withBillingDbUser(userId, async (db) =>
     db.transaction(async (tx) => {
       const inserted = await tx
         .insert(walletLedgerEntry)

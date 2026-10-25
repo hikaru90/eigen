@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { STARTING_FREE_CREDITS } from './credits'
 
-const { withDbUserMock } = vi.hoisted(() => ({
-  withDbUserMock: vi.fn(),
+const { withBillingDbUserMock } = vi.hoisted(() => ({
+  withBillingDbUserMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/db', () => ({
-  withDbUser: withDbUserMock,
+  withBillingDbUser: withBillingDbUserMock,
 }))
 
 function makeGrantMocks(options: {
@@ -62,7 +62,7 @@ function makeGrantMocks(options: {
   const transaction = vi.fn(async (fn: (tx: typeof tx) => Promise<unknown>) => fn(tx))
   const db = { select, transaction }
 
-  withDbUserMock.mockImplementation(
+  withBillingDbUserMock.mockImplementation(
     async (_userId: string, fn: (db: typeof db) => Promise<unknown>) => fn(db),
   )
 
@@ -71,7 +71,7 @@ function makeGrantMocks(options: {
 
 describe('grantStartingFreeCredits', () => {
   beforeEach(() => {
-    withDbUserMock.mockReset()
+    withBillingDbUserMock.mockReset()
   })
 
   it('grants STARTING_FREE_CREDITS once for production users', async () => {

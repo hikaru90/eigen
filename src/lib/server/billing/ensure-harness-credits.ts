@@ -1,7 +1,7 @@
 import { resolveHarnessBillingUserId } from '$lib/server/auth/harness-billing'
 import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits'
 import { creditFromPayment, getOrCreateWallet } from '$lib/server/billing/wallet'
-import { withDbUser, type AppDatabase } from '$lib/server/db'
+import { withBillingDbUser, type AppDatabase } from '$lib/server/db'
 import { paymentOrder } from '$lib/server/db/schema'
 
 /** Default harness wallet top-up (enough for graph-scale / eval smoke runs). */
@@ -19,7 +19,7 @@ async function ensureWalletCreditsAtLeast(
   const minCredits = options?.minCredits ?? MIN_CAPTURE_PIPELINE_CREDITS
   const topUpCredits = options?.topUpCredits ?? HARNESS_TEST_TOP_UP_CREDITS
 
-  return withDbUser(userId, async (db) => {
+  return withBillingDbUser(userId, async (db) => {
     let wallet = await getOrCreateWallet(userId)
     if (wallet.availableCredits >= minCredits) {
       return wallet.availableCredits
