@@ -1,5 +1,5 @@
 import type { NoteSearchSources } from './note-search'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb, type AppDatabase } from '$lib/server/db'
 import { notePassage, textFile } from '$lib/server/db/schema'
@@ -195,7 +195,7 @@ export function createDbNoteSearchSources(
         })
         .from(notePassage)
         .innerJoin(textFile, eq(notePassage.textFileId, textFile.id))
-        .where(and(eq(notePassage.userId, userId), authorSql))
+        .where(and(eq(notePassage.userId, userId), isNull(textFile.archivedAt), authorSql))
         .orderBy(distance)
         .limit(NOTE_PASSAGE_ANN_LIMIT)
 
@@ -218,6 +218,7 @@ export function createDbNoteSearchSources(
                   and(
                     eq(notePassage.userId, userId),
                     sql`${notePassage.lexicalTsv} @@ ${tsQuery}`,
+                    isNull(textFile.archivedAt),
                     authorSql,
                   ),
                 )
@@ -248,7 +249,14 @@ export function createDbNoteSearchSources(
       const rows = await getDb()
         .select({ textFileId: textFile.id, rank })
         .from(textFile)
-        .where(and(eq(textFile.userId, userId), sql`${textFile.lexicalTsv} @@ ${tsQuery}`, authorSql))
+        .where(
+          and(
+            eq(textFile.userId, userId),
+            sql`${textFile.lexicalTsv} @@ ${tsQuery}`,
+            isNull(textFile.archivedAt),
+            authorSql,
+          ),
+        )
         .orderBy(desc(rank))
         .limit(NOTE_LEXICAL_LIMIT)
       return rows.map((r) => ({ textFileId: r.textFileId, lexicalRank: r.rank ?? 0 }))
@@ -267,7 +275,14 @@ export function createDbNoteSearchSources(
           authorKeyId: textFile.authorKeyId,
         })
         .from(textFile)
-        .where(and(eq(textFile.userId, userId), inArray(textFile.id, ids), authorSql))
+        .where(
+          and(
+            eq(textFile.userId, userId),
+            inArray(textFile.id, ids),
+            isNull(textFile.archivedAt),
+            authorSql,
+          ),
+        )
     },
 
     loadPassages: async (pairs) => {

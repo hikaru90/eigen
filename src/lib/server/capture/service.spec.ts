@@ -541,6 +541,83 @@ describe('editStoredThought', () => {
     )
   })
 
+  it('editLabel: the stored edit metadata carries the label, never the edit request or the model summary (forgotten detail stays out)', async () => {
+    applyThoughtEditRequestMock.mockResolvedValue({
+      rawText: 'I work as a nurse',
+      status: null,
+      summary: 'Removed the surfing hobby',
+    })
+    const existing = {
+      id: 't1',
+      userId: 'u1',
+      rawText: 'I like surfing and I work as a nurse',
+      metadata: {},
+      category: 'task',
+      normalizedText: 'I like surfing and I work as a nurse',
+      lexicalText: 'x',
+    }
+    const updated = { ...existing, rawText: 'I work as a nurse', normalizedText: 'I work as a nurse' }
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [existing]) })) })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => [updated]) })) })),
+      })),
+    }
+    getDbMock.mockReturnValue(db)
+
+    const result = await editStoredThought(
+      'u1',
+      't1',
+      'Remove only the following from the thought: that I like surfing',
+      { editLabel: 'Forgotten at your request' },
+    )
+
+    expect(result.ok).toBe(true)
+    const setArg = db.update.mock.results[0]?.value.set.mock.calls[0]?.[0] as {
+      metadata: Record<string, unknown>
+      metadataEncrypted: string
+    }
+    expect(setArg.metadata).toMatchObject({
+      lastEditRequest: 'Forgotten at your request',
+      lastEditSummary: 'Forgotten at your request',
+    })
+    expect(JSON.stringify(setArg.metadata)).not.toMatch(/surfing/i)
+    expect(setArg.metadataEncrypted).not.toMatch(/surfing/i)
+    if (result.ok) expect(result.editSummary).toBe('Forgotten at your request')
+  })
+
+  it('without editLabel the request and the model summary are stored as before', async () => {
+    const existing = {
+      id: 't1',
+      userId: 'u1',
+      rawText: 'hello',
+      metadata: {},
+      category: 'task',
+      normalizedText: 'hello',
+      lexicalText: 'hello',
+    }
+    const updated = { ...existing, rawText: 'make shorter', normalizedText: 'make shorter' }
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [existing]) })) })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => [updated]) })) })),
+      })),
+    }
+    getDbMock.mockReturnValue(db)
+    await editStoredThought('u1', 't1', 'make shorter')
+    const setArg = db.update.mock.results[0]?.value.set.mock.calls[0]?.[0] as {
+      metadata: Record<string, unknown>
+    }
+    expect(setArg.metadata).toMatchObject({
+      lastEditRequest: 'make shorter',
+      lastEditSummary: 'Text updated',
+    })
+  })
+
   it('persists the resolver-reported categorySource on the text-edit path', async () => {
     resolveThoughtCategoryMock.mockResolvedValue({
       key: 'observation',

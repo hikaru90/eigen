@@ -169,6 +169,12 @@ export async function captureThought(
 
 export type EditStoredThoughtOptions = {
   onProgress?: (event: CaptureProgressEvent) => Promise<void>
+  /**
+   * Generic label stored (and logged) in place of the edit request and the model's edit summary.
+   * The forget flow passes it so the edit metadata never keeps the forgotten detail
+   * (docs/planning/personamem-score-plan.md, S2b). Absent: request and summary are stored as typed.
+   */
+  editLabel?: string
 }
 
 export async function editStoredThought(
@@ -183,7 +189,7 @@ export async function editStoredThought(
   // Secret hygiene (docs/planning/secret-hygiene.md): the edit LLM, the logs and the stored
   // edit request see the redacted request; a credential typed into an edit is never kept.
   const safeEditRequest = redactedText(editRequest)
-  const editRequestPreview = truncateEditPreview(safeEditRequest)
+  const editRequestPreview = options?.editLabel ?? truncateEditPreview(safeEditRequest)
 
   console.info('[capture.edit] start', { ...logCtx, editRequestPreview })
 
@@ -255,6 +261,7 @@ export async function editStoredThought(
       }),
     )
 
+    const editSummary = options?.editLabel ?? applied.summary
     const priorMeta = (decryptedExisting.metadata as Record<string, unknown>) ?? {}
     const editedRaw = applied.rawText
     const rawTextChanged = editedRaw !== existingRedactedRaw
@@ -274,7 +281,7 @@ export async function editStoredThought(
       textChanged,
       priorStatus,
       nextStatus,
-      editSummary: applied.summary,
+      editSummary,
     })
 
     if (statusOnlyChange && rawTextChanged) {
@@ -283,8 +290,8 @@ export async function editStoredThought(
 
     const metadataPatch: Record<string, unknown> = {
       ...priorMeta,
-      lastEditRequest: safeEditRequest.trim(),
-      lastEditSummary: applied.summary,
+      lastEditRequest: options?.editLabel ?? safeEditRequest.trim(),
+      lastEditSummary: editSummary,
       status: nextStatus,
       ...(nextStatus === 'completed' ? { completedAt: new Date().toISOString() } : {}),
     }
@@ -307,13 +314,13 @@ export async function editStoredThought(
           path: 'metadata_only',
           textChanged,
           nextStatus,
-          editSummary: applied.summary,
+          editSummary,
           timing: timer.finish(),
         })
         return {
           ok: true as const,
           thought: lifecycleResult.thought,
-          editSummary: applied.summary,
+          editSummary,
         }
       }
 
@@ -362,14 +369,14 @@ export async function editStoredThought(
         path: 'metadata_only',
         textChanged,
         nextStatus,
-        editSummary: applied.summary,
+        editSummary,
         timing: timer.finish(),
       })
 
       return {
         ok: true as const,
         thought: resultThought,
-        editSummary: applied.summary,
+        editSummary,
       }
     }
 
@@ -496,13 +503,13 @@ export async function editStoredThought(
         path: 'full_reenrich',
         textChanged,
         nextStatus: nextLifecycle,
-        editSummary: applied.summary,
+        editSummary,
         timing: timer.finish(),
       })
       return {
         ok: true as const,
         thought: lifecycleResult.thought,
-        editSummary: applied.summary,
+        editSummary,
       }
     }
 
@@ -531,14 +538,14 @@ export async function editStoredThought(
       path: 'full_reenrich',
       textChanged,
       nextStatus,
-      editSummary: applied.summary,
+      editSummary,
       timing: timer.finish(),
     })
 
     return {
       ok: true as const,
       thought: resultThought,
-      editSummary: applied.summary,
+      editSummary,
     }
   } catch (err) {
     logEditFailure({

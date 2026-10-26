@@ -3,7 +3,13 @@
  */
 import { and, eq, sql } from 'drizzle-orm'
 import { applyCaptureContentSplitIfNeeded } from '$lib/server/capture/apply-capture-content-split'
-import { readCaptureIntent, type CaptureIntent } from '$lib/server/capture/capture-intent'
+import {
+  readCaptureIntent,
+  readForgetInstruction,
+  type CaptureIntent,
+  type ForgetInstructionMarker,
+  type ForgetInstructionStatus,
+} from '$lib/server/capture/capture-intent'
 import { readCaptureSplitState } from '$lib/server/capture/content-role'
 import { enrichThought, type EnrichThoughtOptions } from '$lib/server/capture/enrich'
 import { drainCaptureEnrichQueue } from '$lib/server/capture/enrich-queue-drain'
@@ -316,13 +322,17 @@ export async function enrichQueuedThought(
         await persistCaptureIntent(userId, thoughtId, captureIntent)
       }
 
-      // Forget request (docs/planning/personamem-score-plan.md, S2): the capture asks Eigen to
-      // forget something. It removes memory instead of becoming memory — no split, no embedding,
-      // no enrichment — and is archived once the targets are handled. A failure throws into the
-      // retry ladder; nothing here falls back to storing it.
-      if (captureIntent === 'forget') {
+      // Forget request (docs/planning/personamem-score-plan.md, S2 and S2b): the capture asks
+      // Eigen to forget something. It removes memory first: found items are removed per hit, and
+      // the instruction is archived only when everything it was about is gone (no split, no
+      // embedding, no enrichment, return). Otherwise it stays an active thought, the marker
+      // `forgetInstruction {status, unresolved}` is recorded, and it is stored like any thought
+      // below so Ask sees the request. The request is applied exactly once per capture: a retried
+      // attempt finds the marker and continues. A failure throws into the retry ladder; nothing
+      // here falls back to silently storing.
+      if (captureIntent === 'forget' && readForgetInstruction(rowMetadata) === undefined) {
         const { applyForgetRequest } = await import('$lib/server/capture/apply-forget-request')
-        await time('forget_request', () =>
+        const forgotten = await time('forget_request', () =>
           applyForgetRequest({
             userId,
             captureThoughtId: thoughtId,
@@ -330,7 +340,11 @@ export async function enrichQueuedThought(
             request: normalizedText,
           }),
         )
-        return
+        if (forgotten.instruction === 'archived') return
+        await persistForgetInstruction(userId, thoughtId, {
+          status: forgotten.status as ForgetInstructionStatus,
+          unresolved: forgotten.unresolved,
+        })
       }
 
       await onProgress?.({ parallel: false, phase: 'content_split' })
@@ -581,6 +595,20 @@ async function persistCaptureIntent(
   await getDb()
     .update(thought)
     .set({ metadataEncrypted: await encryptMetadataPatch(userId, thoughtId, { captureIntent: intent }) })
+    .where(eq(thought.id, thoughtId))
+}
+
+/** Records that a forget capture stays an active thought, and what it left unresolved (ids only). */
+async function persistForgetInstruction(
+  userId: string,
+  thoughtId: string,
+  marker: ForgetInstructionMarker,
+): Promise<void> {
+  await getDb()
+    .update(thought)
+    .set({
+      metadataEncrypted: await encryptMetadataPatch(userId, thoughtId, { forgetInstruction: marker }),
+    })
     .where(eq(thought.id, thoughtId))
 }
 

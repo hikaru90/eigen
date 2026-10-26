@@ -21,6 +21,10 @@ import { isThoughtStaleByAge } from '$lib/server/memory/thought-staleness'
 import { loadOntologyForUser, neverStaleCategoryKeys } from '$lib/server/ontology-db'
 import { observeBelowFloor } from '$lib/server/qa/compose-observer'
 import {
+  retrieveAnswerEvidence,
+  TEXT_FILE_COMPOSE_TOP_K,
+} from '$lib/server/qa/retrieve-answer-evidence'
+import {
   allowsComputedTimelineCitation,
   COMPUTED_TIMELINE_CITATION_ID,
   formatComputedTimelineForPrompt,
@@ -39,25 +43,18 @@ import {
   mergeQuestionEntityHints,
   shouldUseDeterministicSolverAnswer,
 } from '$lib/server/retrieval/query-entity-hints'
-import { relevanceFloorFor } from '$lib/server/retrieval/relevance-floor'
 import {
   candidatesFromTemporalSeeds,
   resolveTemporalHintBindings,
 } from '$lib/server/retrieval/resolve-temporal-hint-bindings'
-import type { RetrieveEvidenceExtras } from '$lib/server/retrieval/retrieve-evidence'
-import {
-  bestScoreBelowFloor,
-  fuseRankedHits,
-  normalizeRetrievalScore,
-} from '$lib/server/retrieval/rrf-scoring'
-import { searchThoughts } from '$lib/server/retrieval/service'
+import type { RetrievalResult } from '$lib/server/retrieval/service'
 import {
   fetchTemporalEventSeeds,
   fetchTemporalEventSeedsForHints,
   type TemporalSeedsFetchResult,
 } from '$lib/server/retrieval/temporal'
 import { redactedText } from '$lib/server/security/detect-secrets'
-import { searchTextFiles, type TextFileSearchHit } from '$lib/server/text-files/service'
+import type { TextFileSearchHit } from '$lib/server/text-files/service'
 
 /** Reserved citation id for explicit user grounding profile facts in compose prompts. */
 export const GROUNDING_PROFILE_CITATION_ID = 'profile'
@@ -174,7 +171,7 @@ export function formatComposedAnswerForUser(answer: string): string {
   return normalizeCitationTokens(answer.trim())
 }
 
-type SearchHit = Awaited<ReturnType<typeof searchThoughts>>[number]
+type SearchHit = RetrievalResult
 
 /**
  * XXX REMOVED — stop-word filtered retrieval hint extraction.
@@ -247,8 +244,6 @@ export function formatThoughtsForPrompt(items: RetrievalContextItem[], now: Date
     })
     .join('\n\n')
 }
-
-const TEXT_FILE_COMPOSE_TOP_K = 5
 
 /** Notes are citable by their own id, exactly like thoughts; a hit never cites a passage. */
 export function formatTextFilesForPrompt(files: TextFileSearchHit[]): string {
@@ -380,6 +375,7 @@ const SYSTEM_PROMPT = [
   '- Every line under Evidence MUST end with at least one [id=<uuid>] or [id=profile] citation.',
   '- Keep the response compact. No preamble, no closing remarks, no meta commentary about the thoughts or memory themes.',
   '- Memory themes (if present) are routing hints only — never cite them and never treat them as evidence.',
+  '- A retrieved thought in which the user asks you to forget, stop remembering or not use something is an instruction rather than a fact, so do not use the information it asks to forget in the Answer or the Evidence and do not cite that thought.',
   '',
   'Grounding profile rules (only when retrieved thoughts exist AND a profile section is present):',
   '- Profile facts may clarify or disambiguate retrieved thoughts but must not be the sole basis for an answer.',
@@ -602,57 +598,22 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     temporalKind: queryIntent.kind,
   })
   await input.onProgress?.('searching')
-  const retrievalExtras: RetrieveEvidenceExtras = {
-    communityThemes: [],
-    temporalSeeds: [],
-  }
-  // the product floor, or (eval harness only) the floor of the run being measured
-  const relevanceFloor = relevanceFloorFor(input.userId)
-  let notePassagesBelowFloor: number | null = null
-  const [searchResults, questionTextFileHits, ...expansionTextFileHits] = await Promise.all([
-    searchThoughts({
-      userId: input.userId,
-      query: retrievalQuery,
-      topK: effectiveTopK,
-      weights,
-      queryEmbedding,
-      temporalIntent: queryIntent,
-      authorFilter: input.authorFilter,
-      extrasOut: retrievalExtras,
-      ...(expansions ? { expansions } : {}),
-    }),
-    searchTextFiles(input.userId, {
-      query: retrievalQuery,
-      topK: TEXT_FILE_COMPOSE_TOP_K,
-      queryEmbedding,
-      minScore: relevanceFloor,
-      onBelowFloor: (best) => {
-        notePassagesBelowFloor = best
-      },
-    }),
-    ...(expansions ?? []).map((e) =>
-      searchTextFiles(input.userId, {
-        query: e.query,
-        topK: TEXT_FILE_COMPOSE_TOP_K,
-        queryEmbedding: e.embedding,
-        minScore: relevanceFloor,
-      }),
-    ),
-  ])
-  // Notes: the question's passages and each sub-query's merge by reciprocal rank, deduplicated,
-  // inside the same notes budget.
-  const textFileHits = expansions
-    ? fuseRankedHits([questionTextFileHits, ...expansionTextFileHits], TEXT_FILE_COMPOSE_TOP_K)
-    : questionTextFileHits
-  observeBelowFloor(input.userId, {
-    thoughts: bestScoreBelowFloor(
-      searchResults.map((r) => normalizeRetrievalScore(r.score)),
-      relevanceFloor,
-    ),
-    notePassages: notePassagesBelowFloor,
+  const evidence = await retrieveAnswerEvidence({
+    userId: input.userId,
+    query: retrievalQuery,
+    queryEmbedding,
+    topK: effectiveTopK,
+    noteTopK: TEXT_FILE_COMPOSE_TOP_K,
+    weights,
+    temporalIntent: queryIntent,
+    authorFilter: input.authorFilter,
+    ...(expansions ? { expansions } : {}),
   })
+  const retrievalExtras = evidence.extras
+  const textFileHits = evidence.noteHits
+  observeBelowFloor(input.userId, evidence.belowFloor)
   const communityThemes = scope === 'global' ? retrievalExtras.communityThemes.slice(0, 6) : []
-  const retrieved = searchResults.filter((r) => normalizeRetrievalScore(r.score) >= relevanceFloor)
+  const retrieved = evidence.retrieved
   void tryRecordRetrievalQualityEvent({
     userId: input.userId,
     surface: 'compose_answer',

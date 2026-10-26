@@ -54,4 +54,18 @@ describe('drizzle migration journal', () => {
     expect(sqlText).toContain('vector(1536)')
     expect(sqlText).toContain('USING hnsw ("embedding" vector_cosine_ops)')
   })
+
+  it('registers 0084_text_file_archived with the next sequential idx and a nullable archived_at column', () => {
+    const journal = JSON.parse(readFileSync(journalPath, 'utf-8')) as {
+      entries: Array<{ tag: string; idx: number }>
+    }
+    const entry = journal.entries.find((e) => e.tag === '0084_text_file_archived')
+    expect(entry).toBeDefined()
+    expect(entry!.idx).toBe(84)
+    expect(journal.entries.map((e) => e.idx)).toEqual(journal.entries.map((_, i) => i))
+    const sqlText = readFileSync(path.join(migrationsDir, '0084_text_file_archived.sql'), 'utf-8')
+    expect(sqlText).toContain('ALTER TABLE "text_file" ADD COLUMN IF NOT EXISTS "archived_at" timestamp')
+    // nullable, no default: NULL = active note
+    expect(sqlText).not.toMatch(/archived_at"[^;]*NOT NULL/)
+  })
 })
