@@ -76,21 +76,52 @@ full history **and** "Not in memory" behaviour for unanswerable questions doesn'
 product reason for the floor) — check with Eigen's own eval (`/eval` UI) before changing the
 constant.
 
-### S2 — "Forget" requests (product feature, ~21% of questions)
-- A capture whose role is a request to forget something must remove (archive) the matching
-  memories instead of being stored as a new thought. Jev decides the role (LLM, no keyword rules);
-  matching reuses `delete_thoughts_by_request` (Jev candidates behind its 0.8 confidence gate).
-  Same behaviour through MCP `capture_thought`.
-- Moves: accuracy on `ask_to_forget`.
+### S2 — "Forget" requests at capture (approved 2026-10-26)
 
-### S3 — Retrieval for advice questions (product, retrieval)
-- Questions like "what should I eat / do / try" don't share words or meaning with the evidence
-  ("dizzy after long nights", "out on the waves"). Add an LLM query-expansion step for
-  advice/recommendation intents: "what about this user would matter for answering this?" →
-  2–4 retrieval sub-queries (conditions, preferences, habits, constraints), merged with the plain
-  query. LLM-judged, generic; `classifyQueryIntent` already classifies intent and is the place
-  to gate it.
-- Moves: evidence-retrieved rate (photos/anemia class).
+Evidence: full-history baseline `val-full-1-product` (deepseek, 69 q): ask_to_forget eigen 33% vs
+no-memory 44% (−11 pp). "Please forget that I …" is stored as an ordinary thought and nothing is
+forgotten, so the forgotten preference keeps being retrieved.
+
+- **Decision (Jev, LLM):** a new decision kind `capture_intent` = `store` | `forget`, asked in
+  the same early pre-split Jev call as `content_role` (criteria: forget = the user asks Eigen to
+  forget / stop remembering / delete something about them). Shadow + enforce like the other kinds
+  (`DECISION_ENFORCE_KINDS`), with `decision_shadow_log` rows.
+- **On `forget`:** find the targets with the existing Jev-backed matcher behind
+  `delete_thoughts_by_request` (0.8 confidence gate), restricted to the user's active thoughts
+  captured **before** the forget capture (a fact restated later stays). For each target an LLM
+  judge decides `archive` (the thought is only about the forgotten thing) or `edit_out` (it also
+  holds other facts → remove just that detail via the existing natural-language edit path,
+  `normalized_text` changes, `raw_text` stays). The forget capture itself is archived after
+  processing so its text is never retrieved; an audit record (activity log) lists what was
+  archived/edited — never silently.
+- Same path for UI capture and MCP `capture_thought`. Notes are out of scope (record as follow-up).
+- Tests: intent decision validation; target restriction to earlier thoughts; archive vs edit_out
+  with fake LLM; forget capture archived; nothing matched → audit says so, capture archived;
+  regression: a capture merely *mentioning* forgetting ("I forgot my keys") is `store`.
+- Measure: evidence-only dev set (ask_to_forget slice), then full history (needs re-ingest).
+
+
+### S3 — Retrieval for advice questions (approved 2026-10-26)
+
+Evidence: `val-full-1-product`: evidence reached the chooser for only 42% of questions; 28 of 38
+misses had the evidence outside the ~15 retrieved items (health 14%, anti-stereotypical 30%).
+Advice questions ("what should I eat / try / do") don't resemble the implicit evidence.
+
+- **Intent (LLM):** extend `classifyQueryIntent` (`src/lib/server/retrieval/classify-query-intent.ts`)
+  with `personalization: boolean` — the answer should depend on who the user is (preferences,
+  health, habits, constraints, circumstances) rather than on one stored fact.
+- **Expansion (LLM):** when true, one call produces 2–4 retrieval sub-queries describing what
+  about the user would matter ("health conditions affecting energy", "foods the user avoids",
+  "physical activities the user enjoys on trips"). Each runs through the normal hybrid retrieval;
+  results merge with the original query by reciprocal-rank fusion, deduplicated, into the same
+  top-K budget before rerank. No keyword rules; the LLM writes the sub-queries.
+- Applies to `composeAnswer` (Ask's `answer_question`, MCP). Cost: +1 small LLM call per
+  advice question; logged like other calls.
+- Tests: intent field validation; expansion only when personalization; RRF merge + budget;
+  sub-queries never carry option text; fact questions unchanged.
+- Measure: answer-only A/B on the existing ingest — `--reuse-ingest val-full-1-product` (cheap,
+  no re-ingest) — evidence-hit rate and accuracy vs the baseline; plus the evidence-only dev set.
+
 
 ### S4 — Cross-language retrieval (product, retrieval)
 - Keyword search must not drop non-Latin scripts (CJK, Arabic, Hebrew, Cyrillic): Unicode-aware

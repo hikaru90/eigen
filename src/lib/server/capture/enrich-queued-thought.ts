@@ -3,6 +3,7 @@
  */
 import { and, eq, sql } from 'drizzle-orm'
 import { applyCaptureContentSplitIfNeeded } from '$lib/server/capture/apply-capture-content-split'
+import { readCaptureIntent, type CaptureIntent } from '$lib/server/capture/capture-intent'
 import { readCaptureSplitState } from '$lib/server/capture/content-role'
 import { enrichThought, type EnrichThoughtOptions } from '$lib/server/capture/enrich'
 import { drainCaptureEnrichQueue } from '$lib/server/capture/enrich-queue-drain'
@@ -30,8 +31,8 @@ import {
   dominantEntityType,
   runEnforcedBoundedDecisions,
   runEnforcedPerItemDecisions,
-  startContentRoleDecision,
   startDecisionShadow,
+  startEarlyCaptureDecisions,
   type BoundedDecisionSpec,
   type EnforcedContentRole,
 } from '$lib/server/llm/decision-plane'
@@ -289,19 +290,48 @@ export async function enrichQueuedThought(
       const rawText = redactedText(stored.rawText)
       const normalizedText = redactedText(stored.normalizedText)
 
-      // Decision plane, enforced content_role (spec §6 P): one bounded call
-      // BEFORE the split phase — its answer is the capture's role (personal |
-      // reference | mixed) and drives the generation call. Throws into the
-      // ingest retry ladder on failure. Decided exactly once per capture: a span
-      // child IS its span, and a retried attempt resumes the persisted plan.
-      const splitState = readCaptureSplitState(await decryptRowMetadata(userId, row))
+      // Decision plane, enforced early decisions (spec §6 P): ONE bounded call BEFORE the split
+      // phase asks content_role (personal | reference | mixed — drives the generation call) and
+      // capture_intent (store | forget — a forget request removes memory instead of becoming it).
+      // Throws into the ingest retry ladder on failure. Each is decided exactly once per capture:
+      // a span child IS its span (never a request), a retried attempt resumes the persisted plan
+      // and the persisted intent.
+      const rowMetadata = await decryptRowMetadata(userId, row)
+      const splitState = readCaptureSplitState(rowMetadata)
       const roleUndecided = splitState.phase === 'undecided'
-      const contentRoleDecision = roleUndecided
-        ? startContentRoleDecision({ userId, state: normalizedText })
-        : null
-      const enforcedContentRole: EnforcedContentRole | undefined = contentRoleDecision
-        ? await time('decision_content_role', () => contentRoleDecision.decide())
+      let captureIntent: CaptureIntent | undefined = readCaptureIntent(rowMetadata)
+      const intentUndecided = roleUndecided && captureIntent === undefined
+      const earlyDecision = startEarlyCaptureDecisions({
+        userId,
+        state: normalizedText,
+        contentRole: roleUndecided,
+        captureIntent: intentUndecided,
+      })
+      const early = earlyDecision
+        ? await time('decision_content_role', () => earlyDecision.decide())
         : undefined
+      const enforcedContentRole: EnforcedContentRole | undefined = early?.contentRole
+      if (early?.captureIntent) {
+        captureIntent = early.captureIntent.intent
+        await persistCaptureIntent(userId, thoughtId, captureIntent)
+      }
+
+      // Forget request (docs/planning/personamem-score-plan.md, S2): the capture asks Eigen to
+      // forget something. It removes memory instead of becoming memory — no split, no embedding,
+      // no enrichment — and is archived once the targets are handled. A failure throws into the
+      // retry ladder; nothing here falls back to storing it.
+      if (captureIntent === 'forget') {
+        const { applyForgetRequest } = await import('$lib/server/capture/apply-forget-request')
+        await time('forget_request', () =>
+          applyForgetRequest({
+            userId,
+            captureThoughtId: thoughtId,
+            captureCreatedAt: row.createdAt,
+            request: normalizedText,
+          }),
+        )
+        return
+      }
 
       await onProgress?.({ parallel: false, phase: 'content_split' })
       const splitApplied = await time('content_split', () =>
@@ -331,6 +361,9 @@ export async function enrichQueuedThought(
       await onProgress?.({ parallel: false, phase: 'embedding' })
 
       // Decision shadow: kick BEFORE the bundle LLM call so both models run side by side.
+      // capture_intent rides along only when it is undecided and NOT enforced (shadow): the
+      // pipeline stores the capture, which is the comparison primary.
+      const captureIntentShadow = intentUndecided && !resolveDecisionEnforceKinds().has('capture_intent')
       const decisionShadow = startDecisionShadow({
         userId,
         surface: 'enrich_queued',
@@ -343,6 +376,7 @@ export async function enrichQueuedThought(
           .map((k) => ({ key: k.key, name: k.name, definition: k.definition })),
         contentRoleEnabled: roleUndecided,
         enforcedContentRole,
+        captureIntentShadow,
       })
 
       const prefetched = await time('prefetch_enrich_llm', () =>
@@ -392,6 +426,7 @@ export async function enrichQueuedThought(
         category: { choice: bundleCategory.key, confidence: bundleCategory.confidence },
         contentRole: enforcedContentRole ? undefined : { choice: splitApplied.role },
         entityType: dominantEntityType(prefetched.entityGraph.mentions) ?? undefined,
+        captureIntent: captureIntentShadow ? { choice: 'store' } : undefined,
       })
       const category = settled?.category
         ? resolveEnforcedCategory(context, settled.category)
@@ -535,6 +570,18 @@ export async function enrichQueuedThought(
     await markEnrichQueueFailed(thoughtId, message)
     throw err
   }
+}
+
+/** Persists the decided capture intent so a retried attempt resumes it instead of asking again. */
+async function persistCaptureIntent(
+  userId: string,
+  thoughtId: string,
+  intent: CaptureIntent,
+): Promise<void> {
+  await getDb()
+    .update(thought)
+    .set({ metadataEncrypted: await encryptMetadataPatch(userId, thoughtId, { captureIntent: intent }) })
+    .where(eq(thought.id, thoughtId))
 }
 
 async function encryptMetadataPatch(

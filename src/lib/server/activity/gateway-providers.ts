@@ -11,6 +11,9 @@ export const OPENROUTER_ACTIVITY_PROVIDER = 'openrouter' as const
 
 export const AGENT_TOOL_ACTIVITY_PROVIDER = 'agent' as const
 
+/** Audit rows for changes Eigen makes to the user's memory on their behalf (not billable gateway traffic). */
+export const MEMORY_AUDIT_ACTIVITY_PROVIDER = 'memory' as const
+
 export const ACTIVITY_PAGE_LLM_PROVIDERS = [
   LLM_GATEWAY_ACTIVITY_PROVIDER,
   OPENROUTER_ACTIVITY_PROVIDER,

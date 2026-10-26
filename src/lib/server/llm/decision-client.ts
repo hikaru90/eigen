@@ -31,7 +31,8 @@ export type DecisionShadowConfig = {
  * Bounded decision kinds the decision plane compares (spec §3). Widened with
  * resolution_choice, delete_target, message_intent, open_loop, and
  * salience_band (14 total) for the upcoming resolution / delete-gate /
- * chat-turn surfaces.
+ * chat-turn surfaces, plus capture_intent (15 total; store | forget at
+ * capture, docs/planning/personamem-score-plan.md S2).
  */
 export type DecisionKind =
   | 'category'
@@ -48,6 +49,7 @@ export type DecisionKind =
   | 'message_intent'
   | 'open_loop'
   | 'salience_band'
+  | 'capture_intent'
 
 /**
  * Kinds with an implemented promotion path (spec §6 P). entity_type,
@@ -76,6 +78,7 @@ const ENFORCEABLE_KINDS = [
   'message_intent',
   'open_loop',
   'salience_band',
+  'capture_intent',
 ] as const
 
 export type EnforceableDecisionKind = (typeof ENFORCEABLE_KINDS)[number]
