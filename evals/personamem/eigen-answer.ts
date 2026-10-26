@@ -9,7 +9,7 @@ import { buildChooserMessages } from './mcq'
  * nothing, and the memories it was shown are exactly what the benchmark measures.
  */
 export async function chooseFromComposed(input: {
-  composed: Pick<ComposedAnswer, 'context'>
+  composed: { context: readonly { normalizedText: string; createdAt: Date }[] }
   query: string
   options: Record<OptionLetter, string>
   complete: Complete

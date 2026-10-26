@@ -226,6 +226,7 @@ type InflightOutcome =
       ok: true
       byKind: Record<string, KindOutcome>
       reportedCostUsd: number | null
+      cached: boolean
       durationMs: number
     }
   | { ok: false; error: string; durationMs: number }
@@ -300,6 +301,7 @@ export function startContentRoleDecision(input: {
           gatewayHost: 'openrouter.ai',
           context: 'decision_shadow kinds=content_role surface=enrich_queued(pre-split)',
           durationMs: Date.now() - startedAt,
+          cached: res.cached === true,
         })
       } catch (err) {
         console.error('[decision-plane] failed to record content_role activity row', err)
@@ -382,6 +384,7 @@ async function persistPerItemRows(
   rows: Array<typeof decisionShadowLog.$inferInsert>,
   reportedCostUsd: number | null,
   durationMs: number,
+  cached: boolean,
 ): Promise<void> {
   try {
     if (rows.length > 0) {
@@ -397,6 +400,7 @@ async function persistPerItemRows(
       gatewayHost: 'openrouter.ai',
       context: `decision_shadow kinds=${input.kind} items=${items.length} surface=${input.surface}`,
       durationMs,
+      cached,
     })
   } catch (err) {
     console.error('[decision-plane] failed to record per-item decision rows', err)
@@ -450,7 +454,7 @@ export async function runEnforcedPerItemDecisions(input: {
   } catch (err) {
     const durationMs = Date.now() - startedAt
     const rows = input.items.map((item) => perItemRow(input, item, null, durationMs, errorText(err)))
-    await persistPerItemRows(input, input.items, rows, null, durationMs)
+    await persistPerItemRows(input, input.items, rows, null, durationMs, false)
     throw new Error(`[decision-plane] enforced ${input.kind} per-item decision failed: ${errorText(err)}`, {
       cause: err,
     })
@@ -481,7 +485,7 @@ export async function runEnforcedPerItemDecisions(input: {
     rows.push(perItemRow(input, item, perItem, durationMs, null))
   }
 
-  await persistPerItemRows(input, input.items, rows, res.reportedCostUsd, durationMs)
+  await persistPerItemRows(input, input.items, rows, res.reportedCostUsd, durationMs, res.cached === true)
 
   if (offCatalog) throw new Error(offCatalog)
   return answers
@@ -543,6 +547,7 @@ async function persistBoundedRows(
   rows: Array<typeof decisionShadowLog.$inferInsert>,
   reportedCostUsd: number | null,
   durationMs: number,
+  cached: boolean,
 ): Promise<void> {
   try {
     if (rows.length > 0) {
@@ -558,6 +563,7 @@ async function persistBoundedRows(
       gatewayHost: 'openrouter.ai',
       context: `decision_shadow kinds=${specs.map((s) => s.decisionKind).join(',')} surface=${input.surface}`,
       durationMs,
+      cached,
     })
   } catch (err) {
     console.error('[decision-plane] failed to record bounded decision rows', err)
@@ -612,7 +618,7 @@ export async function runEnforcedBoundedDecisions(input: {
   } catch (err) {
     const durationMs = Date.now() - startedAt
     const rows = input.specs.map((spec) => boundedRow(input, spec, null, durationMs, errorText(err)))
-    await persistBoundedRows(input, input.specs, rows, null, durationMs)
+    await persistBoundedRows(input, input.specs, rows, null, durationMs, false)
     throw new Error(`[decision-plane] enforced bounded decision(s) failed: ${errorText(err)}`, {
       cause: err,
     })
@@ -634,7 +640,7 @@ export async function runEnforcedBoundedDecisions(input: {
     rows.push(boundedRow(input, spec, answer, durationMs, null))
   }
 
-  await persistBoundedRows(input, input.specs, rows, res.reportedCostUsd, durationMs)
+  await persistBoundedRows(input, input.specs, rows, res.reportedCostUsd, durationMs, res.cached === true)
 
   if (offCatalog) throw new Error(offCatalog)
   return answers
@@ -720,6 +726,7 @@ export function startDecisionShadow(
         ok: true as const,
         byKind,
         reportedCostUsd: res.reportedCostUsd,
+        cached: res.cached === true,
         durationMs: Date.now() - startedAt,
       }
     },
@@ -859,6 +866,7 @@ async function recordRows(
       gatewayHost: 'openrouter.ai',
       context: `decision_shadow kinds=${kinds.join(',')} surface=${ctx.surface}`,
       durationMs: outcome.durationMs,
+      cached: outcome.ok && outcome.cached,
     })
   } catch (err) {
     // The shadow must never break capture — but failures stay loud.

@@ -25,6 +25,7 @@ const identity: RunIdentity = {
   enrichConcurrency: 1,
   relevanceFloor: 'product',
   reuseIngest: null,
+  maxHistoryTurns: null,
 }
 
 const captures = (...texts: string[]) =>

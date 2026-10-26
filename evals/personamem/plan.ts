@@ -168,7 +168,10 @@ function planFullHistory(rows: PreparedRow[], cli: PersonaMemCli): PlannedPerson
   assertHistoriesPresent(selected, cli)
   const unaligned: string[] = []
   const personas = selected.map((persona): PlannedPersona => {
-    const captures = historyToCaptures(loadHistory(persona.historyPath))
+    const history = historyToCaptures(loadHistory(persona.historyPath))
+    // REHEARSAL (--max-history-turns): the cap cuts evidence off, which is the point of a cheap run
+    // and not a data error - such a question is still asked, as a question without history evidence
+    const captures = cli.maxHistoryTurns === null ? history : history.slice(0, cli.maxHistoryTurns)
     const questions = limitedQueries(persona, cli).flatMap((row) => {
       try {
         const captureIndexes = alignEvidenceToCaptures(captures, row.evidenceTurns, row)
@@ -182,6 +185,9 @@ function planFullHistory(rows: PreparedRow[], cli: PersonaMemCli): PlannedPerson
         ]
       } catch (err) {
         if (!(err instanceof EvidenceNotInHistoryError)) throw err
+        if (cli.maxHistoryTurns !== null) {
+          return [plannedQuestion(row, { kind: 'not-in-history' })]
+        }
         unaligned.push(err.message)
         return []
       }
@@ -256,6 +262,13 @@ function describeSelection(cli: PersonaMemCli): string {
   return `${selection.count} personas, seed ${JSON.stringify(selection.seed)}`
 }
 
+function runIdLine(cli: PersonaMemCli): string {
+  if (cli.runId === null) return '(none - a real run requires --run-id)'
+  if (cli.resume) return `${cli.runId} (resume: nothing is re-done, nothing is deleted)`
+  if (cli.fresh) return `${cli.runId} (new run, --fresh: each tenant is reset before its first capture)`
+  return `${cli.runId} (new run, tenants holding thoughts are refused)`
+}
+
 export function formatPlan(plan: Plan, cli: PersonaMemCli): string[] {
   const { totals } = plan
   const evidence = cli.evidenceOnly
@@ -265,9 +278,15 @@ export function formatPlan(plan: Plan, cli: PersonaMemCli): string[] {
     `data dir: ${cli.dataDir}`,
     `split: ${cli.split}${cli.split === 'val' ? ' (tuning data, not a reported score)' : ''}`,
     `chat model: ${cli.chatModel}`,
+    ...(cli.maxHistoryTurns === null
+      ? []
+      : [
+          `REHEARSAL - not a score (first ${cli.maxHistoryTurns} user turn(s) of each history)`,
+        ]),
     `ingest: capture${evidence ? ' (evidence user turns only, one tenant per question)' : ''}`,
     `answer: ${cli.answer}`,
     `selection: ${describeSelection(cli)}`,
+    `run id: ${runIdLine(cli)}`,
     `tenant concurrency: ${cli.tenantConcurrency}, enrich concurrency: ${cli.enrichConcurrency}`,
     `relevance floor: ${cli.relevanceFloor === 'product' ? 'product (the constant real users get)' : `${cli.relevanceFloor} (eval-only override of the product floor)`}`,
     `ingest source: ${cli.reuseIngest === null ? 'this run ingests the tenants' : `run ${cli.reuseIngest} (--reuse-ingest; nothing is ingested)`}`,

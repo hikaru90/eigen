@@ -1,4 +1,9 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { tenantUserAsyncLocal } from '$lib/server/billing/context'
+import { createEvalLlmCache, withEvalLlmCache, type EvalLlmCache } from './eval-llm-cache'
 import { envPaste, FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 import {
   resolveDecisionEnforceKinds,
@@ -414,5 +419,81 @@ describe('runDecisionModel', () => {
     })
     await expect(pending).rejects.toBeInstanceOf(Error)
     await expect(pending).rejects.not.toThrow(/secret-or-key/)
+  })
+})
+
+describe('runDecisionModel with the eval cache', () => {
+  const config = { apiKey: 'secret-or-key', model: 'typesafe/jev-1.13' }
+  const TENANT = 'public-bench-personamem-v2-capture-test-p1'
+  const request = {
+    state: 'Buy milk tomorrow',
+    questions: {
+      category: { type: 'choice' as const, instructions: 'Pick one', criteria: { task: 'Tasks', idea: 'Ideas' } },
+    },
+  }
+  const body = {
+    model: 'typesafe/jev-1.13',
+    answers: {
+      category: {
+        type: 'choice',
+        choice: 'task',
+        probabilities: { task: 0.9, idea: 0.1 },
+        confidence: 0.9,
+      },
+    },
+    usage: { cost: 0.0000123, input_tokens: 10, output_tokens: 1 },
+  }
+  let dir: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'decision-cache-'))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })))
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+    vi.unstubAllGlobals()
+  })
+
+  const inTenant = <T>(cache: EvalLlmCache, fn: () => Promise<T>) =>
+    withEvalLlmCache(cache, () => tenantUserAsyncLocal.run(TENANT, fn))
+
+  it('a miss pays and persists, a hit returns the same answers with 0 reported cost and no request', async () => {
+    const cache = createEvalLlmCache(dir)
+    const first = await inTenant(cache, () => runDecisionModel(config, request))
+    expect(first.reportedCostUsd).toBe(0.0000123)
+    expect(first.cached).toBeUndefined()
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1)
+
+    const second = await inTenant(cache, () => runDecisionModel(config, request))
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(1)
+    expect(second.answers).toEqual(first.answers)
+    expect(second.reportedCostUsd).toBe(0)
+    expect(second.cached).toBe(true)
+    expect(cache.stats).toMatchObject({ hits: 1, misses: 1, usdPaid: 0.0000123, usdAvoided: 0.0000123 })
+  })
+
+  it('a different question is a different call', async () => {
+    const cache = createEvalLlmCache(dir)
+    await inTenant(cache, async () => {
+      await runDecisionModel(config, request)
+      await runDecisionModel(config, { ...request, state: 'Buy bread' })
+    })
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses to cache outside a harness tenant', async () => {
+    const cache = createEvalLlmCache(dir)
+    await expect(
+      withEvalLlmCache(cache, () => tenantUserAsyncLocal.run('real-user', () => runDecisionModel(config, request))),
+    ).rejects.toThrow(/only allowed for harness billing users/)
+    await expect(withEvalLlmCache(cache, () => runDecisionModel(config, request))).rejects.toThrow(
+      /only allowed for harness billing users/,
+    )
+  })
+
+  it('is off without a cache', async () => {
+    await runDecisionModel(config, request)
+    await runDecisionModel(config, request)
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(2)
   })
 })

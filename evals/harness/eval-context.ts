@@ -76,11 +76,14 @@ export async function withOperatorDb<T>(fn: (db: AppDatabase) => Promise<T>): Pr
 /**
  * Top-level entry helper for eval scripts: ensures the postgres pool is closed
  * so the process exits even if a downstream import opened keep-alive timers.
+ * `main` may return the process exit code (a thrown error still exits 1).
  */
-export async function runEval(main: () => Promise<void>): Promise<void> {
+export async function runEval(main: () => Promise<void | number>): Promise<void> {
   let exitCode = 0
   try {
-    await main()
+    // a run that finishes without crashing can still end non-zero (incomplete, stopped)
+    const result = await main()
+    if (typeof result === 'number') exitCode = result
   } catch (err) {
     exitCode = 1
     console.error('[eval] failed:', err instanceof Error ? (err.stack ?? err.message) : err)

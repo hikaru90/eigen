@@ -1,3 +1,4 @@
+import type { FailureRow } from '../public-bench/failures'
 import type { RunSummary, SummarySection } from '../public-bench/run-output'
 import type { GroupStats, Score } from './score'
 import type { AnswerMode, BelowFloor, OptionLetter, RelevanceFloorSetting, Split } from './types'
@@ -57,6 +58,11 @@ function breakdown(
 const round6 = (x: number) => Math.round(x * 1e6) / 1e6
 
 export const SMOKE_BANNER = 'SMOKE (evidence-only) - not a benchmark score'
+export const REHEARSAL_BANNER = 'REHEARSAL - not a score'
+
+const rehearsalLines = (maxHistoryTurns: number) => [
+  `--max-history-turns ${maxHistoryTurns}: only the first ${maxHistoryTurns} user turn(s) of each persona's history were ingested to exercise the run's crash and resume machinery cheaply; questions whose evidence was cut off are asked without history evidence. These numbers say nothing about Eigen's accuracy`,
+]
 
 export function decisionsInEffect(
   answer: AnswerMode,
@@ -213,6 +219,8 @@ export function buildSummary(input: {
   wallMsThisProcess: number
   gitSha: string
   gitDirty: boolean
+  /** `--max-history-turns`: a rehearsal, never a score. */
+  rehearsal?: { maxHistoryTurns: number } | null
 }): RunSummary {
   const { score } = input
   if (input.evidenceOnly && input.smoke.length === 0) {
@@ -222,7 +230,7 @@ export function buildSummary(input: {
   return {
     bench: 'personamem-v2',
     runId: input.runId,
-    title: `${input.evidenceOnly ? `${SMOKE_BANNER} - ` : ''}PersonaMem-v2 x Eigen (text, 32k, ${input.split} split) - ${input.chatModel} (ingest capture, answer ${input.answerMode}, floor ${describeFloor(input.relevanceFloor)})`,
+    title: `${input.rehearsal ? `${REHEARSAL_BANNER} - ` : ''}${input.evidenceOnly ? `${SMOKE_BANNER} - ` : ''}PersonaMem-v2 x Eigen (text, 32k, ${input.split} split) - ${input.chatModel} (ingest capture, answer ${input.answerMode}, floor ${describeFloor(input.relevanceFloor)})`,
     startedAt: input.startedAt,
     finishedAt: input.finishedAt,
     config: {
@@ -234,11 +242,13 @@ export function buildSummary(input: {
       relevanceFloor: input.relevanceFloor,
       relevanceFloorValue: floorValue(input.relevanceFloor),
       reuseIngest: input.reuseIngest,
+      ...(input.rehearsal ? { rehearsalMaxHistoryTurns: input.rehearsal.maxHistoryTurns } : {}),
       chatModel: input.chatModel,
       gitSha: input.gitSha,
       gitDirty: input.gitDirty,
     },
     metrics: {
+      complete: true,
       questions: score.questions,
       eigenAccuracy: score.overall.eigenAccuracy,
       noMemoryAccuracy: score.overall.noMemoryAccuracy,
@@ -273,6 +283,9 @@ export function buildSummary(input: {
       wallMsThisProcess: input.wallMsThisProcess,
     },
     sections: [
+      ...(input.rehearsal
+        ? [{ heading: REHEARSAL_BANNER, lines: rehearsalLines(input.rehearsal.maxHistoryTurns) }]
+        : []),
       ...(input.evidenceOnly
         ? [
             {
@@ -356,6 +369,83 @@ export function buildSummary(input: {
         ],
       },
       { heading: 'Reference numbers (from the PersonaMem-v2 paper)', lines: PAPER_REFERENCES },
+    ],
+  }
+}
+
+/**
+ * The summary of a run that did not finish: every planned question is not answered, a tenant or
+ * a question failed, or the run was stopped. No score - a partial run never yields one - but the
+ * failures, what is missing and the exact command to continue are all here.
+ */
+export function buildIncompleteSummary(input: {
+  runId: string
+  chatModel: string
+  startedAt: string
+  finishedAt: string
+  split: Split
+  answerMode: AnswerMode
+  questions: { planned: number; answered: number }
+  missingQuestions: readonly string[]
+  openFailures: readonly FailureRow[]
+  stopped: boolean
+  resumeCommand: string
+  rehearsal: { maxHistoryTurns: number } | null
+}): RunSummary {
+  const shown = input.missingQuestions.slice(0, 20)
+  return {
+    bench: 'personamem-v2',
+    runId: input.runId,
+    title: `INCOMPLETE - ${input.rehearsal ? `${REHEARSAL_BANNER} - ` : ''}PersonaMem-v2 x Eigen (text, 32k, ${input.split} split) - ${input.chatModel} (answer ${input.answerMode})`,
+    startedAt: input.startedAt,
+    finishedAt: input.finishedAt,
+    config: {
+      split: input.split,
+      answer: input.answerMode,
+      chatModel: input.chatModel,
+      ...(input.rehearsal ? { rehearsalMaxHistoryTurns: input.rehearsal.maxHistoryTurns } : {}),
+    },
+    metrics: {
+      complete: false,
+      stopped: input.stopped,
+      questionsPlanned: input.questions.planned,
+      questionsAnswered: input.questions.answered,
+      questionsMissing: input.missingQuestions.length,
+      openFailures: input.openFailures.length,
+    },
+    sections: [
+      {
+        heading: 'INCOMPLETE - no score',
+        lines: [
+          input.stopped
+            ? 'The run was stopped by a signal before it finished.'
+            : 'The run did not finish: see the failures and the missing questions below.',
+          `${input.questions.answered} of ${input.questions.planned} question(s) answered. A partial run never yields a score.`,
+          `Continue with: ${input.resumeCommand}`,
+        ],
+      },
+      ...(input.rehearsal
+        ? [{ heading: REHEARSAL_BANNER, lines: rehearsalLines(input.rehearsal.maxHistoryTurns) }]
+        : []),
+      {
+        heading: 'Open failures',
+        lines:
+          input.openFailures.length === 0
+            ? ['none recorded']
+            : input.openFailures.map(
+                (f) =>
+                  `${f.at} ${f.tenant}${f.questionId ? ` ${f.questionId}` : ''} [${f.phase}]: ${f.error}`,
+              ),
+      },
+      {
+        heading: 'Questions not answered',
+        lines: [
+          ...shown,
+          ...(input.missingQuestions.length > shown.length
+            ? [`... and ${input.missingQuestions.length - shown.length} more`]
+            : []),
+        ],
+      },
     ],
   }
 }

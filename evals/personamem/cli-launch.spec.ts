@@ -51,6 +51,8 @@ describe('personamem CLI launch', () => {
         'compose',
         '--relevance-floor',
         'product',
+        '--run-id',
+        'launch-spec-never-created',
       ],
       {
         cwd: REPO_ROOT,

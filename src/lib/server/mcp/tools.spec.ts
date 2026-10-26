@@ -376,6 +376,62 @@ describe('MCP tools', () => {
       )
     })
 
+    it('retrieve_thoughts dates its temporal annotations with the eval clock, not the wall clock', async () => {
+      searchThoughtsMock.mockResolvedValue([
+        {
+          id: 'a',
+          normalizedText: 'dinner at 7',
+          category: 'task',
+          score: 0.02,
+          vectorScore: 0.02,
+          graphScore: 0,
+          createdAt: new Date('2025-02-01T10:00:00.000Z'),
+        },
+      ])
+      await withEvalClock(CLOCK, () =>
+        runRetrieveThoughtsTool({ userId: HARNESS_USER }, { query: 'dinner' }),
+      )
+      expect(loadTemporalContextByThoughtIdsMock.mock.calls[0]?.[0].now.toISOString()).toBe(
+        CLOCK.toISOString(),
+      )
+    })
+
+    it('the recent-thoughts browse uses the eval clock too', async () => {
+      listThoughtsMock.mockResolvedValue([
+        {
+          id: 'a',
+          category: 'task',
+          createdAt: new Date('2025-02-01T10:00:00.000Z'),
+          normalizedText: 'dinner at 7',
+          author: 'user',
+          authorLabel: null,
+          askQuestion: null,
+        },
+      ])
+      await withEvalClock(CLOCK, () => runRetrieveThoughtsTool({ userId: HARNESS_USER }, {}))
+      expect(loadTemporalContextByThoughtIdsMock.mock.calls[0]?.[0].now.toISOString()).toBe(
+        CLOCK.toISOString(),
+      )
+    })
+
+    it('retrieve_thoughts without a clock keeps using the wall clock', async () => {
+      searchThoughtsMock.mockResolvedValue([
+        {
+          id: 'a',
+          normalizedText: 'dinner at 7',
+          category: 'task',
+          score: 0.02,
+          vectorScore: 0.02,
+          graphScore: 0,
+          createdAt: new Date('2025-02-01T10:00:00.000Z'),
+        },
+      ])
+      const before = Date.now()
+      await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'dinner' })
+      const now = loadTemporalContextByThoughtIdsMock.mock.calls[0]?.[0].now as Date
+      expect(now.getTime()).toBeGreaterThanOrEqual(before)
+    })
+
     it('answer_question with no clock leaves referenceTime unset', async () => {
       composeAnswerMock.mockResolvedValue({ answer: 'a', citations: [], retrieved: [], context: [] })
       await runAnswerQuestionTool({ userId: 'u1' }, { question: 'q?' })

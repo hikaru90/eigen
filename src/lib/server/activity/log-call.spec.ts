@@ -76,6 +76,28 @@ describe('logActivityCall', () => {
     expect(values).toHaveBeenCalledWith(expect.objectContaining({ groupId, durationMs: 342 }))
   })
 
+  it('marks a cached eval call in the stored context and keeps it at 0 USD', async () => {
+    const values = vi.fn()
+    const insert = vi.fn(() => ({ values }))
+    const db = { insert } as unknown as Parameters<typeof logActivityCall>[0]
+
+    await logActivityCall(db, 'u1', {
+      provider: 'openrouter',
+      operation: 'llm.chat.chat.cache_hit',
+      baseCostUsd: 0,
+      context: 'hello',
+      cached: true,
+    })
+
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: 'cached | input=hello',
+        baseCostUsd: '0.000000',
+        totalCostUsd: '0.000000',
+      }),
+    )
+  })
+
   it('truncates context longer than 300 chars', async () => {
     const values = vi.fn()
     const insert = vi.fn(() => ({ values }))

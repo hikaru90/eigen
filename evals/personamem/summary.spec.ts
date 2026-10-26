@@ -1,7 +1,7 @@
 import type { AnswerRow } from './types'
 import { describe, expect, it } from 'vitest'
 import { scoreAnswers } from './score'
-import { buildSummary, formatScoreLines, type SmokeBlock } from './summary'
+import { buildIncompleteSummary, buildSummary, formatScoreLines, type SmokeBlock } from './summary'
 
 const meta = { prefType: 'neutral', updated: false, who: 'self' }
 const retrievedItem = {
@@ -421,5 +421,76 @@ describe('formatScoreLines', () => {
     expect(lines[0]).toBe('relevance floor: 0.15 (eval-only override)')
     expect(lines[1]).toContain('evidence hit 100.0% (1/1)')
     expect(lines[2]).toContain('evidence hit 100.0% (1/1)')
+  })
+})
+
+describe('rehearsal and incomplete summaries', () => {
+  const score = scoreAnswers([row('eigen', true), row('no-memory', false)], new Map([['q1', 100]]))
+  const base = {
+    runId: 'r1',
+    chatModel: 'openai/gpt-4o-mini',
+    startedAt: '2026-10-25T10:00:00.000Z',
+    finishedAt: '2026-10-25T11:00:00.000Z',
+    config: { enrichConcurrency: 1 },
+    split: 'val' as const,
+    score,
+    answerMode: 'compose' as const,
+    evidenceOnly: false,
+    smoke: [],
+    relevanceFloor: 'product' as const,
+    reuseIngest: null,
+    ingest: { usd: 0.5, captures: 5, personas: 1 },
+    wallMsThisProcess: 1,
+    gitSha: 'abc123',
+    gitDirty: false,
+  }
+
+  it('a rehearsal run is labelled "not a score" in the title, the config and a banner section', () => {
+    const summary = buildSummary({ ...base, rehearsal: { maxHistoryTurns: 12 } })
+    expect(summary.title).toMatch(/^REHEARSAL - not a score - /)
+    expect(summary.config).toMatchObject({ rehearsalMaxHistoryTurns: 12 })
+    expect(summary.sections[0]).toMatchObject({ heading: 'REHEARSAL - not a score' })
+    expect(summary.sections[0]!.lines!.join(' ')).toContain('first 12 user turn(s)')
+  })
+
+  it('a normal run carries no rehearsal label and says it is complete', () => {
+    const summary = buildSummary(base)
+    expect(summary.title).not.toMatch(/REHEARSAL/)
+    expect(summary.metrics).toMatchObject({ complete: true })
+  })
+
+  const incompleteInput = {
+    runId: 'r1',
+    chatModel: 'openai/gpt-4o-mini',
+    startedAt: '2026-10-25T10:00:00.000Z',
+    finishedAt: '2026-10-25T11:00:00.000Z',
+    split: 'val' as const,
+    answerMode: 'ask' as const,
+    questions: { planned: 6, answered: 4 },
+    missingQuestions: ['p1-aaaaaaaaaaaa', 'p2-bbbbbbbbbbbb'],
+    openFailures: [
+      { at: 't', tenant: 't1', phase: 'ingest', error: 'tenant 1 exploded' },
+      { at: 't', tenant: 't2', questionId: 'p2-bbbbbbbbbbbb', phase: 'answer', error: 'bad answer' },
+    ],
+    stopped: false,
+    resumeCommand: 'npm run eval:personamem -- --resume --run-id r1',
+    rehearsal: null,
+  }
+
+  it('an incomplete summary says so everywhere, lists failures and what is missing, and computes no score', () => {
+    const summary = buildIncompleteSummary(incompleteInput)
+    expect(summary.title).toMatch(/^INCOMPLETE - /)
+    expect(summary.metrics).toMatchObject({ complete: false, questionsPlanned: 6, questionsAnswered: 4 })
+    expect(summary.metrics).not.toHaveProperty('eigenAccuracy')
+    const text = JSON.stringify(summary.sections)
+    expect(text).toContain('tenant 1 exploded')
+    expect(text).toContain('p2-bbbbbbbbbbbb')
+    expect(text).toContain('npm run eval:personamem -- --resume --run-id r1')
+    expect(summary.sections[0]).toMatchObject({ heading: 'INCOMPLETE - no score' })
+  })
+
+  it('a stopped run is incomplete with the stop named', () => {
+    const summary = buildIncompleteSummary({ ...incompleteInput, stopped: true, openFailures: [] })
+    expect(JSON.stringify(summary.sections)).toMatch(/stopped by a signal/)
   })
 })

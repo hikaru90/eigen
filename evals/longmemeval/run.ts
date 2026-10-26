@@ -7,11 +7,13 @@ import type { LongMemEvalHypothesis, LongMemEvalInstance, LongMemEvalRunCli } fr
 import { LONGMEMEVAL_OPERATOR_USER_ID } from '$lib/server/auth/harness-billing'
 import { PLATFORM_CHAT_MODEL } from '$lib/server/billing/platform-llm'
 import { resolveCaptureEnrichConcurrency } from '$lib/server/capture/enrich-queue-drain'
+import { createEvalLlmCache, withEvalLlmCache } from '$lib/server/llm/eval-llm-cache'
 import { composeAnswer } from '$lib/server/qa/compose-answer'
+import { refuseCrashHook } from '../harness/crash-hook'
 import { logEval, runEval, withEvalDb } from '../harness/eval-context'
 import { ensurePublicBenchOperator } from '../public-bench/ensure-operator'
 import { ingestTenant } from '../public-bench/ingest-tenant'
-import { appendJsonl, readJsonlIds } from '../public-bench/run-output'
+import { appendJsonl, EVAL_LLM_CACHE_DIR, readJsonlIds } from '../public-bench/run-output'
 import { parseLongMemEvalCli } from './cli'
 import {
   corpusUserIdForQuestion,
@@ -61,6 +63,8 @@ function ensureScoringReady(cli: LongMemEvalRunCli): void {
 }
 
 async function main(): Promise<void> {
+  // the kill-rehearsal hook belongs to the PersonaMem CLI; setting it here is a mistake, not a no-op
+  refuseCrashHook(process.env, 'the LongMemEval CLI')
   const cli = parseLongMemEvalCli(process.argv.slice(2))
   ensureScoringReady(cli)
 
@@ -90,20 +94,28 @@ async function main(): Promise<void> {
     `LongMemEval: ${slice.length} instance(s), output=${cli.outputPath}, granularity=${cli.granularity}`,
   )
 
-  for (const instance of slice) {
-    if (skipIds.has(instance.question_id)) {
-      logEval(`${instance.question_id}: skipped (resume)`)
-      continue
-    }
+  // Paid responses are cached on disk before use, so an interrupted instance is re-ingested from
+  // the cache (the tenant is still wiped: LongMemEval ingests one fresh tenant per question).
+  const cache = createEvalLlmCache(EVAL_LLM_CACHE_DIR)
+  await withEvalLlmCache(cache, async () => {
+    for (const instance of slice) {
+      if (skipIds.has(instance.question_id)) {
+        logEval(`${instance.question_id}: skipped (resume)`)
+        continue
+      }
 
-    const hypothesis = await runInstance(instance, cli, enrichConcurrency)
-    const row: LongMemEvalHypothesis = {
-      question_id: instance.question_id,
-      hypothesis,
+      const hypothesis = await runInstance(instance, cli, enrichConcurrency)
+      const row: LongMemEvalHypothesis = {
+        question_id: instance.question_id,
+        hypothesis,
+      }
+      appendJsonl(cli.outputPath, row)
+      logEval(`${instance.question_id}: hypothesis written`)
     }
-    appendJsonl(cli.outputPath, row)
-    logEval(`${instance.question_id}: hypothesis written`)
-  }
+  })
+  logEval(
+    `cache: ${cache.stats.hits} hit(s), ${cache.stats.misses} paid call(s); paid $${cache.stats.usdPaid.toFixed(4)}, avoided $${cache.stats.usdAvoided.toFixed(4)}`,
+  )
 
   if (cli.runEval) {
     logEval(`running evaluate_qa.py (model=${cli.evalMetricModel})`)

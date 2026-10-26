@@ -58,6 +58,7 @@ const identity: RunIdentity = {
   enrichConcurrency: 1,
   relevanceFloor: 'product',
   reuseIngest: null,
+  maxHistoryTurns: null,
 }
 
 function writeSource(runId: string, only?: number): void {

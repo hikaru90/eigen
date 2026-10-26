@@ -25,10 +25,15 @@ export async function logActivityCall(
     errorMessage?: string
     groupId?: string
     durationMs?: number
+    /** Eval response cache hit: no gateway call was made, nothing was paid or debited. */
+    cached?: boolean
   },
 ): Promise<void> {
   const priced = priceCall(input.baseCostUsd)
   const contextParts: string[] = []
+  if (input.cached) {
+    contextParts.push('cached')
+  }
   if (input.context?.trim()) {
     contextParts.push(`input=${input.context}`)
   }

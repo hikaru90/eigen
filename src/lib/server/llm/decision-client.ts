@@ -13,7 +13,9 @@
  *           usage: { cost, input_tokens, output_tokens }, id?, provider? }
  */
 
+import { resolveTenantUserId } from '$lib/server/billing/context'
 import { env } from '$lib/server/env/private-env'
+import { currentEvalLlmCache, evalLlmCacheFor } from '$lib/server/llm/eval-llm-cache'
 import { extractGatewayReportedCostUsd } from '$lib/server/llm/gateway-cost'
 import { guardOutgoingValue } from '$lib/server/security/gateway-guard'
 
@@ -155,6 +157,8 @@ export type DecisionResponse = {
   usage: { input_tokens: number; output_tokens: number }
   /** Provider-reported billable USD (usage.cost); null when absent — never inferred. */
   reportedCostUsd: number | null
+  /** Eval response cache hit: no request was made and nothing was paid (reportedCostUsd is 0). */
+  cached?: true
 }
 
 /**
@@ -252,6 +256,26 @@ export async function runDecisionModel(
   request: DecisionRequest,
   opts?: { timeoutMs?: number },
 ): Promise<DecisionResponse> {
+  // Decisions is a second LLM gateway: the same secret guard as llmChatCompletion applies
+  const body = {
+    model: config.model,
+    ...guardOutgoingValue({ state: request.state, questions: request.questions }, 'decision_model'),
+  }
+  const questionIds = Object.keys(request.questions)
+  // eval response cache (harness tenants only): the tenant is the RLS user the eval harness set
+  const cache = currentEvalLlmCache() ? evalLlmCacheFor(resolveTenantUserId('')) : undefined
+  const cacheRequest = {
+    endpoint: 'decisions' as const,
+    provider: 'openrouter',
+    model: config.model,
+    body,
+  }
+  const hit = cache?.lookup(cacheRequest)
+  if (cache !== undefined && hit !== undefined) {
+    cache.noteHit('decisions', hit.costUsd)
+    return { ...parseDecisionResponse(questionIds, hit.response), reportedCostUsd: 0, cached: true }
+  }
+
   const timeoutMs = opts?.timeoutMs ?? DEFAULT_DECISION_TIMEOUT_MS
   const controller = new AbortController()
   const abortTimer = setTimeout(
@@ -267,11 +291,7 @@ export async function runDecisionModel(
         Authorization: `Bearer ${config.apiKey}`,
         'Content-Type': 'application/json',
       },
-      // Decisions is a second LLM gateway: the same secret guard as llmChatCompletion applies
-      body: JSON.stringify({
-        model: config.model,
-        ...guardOutgoingValue({ state: request.state, questions: request.questions }, 'decision_model'),
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     })
   } catch (err) {
@@ -296,5 +316,12 @@ export async function runDecisionModel(
     throw new Error(`Decision response is not JSON (HTTP ${res.status})`)
   }
 
-  return parseDecisionResponse(Object.keys(request.questions), parsedBody)
+  const parsed = parseDecisionResponse(questionIds, parsedBody)
+  if (cache !== undefined) {
+    // persisted before the answer is used; only a response that parsed is worth keeping
+    const costUsd = parsed.reportedCostUsd ?? 0
+    cache.store(cacheRequest, { response: parsedBody, costUsd })
+    cache.notePaid('decisions', costUsd)
+  }
+  return parsed
 }

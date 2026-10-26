@@ -32,9 +32,17 @@ Required:
     --dev-set PATH          The questionIds listed in a dev-set file (evals/personamem/dev-set.val.json; only with
                             --evidence-only; its split must be --split)
 
+  --run-id NAME             Run directory name (evals/reports/public/personamem-v2/NAME). Required for every real run
+                            (not for --dry-run), so a resume is always one known command
+
 Optional:
-  --run-id NAME             Run directory name (evals/reports/public/personamem-v2/NAME); required with --resume
-  --resume                  Continue an existing run directory (same --answer required); answered questions are skipped
+  --resume                  Continue an existing run directory (same flags required). Nothing is re-done and nothing is
+                            deleted: enriched captures are verified and skipped, queued-but-not-enriched ones are
+                            re-enriched, stored answer stages are reused. Failed and unfinished items are retried
+  --fresh                   Reset each tenant before its first capture. Without it a tenant that already holds thoughts is
+                            refused (it would be doubled). Not with --resume or --reuse-ingest
+  --max-history-turns N     REHEARSAL, not a score: ingest only each persona's first N user turns (questions whose evidence
+                            is cut off are asked but count as without history evidence). Not with --evidence-only
   --reuse-ingest RUNID      Answer against the tenants an earlier run ingested (no ingest). Verified against that run's
                             ingest.jsonl and run.json (tenant ids, capture counts and digest, thought ids, thought
                             count); any mismatch fails. Answer again at another --relevance-floor without re-ingesting
@@ -42,6 +50,10 @@ Optional:
   --evidence-only           SMOKE, not a benchmark score: per question, ingest ONLY that question's evidence user turns
                             (Capture) into its own tenant, then answer it. Prepare data with a current prepare.py
   --dry-run                 Print the plan and exit; touches no database and no LLM
+
+Environment (eval-only):
+  EVAL_CRASH_AT=<phase>:<n> Kill rehearsal: the process SIGKILLs itself after the n-th completed paid call of the phase
+                            (ingest or answer). See evals/personamem/REHEARSAL.md
 `
 
 export class PersonaMemUsageError extends Error {
@@ -69,6 +81,10 @@ export type PersonaMemCli = {
   selection: PersonaSelection
   runId: string | null
   resume: boolean
+  /** Reset each tenant before its first capture (otherwise a tenant holding thoughts is refused). */
+  fresh: boolean
+  /** REHEARSAL: ingest only the first N user turns of each persona's history; null = the whole history. */
+  maxHistoryTurns: number | null
   relevanceFloor: RelevanceFloorSetting
   /** Run id whose ingest this run answers against (no ingest in this run); null = ingest here. */
   reuseIngest: string | null
@@ -92,8 +108,9 @@ const VALUE_FLAGS = new Set([
   '--limit-queries',
   '--relevance-floor',
   '--reuse-ingest',
+  '--max-history-turns',
 ])
-const BOOLEAN_FLAGS = new Set(['--all', '--resume', '--dry-run', '--evidence-only'])
+const BOOLEAN_FLAGS = new Set(['--all', '--resume', '--dry-run', '--evidence-only', '--fresh'])
 
 function isPathSegment(value: string): boolean {
   return (
@@ -285,8 +302,26 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
     }
   }
   const resume = flags.has('--resume')
+  const dryRun = flags.has('--dry-run')
   if (resume && runId === null) {
     throw new PersonaMemUsageError('--resume requires --run-id of the run to continue')
+  }
+  if (!dryRun && runId === null) {
+    throw new PersonaMemUsageError(
+      '--run-id is required for a real run (so --resume is always one known command)',
+    )
+  }
+  const fresh = flags.has('--fresh')
+  if (fresh && resume) {
+    throw new PersonaMemUsageError('--fresh cannot be combined with --resume (resume never deletes anything)')
+  }
+  if (fresh && reuseIngest !== null) {
+    throw new PersonaMemUsageError('--fresh cannot be combined with --reuse-ingest (nothing is ingested)')
+  }
+  if (values.has('--max-history-turns') && evidenceOnly) {
+    throw new PersonaMemUsageError(
+      '--max-history-turns cannot be combined with --evidence-only (an evidence-only run has no history to cap)',
+    )
   }
 
   if (values.has('--question-ids') && values.has('--limit-queries')) {
@@ -307,11 +342,15 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
     selection,
     runId,
     resume,
+    fresh,
+    maxHistoryTurns: values.has('--max-history-turns')
+      ? positiveInt('--max-history-turns', values.get('--max-history-turns')!)
+      : null,
     relevanceFloor,
     reuseIngest,
     limitQueries: values.has('--limit-queries')
       ? positiveInt('--limit-queries', values.get('--limit-queries')!)
       : null,
-    dryRun: flags.has('--dry-run'),
+    dryRun,
   }
 }

@@ -1,9 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   appendJsonl,
+  appendJsonlRows,
+  writeFileAtomic,
   removeJsonlRows,
   readJsonl,
   readJsonlIds,
@@ -11,6 +13,18 @@ import {
   writeSummary,
   type RunSummary,
 } from './run-output'
+
+const fsyncSpy = vi.hoisted(() => vi.fn())
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    fsyncSync: (fd: number) => {
+      fsyncSpy(fd)
+      actual.fsyncSync(fd)
+    },
+  }
+})
 
 let root: string
 
@@ -146,5 +160,87 @@ describe('removeJsonlRows', () => {
     appendJsonl(path, { personaId: 1, n: 1 })
     removeJsonlRows(path, (row) => row.personaId === 1)
     expect(readJsonl(path)).toEqual([{ personaId: 2, n: 0 }])
+  })
+})
+
+describe('crash-safe appends', () => {
+  it('fsyncs every appended record', () => {
+    const file = join(root, 'a.jsonl')
+    fsyncSpy.mockClear()
+    appendJsonl(file, { id: 'a' })
+    const afterFirst = fsyncSpy.mock.calls.length
+    expect(afterFirst).toBeGreaterThanOrEqual(1)
+    appendJsonl(file, { id: 'b' })
+    expect(fsyncSpy.mock.calls.length).toBeGreaterThan(afterFirst)
+  })
+
+  it('appendJsonlRows writes several records in one fsynced write', () => {
+    const file = join(root, 'pairs.jsonl')
+    fsyncSpy.mockClear()
+    appendJsonlRows(file, [{ id: 'a', v: 'eigen' }, { id: 'a', v: 'no-memory' }])
+    expect(readJsonl(file)).toEqual([
+      { id: 'a', v: 'eigen' },
+      { id: 'a', v: 'no-memory' },
+    ])
+    expect(fsyncSpy.mock.calls.length).toBeLessThanOrEqual(2) // the file (and its directory when created)
+  })
+
+  it('moves a torn last line (no newline, unparseable) to <file>.torn-<timestamp> and keeps the rest', () => {
+    const file = join(root, 'answers.jsonl')
+    writeFileSync(file, '{"id":"a"}\n{"id":"b"}\n{"id":"c","tex')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    expect(readJsonl(file)).toEqual([{ id: 'a' }, { id: 'b' }])
+
+    const torn = readdirSync(root).filter((name) => name.startsWith('answers.jsonl.torn-'))
+    expect(torn).toHaveLength(1)
+    expect(readFileSync(join(root, torn[0]!), 'utf8')).toBe('{"id":"c","tex')
+    expect(readFileSync(file, 'utf8')).toBe('{"id":"a"}\n{"id":"b"}\n')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('torn last line'))
+    // the next append starts on a clean line
+    appendJsonl(file, { id: 'c' })
+    expect(readJsonl(file)).toEqual([{ id: 'a' }, { id: 'b' }, { id: 'c' }])
+    warn.mockRestore()
+  })
+
+  it('a complete last record that lost only its newline is kept and the newline restored', () => {
+    const file = join(root, 'answers.jsonl')
+    writeFileSync(file, '{"id":"a"}\n{"id":"b"}')
+    expect(readJsonl(file)).toEqual([{ id: 'a' }, { id: 'b' }])
+    expect(readFileSync(file, 'utf8')).toBe('{"id":"a"}\n{"id":"b"}\n')
+    appendJsonl(file, { id: 'c' })
+    expect(readJsonl(file)).toHaveLength(3)
+  })
+
+  it('an unparseable last line WITH a trailing newline is corruption, not a torn write', () => {
+    const file = join(root, 'answers.jsonl')
+    writeFileSync(file, '{"id":"a"}\n{"id":\n')
+    expect(() => readJsonl(file)).toThrow(/line 2/)
+    expect(readdirSync(root).filter((name) => name.includes('.torn-'))).toEqual([])
+  })
+
+  it('a bad line in the middle still fails loud even when the last line is torn', () => {
+    const file = join(root, 'answers.jsonl')
+    writeFileSync(file, '{"id":"a"}\n{"bad\n{"id":"c","t')
+    expect(() => readJsonl(file)).toThrow(/line 2/)
+  })
+
+  it('readJsonlIds recovers a torn last line the same way', () => {
+    const file = join(root, 'answers.jsonl')
+    writeFileSync(file, '{"id":"a"}\n{"id":"b","t')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect([...readJsonlIds(file, 'id')]).toEqual(['a'])
+    warn.mockRestore()
+  })
+})
+
+describe('writeFileAtomic', () => {
+  it('writes the full content through a temp file that is renamed into place', () => {
+    const file = join(root, 'dir', 'run.json')
+    writeFileAtomic(file, '{"a":1}\n')
+    writeFileAtomic(file, '{"a":2}\n')
+    expect(readFileSync(file, 'utf8')).toBe('{"a":2}\n')
+    expect(readdirSync(join(root, 'dir'))).toEqual(['run.json'])
+    expect(existsSync(join(root, 'dir', 'run.json'))).toBe(true)
   })
 })

@@ -12,6 +12,7 @@ import { withPlatformBilling } from '$lib/server/billing/usage-gate'
 import { getDb } from '$lib/server/db'
 import { env } from '$lib/server/env/private-env'
 import { LlmHttpError } from '$lib/server/llm/errors'
+import { evalLlmCacheFor, type EvalLlmCache } from '$lib/server/llm/eval-llm-cache'
 import {
   gatewayReportedCostUsdForLog,
   requireGatewayReportedCostUsd,
@@ -399,6 +400,14 @@ export async function llmChatCompletion(input: {
   /** Optional turn-level identifier for PostHog AI observability trace grouping. */
   aiTraceId?: string
 }): Promise<unknown> {
+  const cache = evalLlmCacheFor(input.userId)
+  if (cache !== undefined) return llmChatCompletionCached(cache, input)
+  return llmChatCompletionBilled(input)
+}
+
+type ChatCompletionInput = Parameters<typeof llmChatCompletionInner>[0]
+
+function llmChatCompletionBilled(input: ChatCompletionInput): Promise<unknown> {
   return withPlatformBilling(
     input.userId,
     (body) => requireGatewayReportedCostUsd(body),
@@ -407,6 +416,77 @@ export async function llmChatCompletion(input: {
         ? runLlmRequestGated(input.userId, () => llmChatCompletionInner(input))
         : llmChatCompletionInner(input),
   )
+}
+
+/** The exact JSON body of a chat completion request (also what the eval cache keys on). */
+function chatRequestBody(
+  input: { temperature?: number; maxTokens?: number; responseFormat?: 'json_object' },
+  model: string,
+  messages: ChatMessage[],
+) {
+  return {
+    model,
+    messages,
+    ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+    max_tokens: input.maxTokens ?? DEFAULT_CHAT_MAX_TOKENS,
+    ...(input.responseFormat === 'json_object' ? { response_format: { type: 'json_object' } } : {}),
+  }
+}
+
+function chatLogContext(input: { logContext?: string }): string {
+  return (input.logContext?.trim() || 'chat').replace(/\s+/g, '_')
+}
+
+/**
+ * Eval response cache (harness users only): a hit returns the stored response without touching
+ * the wallet or the gateway; a miss pays as usual and persists the response before the wallet
+ * is debited and before the caller sees it.
+ */
+async function llmChatCompletionCached(
+  cache: EvalLlmCache,
+  input: ChatCompletionInput,
+): Promise<unknown> {
+  const config = await loadLlmConfig(input.userId)
+  const routing = await chatRoutingConfig(config)
+  const logCtx = chatLogContext(input)
+  const messages = guardOutgoingMessages(sanitizeChatMessages(input.messages), logCtx)
+  const request = {
+    endpoint: 'chat' as const,
+    provider: config.provider,
+    model: routing.model,
+    body: chatRequestBody(input, routing.model, messages),
+  }
+
+  const hit = cache.lookup(request)
+  if (hit !== undefined) {
+    await logActivityCall(getDb(), input.userId, {
+      provider: activityProviderForLlmConfig(config.provider),
+      gatewayHost: gatewayHostFromBaseUrl(config.baseUrl),
+      operation: `llm.chat.${logCtx}.cache_hit`,
+      baseCostUsd: 0,
+      context: messages.find((m) => m.role === 'user')?.content || '',
+      durationMs: 0,
+      cached: true,
+    })
+    cache.noteHit('chat', hit.costUsd)
+    return hit.response
+  }
+
+  let costUsd = 0
+  const response = await withPlatformBilling(
+    input.userId,
+    (body) => requireGatewayReportedCostUsd(body),
+    async () => {
+      const body = await (serialLlmRequestsEnabled()
+        ? runLlmRequestGated(input.userId, () => llmChatCompletionInner(input))
+        : llmChatCompletionInner(input))
+      costUsd = requireGatewayReportedCostUsd(body)
+      cache.store(request, { response: body, costUsd })
+      return body
+    },
+  )
+  cache.notePaid('chat', costUsd)
+  return response
 }
 
 async function llmChatCompletionInner(input: {
@@ -424,7 +504,7 @@ async function llmChatCompletionInner(input: {
   const gatewayHost = gatewayHostFromBaseUrl(config.baseUrl)
   const url = `${config.baseUrl}/chat/completions`
   const routing = await chatRoutingConfig(config)
-  const logCtx = (input.logContext?.trim() || 'chat').replace(/\s+/g, '_')
+  const logCtx = chatLogContext(input)
   // gateway guard (secret-hygiene Design 3): nothing credential-shaped leaves, whoever the caller
   const messages = guardOutgoingMessages(sanitizeChatMessages(input.messages), logCtx)
   const aiSessionId = normalizeAiIdentifier(input.aiSessionId, `user-${input.userId}`)
@@ -464,15 +544,7 @@ async function llmChatCompletionInner(input: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${config.apiKey}`,
           },
-          body: JSON.stringify({
-            model: routing.model,
-            messages,
-            ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
-            max_tokens: input.maxTokens ?? DEFAULT_CHAT_MAX_TOKENS,
-            ...(input.responseFormat === 'json_object'
-              ? { response_format: { type: 'json_object' } }
-              : {}),
-          }),
+          body: JSON.stringify(chatRequestBody(input, routing.model, messages)),
         })
       } finally {
         clearTimeout(timeoutHandle)
@@ -607,6 +679,14 @@ export async function llmCreateEmbeddings(input: {
   userId: string
   input: string | string[]
 }): Promise<unknown> {
+  const cache = evalLlmCacheFor(input.userId)
+  if (cache !== undefined) return llmCreateEmbeddingsCached(cache, input)
+  return llmCreateEmbeddingsBilled(input)
+}
+
+type EmbeddingsInput = { userId: string; input: string | string[] }
+
+function llmCreateEmbeddingsBilled(input: EmbeddingsInput): Promise<unknown> {
   return withPlatformBilling(
     input.userId,
     (body) => requireGatewayReportedCostUsd(body),
@@ -615,6 +695,57 @@ export async function llmCreateEmbeddings(input: {
         ? runLlmRequestGated(input.userId, () => llmCreateEmbeddingsInner(input))
         : llmCreateEmbeddingsInner(input),
   )
+}
+
+function embeddingRequestBody(model: string, input: string | string[]) {
+  return { model, dimensions: EMBEDDING_DIMENSIONS, input }
+}
+
+/** Same contract as `llmChatCompletionCached`, for embeddings (the responses stay on disk only). */
+async function llmCreateEmbeddingsCached(
+  cache: EvalLlmCache,
+  input: EmbeddingsInput,
+): Promise<unknown> {
+  const config = await loadLlmConfig(input.userId)
+  const routing = await embeddingRoutingConfig(config)
+  const embeddingInput = guardOutgoingEmbeddingInput(input.input, 'llm_embedding')
+  const request = {
+    endpoint: 'embeddings' as const,
+    provider: config.provider,
+    model: routing.model,
+    body: embeddingRequestBody(routing.model, embeddingInput),
+  }
+
+  const hit = cache.lookup(request)
+  if (hit !== undefined) {
+    await logActivityCall(getDb(), input.userId, {
+      provider: activityProviderForLlmConfig(config.provider),
+      gatewayHost: gatewayHostFromBaseUrl(config.baseUrl),
+      operation: 'llm.embedding.cache_hit',
+      baseCostUsd: 0,
+      context: Array.isArray(embeddingInput) ? embeddingInput[0] : embeddingInput,
+      durationMs: 0,
+      cached: true,
+    })
+    cache.noteHit('embeddings', hit.costUsd)
+    return hit.response
+  }
+
+  let costUsd = 0
+  const response = await withPlatformBilling(
+    input.userId,
+    (body) => requireGatewayReportedCostUsd(body),
+    async () => {
+      const body = await (serialLlmRequestsEnabled()
+        ? runLlmRequestGated(input.userId, () => llmCreateEmbeddingsInner(input))
+        : llmCreateEmbeddingsInner(input))
+      costUsd = requireGatewayReportedCostUsd(body)
+      cache.store(request, { response: body, costUsd })
+      return body
+    },
+  )
+  cache.notePaid('embeddings', costUsd)
+  return response
 }
 
 async function llmCreateEmbeddingsInner(input: {
@@ -652,11 +783,7 @@ async function llmCreateEmbeddingsInner(input: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${config.apiKey}`,
           },
-          body: JSON.stringify({
-            model: routing.model,
-            dimensions: EMBEDDING_DIMENSIONS,
-            input: embeddingInput,
-          }),
+          body: JSON.stringify(embeddingRequestBody(routing.model, embeddingInput)),
         })
       } finally {
         clearTimeout(embTimeoutHandle)

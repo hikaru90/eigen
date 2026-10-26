@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { resolveRunDir } from '../public-bench/run-output'
+import { resolveRunDir, writeFileAtomic } from '../public-bench/run-output'
 import { answerModeSchema, relevanceFloorSchema, splitSchema } from './types'
 
 export const BENCH = 'personamem-v2'
@@ -18,6 +18,8 @@ const runIdentitySchema = z.object({
   relevanceFloor: relevanceFloorSchema,
   /** Run id whose ingest this run answers against; null = this run ingests. */
   reuseIngest: z.string().nullable(),
+  /** REHEARSAL: user turns ingested per persona; null = the whole history. Absent in run.json files written before it existed. */
+  maxHistoryTurns: z.number().int().positive().nullable().default(null),
 })
 export type RunIdentity = z.infer<typeof runIdentitySchema>
 
@@ -30,6 +32,14 @@ export type RunPaths = {
   ingest: string
   smoke: string
   meta: string
+  /** Per-capture ingest record (queued / enriched); what `--resume` continues from. */
+  ingestProgress: string
+  /** Per-question answer stages (eigen, choose-eigen, choose-no-memory). */
+  answerStages: string
+  /** Isolated tenant / question failures. */
+  failures: string
+  /** One start and one end row per process that worked on this run (counters, outcome). */
+  processes: string
 }
 
 /** The run.json of an existing run (what `--reuse-ingest` verifies against). */
@@ -51,6 +61,10 @@ function runPaths(dir: string): RunPaths {
     ingest: join(dir, 'ingest.jsonl'),
     smoke: join(dir, 'smoke.jsonl'),
     meta: join(dir, 'run.json'),
+    ingestProgress: join(dir, 'ingest-progress.jsonl'),
+    answerStages: join(dir, 'answer-stages.jsonl'),
+    failures: join(dir, 'failures.jsonl'),
+    processes: join(dir, 'processes.jsonl'),
   }
 }
 
@@ -98,6 +112,11 @@ export function openRun(input: {
         `[personamem] cannot resume ${runId}: it was started with --reuse-ingest ${saved.identity.reuseIngest ?? '(none)'}, this invocation says --reuse-ingest ${identity.reuseIngest ?? '(none)'}`,
       )
     }
+    if (saved.identity.maxHistoryTurns !== identity.maxHistoryTurns) {
+      throw new Error(
+        `[personamem] cannot resume ${runId}: it was started with --max-history-turns ${saved.identity.maxHistoryTurns ?? '(none)'}, this invocation says --max-history-turns ${identity.maxHistoryTurns ?? '(none)'}`,
+      )
+    }
     if (JSON.stringify(saved.identity) !== JSON.stringify(identity)) {
       throw new Error(
         `[personamem] cannot resume ${runId}: this invocation differs from the original run\n` +
@@ -113,7 +132,6 @@ export function openRun(input: {
     )
   }
   const meta: RunMeta = { startedAt: new Date().toISOString(), identity }
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(paths.meta, `${JSON.stringify(meta, null, 2)}\n`)
+  writeFileAtomic(paths.meta, `${JSON.stringify(meta, null, 2)}\n`)
   return { paths, meta }
 }

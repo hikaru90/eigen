@@ -55,6 +55,7 @@ function cliFor(
     answer,
     '--relevance-floor',
     'product',
+    '--dry-run',
     ...selection,
     ...extra,
   ])
@@ -141,6 +142,64 @@ describe('buildPlan', () => {
     )
     expect(a).toEqual(b)
     expect(() => buildPlan(cliFor(['--personas', '3', '--seed', 's1']))).toThrow()
+  })
+})
+
+describe('--max-history-turns (rehearsal)', () => {
+  const capped = () => buildPlan(cliFor(['--persona-ids', '7'], ['--max-history-turns', '2']))
+
+  it('ingests only each persona\'s first N user turns, queried one day after the last of them', () => {
+    const persona = capped().personas[0]!
+    const full = buildPlan(cliFor(['--persona-ids', '7'])).personas[0]!
+    expect(persona.captures).toEqual(full.captures.slice(0, 2))
+    expect(persona.referenceTime.toISOString()).toBe('2025-01-03T00:00:00.000Z')
+    expect(capped().totals.captures).toBe(2)
+  })
+
+  it('keeps every question: evidence cut off by the cap becomes "not in history", the rest stays aligned inside the cap', () => {
+    const full = buildPlan(cliFor(['--persona-ids', '7'])).personas[0]!.questions
+    const cut = capped().personas[0]!.questions
+    expect(cut.map((q) => q.row.questionId)).toEqual(full.map((q) => q.row.questionId))
+    for (const question of cut) {
+      if (question.evidence.kind === 'aligned') {
+        expect(Math.max(...question.evidence.captureIndexes)).toBeLessThan(2)
+      } else {
+        expect(question.evidence.kind).toBe('not-in-history')
+      }
+    }
+    const fullAlignedBeyond = full.some(
+      (q) => q.evidence.kind === 'aligned' && Math.max(...q.evidence.captureIndexes) >= 2,
+    )
+    expect(fullAlignedBeyond).toBe(true)
+    expect(cut.some((q) => q.evidence.kind === 'not-in-history')).toBe(true)
+  })
+
+  it('is a no-op when the cap is larger than the history', () => {
+    const big = buildPlan(cliFor(['--persona-ids', '7'], ['--max-history-turns', '999']))
+    const full = buildPlan(cliFor(['--persona-ids', '7']))
+    expect(big.personas[0]!.captures).toEqual(full.personas[0]!.captures)
+  })
+
+  it('formatPlan labels the plan as a rehearsal, not a score', () => {
+    const cli = cliFor(['--persona-ids', '7'], ['--max-history-turns', '2'])
+    const text = formatPlan(buildPlan(cli), cli).join('\n')
+    expect(text).toContain('REHEARSAL - not a score (first 2 user turn(s) of each history)')
+  })
+
+  it('formatPlan names the run id and whether the run starts fresh, resumes or neither', () => {
+    const text = (extra: string[]) => {
+      const cli = cliFor(['--persona-ids', '7'], extra)
+      return formatPlan(buildPlan(cli), cli).join('\n')
+    }
+    expect(text([])).toContain('run id: (none - a real run requires --run-id)')
+    expect(text(['--run-id', 'r1'])).toContain('run id: r1 (new run, tenants holding thoughts are refused)')
+    expect(text(['--run-id', 'r1', '--fresh'])).toContain('run id: r1 (new run, --fresh: each tenant is reset before its first capture)')
+    expect(text(['--run-id', 'r1', '--resume'])).toContain('run id: r1 (resume: nothing is re-done, nothing is deleted)')
+  })
+
+  it('a plan without the cap carries no rehearsal label', () => {
+    const cli = cliFor(['--persona-ids', '7'])
+    expect(formatPlan(buildPlan(cli), cli).join('\n')).not.toMatch(/REHEARSAL/)
   })
 })
 
@@ -261,6 +320,7 @@ describe('buildPlan --split val', () => {
       'compose',
       '--relevance-floor',
       'product',
+    '--dry-run',
       '--all',
     ])
     expect(buildPlan(cli).totals).toMatchObject({ personas: 2, captures: 10, queries: 6 })
@@ -285,6 +345,7 @@ describe('buildPlan --split val', () => {
       'compose',
       '--relevance-floor',
       'product',
+    '--dry-run',
       '--persona-ids',
       '9',
     ])
@@ -403,6 +464,7 @@ describe('evidence alignment (full history)', () => {
       'compose',
       '--relevance-floor',
       'product',
+    '--dry-run',
       '--all',
       ...extra,
     ])
@@ -486,6 +548,7 @@ describe('val full-history persona selection', () => {
       'compose',
       '--relevance-floor',
       'product',
+    '--dry-run',
       ...selection,
     ])
 

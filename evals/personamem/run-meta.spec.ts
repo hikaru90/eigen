@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -21,6 +21,7 @@ const identity: RunIdentity = {
   enrichConcurrency: 1,
   relevanceFloor: 'product',
   reuseIngest: null,
+  maxHistoryTurns: null,
 }
 const open = (id: RunIdentity, resume: boolean) =>
   openRun({ runId: 'r1', identity: id, resume, reportsRoot: root })
@@ -29,6 +30,10 @@ describe('openRun', () => {
   it('creates the run directory and refuses to reuse it without --resume', () => {
     const { paths } = open(identity, false)
     expect(paths.smoke).toBe(join(paths.dir, 'smoke.jsonl'))
+    expect(paths.ingestProgress).toBe(join(paths.dir, 'ingest-progress.jsonl'))
+    expect(paths.answerStages).toBe(join(paths.dir, 'answer-stages.jsonl'))
+    expect(paths.failures).toBe(join(paths.dir, 'failures.jsonl'))
+    expect(paths.processes).toBe(join(paths.dir, 'processes.jsonl'))
     expect(() => open(identity, false)).toThrow(/already exists/)
   })
 
@@ -90,5 +95,28 @@ describe('openRun', () => {
 
   it('cannot resume a run that does not exist', () => {
     expect(() => open(identity, true)).toThrow(/cannot resume/)
+  })
+
+  it('refuses to resume a run that used a different --max-history-turns, naming both', () => {
+    open({ ...identity, maxHistoryTurns: 12 }, false)
+    expect(() => open({ ...identity, maxHistoryTurns: null }, true)).toThrow(
+      /--max-history-turns.*12.*\(none\)/,
+    )
+    expect(() => open({ ...identity, maxHistoryTurns: 20 }, true)).toThrow(
+      /--max-history-turns.*12.*20/,
+    )
+  })
+
+  it('resumes a run.json written before --max-history-turns existed as an uncapped run', () => {
+    const first = open(identity, false)
+    const legacy = JSON.parse(readFileSync(first.paths.meta, 'utf8'))
+    delete legacy.identity.maxHistoryTurns
+    writeFileSync(first.paths.meta, JSON.stringify(legacy))
+    expect(open(identity, true).meta.identity.maxHistoryTurns).toBeNull()
+  })
+
+  it('writes run.json atomically (no temp file is left next to it)', () => {
+    const { paths } = open(identity, false)
+    expect(readdirSync(paths.dir)).toEqual(['run.json'])
   })
 })

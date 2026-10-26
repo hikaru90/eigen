@@ -120,7 +120,9 @@ async function listRecentThoughtsForMcp(
     return sanitizeMcpToolResult({ count: thoughts.length, results: thoughts })
   }
 
-  const now = new Date()
+  // wall clock, except under the eval clock: the temporal annotations ("ended as of <today>") reach
+  // the model, and an eval's prompts must not depend on the day the run happens to execute
+  const now = evalClockFor(context.userId) ?? new Date()
   const snippetRows = await buildMcpThoughtSnippetRows(
     context.userId,
     thoughts.map((row) => ({
@@ -335,7 +337,7 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
     return out
   }
 
-  const now = new Date()
+  const now = evalClockFor(context.userId) ?? new Date()
   const snippetRows = await buildMcpThoughtSnippetRows(
     context.userId,
     filtered.map((row) => ({

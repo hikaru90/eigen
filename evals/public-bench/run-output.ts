@@ -1,7 +1,20 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  truncateSync,
+  writeSync,
+} from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 
 export const PUBLIC_REPORTS_ROOT = resolve(import.meta.dirname, '../reports/public')
+
+/** Eval-only LLM response cache (git-ignored with evals/.data/); shared by every run and every bench. */
+export const EVAL_LLM_CACHE_DIR = resolve(import.meta.dirname, '../.data/llm-cache')
 
 export type SummaryTable = {
   columns: string[]
@@ -50,15 +63,96 @@ export function resolveRunDir(input: {
   return join(input.reportsRoot ?? PUBLIC_REPORTS_ROOT, input.bench, input.runId)
 }
 
+function fsyncDirectory(dir: string): void {
+  const fd = openSync(dir, 'r')
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * Appends one record and fsyncs it before returning: a record that was appended survives a
+ * kill (SIGKILL, power loss), and the file never holds anything but whole lines plus at most
+ * one torn last line (see `readJsonl`).
+ */
 export function appendJsonl(path: string, row: unknown): void {
-  mkdirSync(dirname(path), { recursive: true })
-  appendFileSync(path, `${JSON.stringify(row)}\n`)
+  appendJsonlRows(path, [row])
+}
+
+/** Several records in ONE write + fsync (rows that belong together, e.g. a question's two variants). */
+export function appendJsonlRows(path: string, rows: readonly unknown[]): void {
+  const dir = dirname(path)
+  mkdirSync(dir, { recursive: true })
+  const created = !existsSync(path)
+  const fd = openSync(path, 'a')
+  try {
+    writeSync(fd, rows.map((row) => `${JSON.stringify(row)}\n`).join(''))
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+  if (created) fsyncDirectory(dir)
+}
+
+let atomicCounter = 0
+
+/** Whole-file write that is either the old content or the new one after a kill: temp, fsync, rename. */
+export function writeFileAtomic(path: string, content: string): void {
+  const dir = dirname(path)
+  mkdirSync(dir, { recursive: true })
+  const temp = `${path}.tmp-${process.pid}-${atomicCounter++}`
+  const fd = openSync(temp, 'w')
+  try {
+    writeSync(fd, content)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+  renameSync(temp, path)
+  fsyncDirectory(dir)
 }
 
 type JsonlEntry = { line: number; row: Record<string, unknown> }
 
+/**
+ * A kill during an append can leave the file's LAST line incomplete (no trailing newline). That
+ * line is moved to `<file>.torn-<timestamp>` (with a warning) and the file is cut back to the
+ * last whole line, so the run continues from the last complete record. A last line that is
+ * complete JSON but lost only its newline gets the newline back. Anything else wrong - a bad
+ * line anywhere else, or a bad last line that does end in a newline - is not a torn write and
+ * fails loud in `readJsonlEntries`.
+ */
+function recoverTornLastLine(path: string): void {
+  if (!existsSync(path)) return
+  const content = readFileSync(path, 'utf8')
+  if (content.length === 0 || content.endsWith('\n')) return
+  const lastBreak = content.lastIndexOf('\n')
+  const lastLine = content.slice(lastBreak + 1)
+  try {
+    JSON.parse(lastLine)
+  } catch {
+    const tornPath = `${path}.torn-${new Date().toISOString().replace(/[:.]/g, '-')}`
+    writeFileAtomic(tornPath, lastLine)
+    truncateSync(path, Buffer.byteLength(content.slice(0, lastBreak + 1)))
+    console.warn(
+      `[public-bench] ${path} ended in a torn last line (${Buffer.byteLength(lastLine)} bytes, a kill during an append); moved it to ${tornPath} and continued from the last complete record`,
+    )
+    return
+  }
+  const fd = openSync(path, 'a')
+  try {
+    writeSync(fd, '\n')
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
 function readJsonlEntries(path: string): JsonlEntry[] {
   if (!existsSync(path)) return []
+  recoverTornLastLine(path)
   const entries: JsonlEntry[] = []
   const lines = readFileSync(path, 'utf8').split('\n')
   for (let i = 0; i < lines.length; i++) {
@@ -93,7 +187,7 @@ export function removeJsonlRows(
 ): void {
   if (!existsSync(path)) return
   const kept = readJsonl(path).filter((row) => !drop(row))
-  writeFileSync(path, kept.map((row) => `${JSON.stringify(row)}\n`).join(''))
+  writeFileAtomic(path, kept.map((row) => `${JSON.stringify(row)}\n`).join(''))
 }
 
 /** Ids already written to a JSONL file (for `--resume`). */
@@ -159,7 +253,6 @@ function renderMarkdown(summary: RunSummary): string {
 /** Writes `summary.json` and `summary.md` into `runDir`. */
 export function writeSummary(runDir: string, summary: RunSummary): void {
   const markdown = renderMarkdown(summary)
-  mkdirSync(runDir, { recursive: true })
-  writeFileSync(join(runDir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`)
-  writeFileSync(join(runDir, 'summary.md'), markdown)
+  writeFileAtomic(join(runDir, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`)
+  writeFileAtomic(join(runDir, 'summary.md'), markdown)
 }
