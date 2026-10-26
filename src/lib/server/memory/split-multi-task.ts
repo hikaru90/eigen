@@ -2,7 +2,8 @@
  * Multi-to-do fan-out (board e23c4390): one capture that holds several distinct
  * open to-dos becomes one task thought per to-do, each on the capture's thread.
  * The split is an LLM judge decision (ontology policy: never string heuristics) —
- * the judge returns the tasks in the capture's own words or `multiple: false`.
+ * the judge returns the tasks in the capture's own words; two or more fan out,
+ * zero or one stay the capture as it is (no separate verdict flag to contradict the list).
  *
  * It runs during the capture's own enrich pass, after GTD assignment: the parent
  * keeps its thread, and every child copies that thread membership as a `project`
@@ -32,7 +33,7 @@ import { linkThoughtToProject } from '$lib/server/memory/project-next-action'
 /** Hard bound on one capture's fan-out: beyond this the judge answer is a contract violation. */
 export const MULTI_TASK_FANOUT_MAX = SPLIT_FANOUT_MAX
 
-type MultiTaskJudgeResult = { multiple: boolean; tasks?: string[] }
+type MultiTaskJudgeResult = { tasks: string[] }
 
 function extractChatContent(response: unknown): string {
   const choices = (response as { choices?: Array<{ message?: { content?: string } }> }).choices
@@ -49,31 +50,21 @@ function parseJudgePayload(raw: string): MultiTaskJudgeResult {
     throw new Error('fanOutMultipleTasks: judge answer is not an object')
   }
   const obj = parsed as Record<string, unknown>
-  if (obj.multiple !== true && obj.multiple !== false) {
-    throw new Error('fanOutMultipleTasks: judge answer has no multiple verdict')
-  }
-  if (obj.multiple === false) return { multiple: false }
-
   const tasks = obj.tasks
   if (!Array.isArray(tasks)) {
-    throw new Error('fanOutMultipleTasks: multiple:true without a tasks array')
+    throw new Error('fanOutMultipleTasks: judge answer has no tasks array')
   }
   for (const task of tasks) {
     if (typeof task !== 'string' || !task.trim()) {
       throw new Error('fanOutMultipleTasks: a task is not a non-empty string')
     }
   }
-  if (tasks.length < 2) {
-    throw new Error(
-      `fanOutMultipleTasks: multiple:true needs at least two tasks, got ${tasks.length}`,
-    )
-  }
   if (tasks.length > MULTI_TASK_FANOUT_MAX) {
     throw new Error(
       `fanOutMultipleTasks: ${tasks.length} tasks exceed the fan-out bound of ${MULTI_TASK_FANOUT_MAX}`,
     )
   }
-  return { multiple: true, tasks: tasks.map((task) => task.trim()) }
+  return { tasks: tasks.map((task) => task.trim()) }
 }
 
 /** Enrich-time fan-out: returns the created child thought ids (empty when nothing split). */
@@ -117,9 +108,9 @@ export async function fanOutMultipleTasks(input: {
       {
         role: 'user',
         content: [
-          'Decide whether this captured note contains several distinct open to-dos.',
-          'If it holds exactly one to-do (or none), answer {"multiple":false}.',
-          'Otherwise answer {"multiple":true,"tasks":[…]} — one entry per to-do, in the capture\'s own words.',
+          'List the distinct open to-dos this captured note contains.',
+          'Answer {"tasks":[…]} — one entry per to-do, in the capture\'s own words.',
+          'If the note holds one to-do or none, list just that one or an empty array.',
           '',
           `Note: ${input.normalizedText}`,
         ].join('\n'),
@@ -129,7 +120,8 @@ export async function fanOutMultipleTasks(input: {
     responseFormat: 'json_object',
   })
   const judge = evictOnReject(response, () => parseJudgePayload(extractChatContent(response)))
-  if (!judge.multiple || !judge.tasks) return []
+  // a single to-do (or none) is not a split — it stays the capture as it is
+  if (judge.tasks.length < 2) return []
 
   // Mark the parent BEFORE creating children: a retried enrich sees the marker and
   // skips, so a crash mid-way can cost children but never duplicates them.

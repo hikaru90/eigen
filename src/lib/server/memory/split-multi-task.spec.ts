@@ -114,7 +114,7 @@ describe('fanOutMultipleTasks', () => {
 
   it('a single to-do stays one thought — no children, no worker churn', async () => {
     chainSelect([thoughtRow()])
-    llm('{"multiple":false}')
+    llm('{"tasks":["Buy milk"]}')
     const result = await fanOutMultipleTasks({
       userId: 'u1',
       thoughtId: 'parent-1',
@@ -127,7 +127,7 @@ describe('fanOutMultipleTasks', () => {
 
   it('splits a multi-to-do capture: one child thought per task, each on the parent thread', async () => {
     chainSelect([thoughtRow()])
-    llm('{"multiple":true,"tasks":["Buy milk","Call mom","Fix the tap"]}')
+    llm('{"tasks":["Buy milk","Call mom","Fix the tap"]}')
     loadProjectMembershipEntityIdsMock.mockResolvedValue(['p1'])
 
     const result = await fanOutMultipleTasks({
@@ -167,7 +167,7 @@ describe('fanOutMultipleTasks', () => {
   it('children inherit the parent createdAt as their capture time, not wall clock', async () => {
     const parentCreatedAt = new Date('2024-11-05T08:30:00.000Z')
     chainSelect([thoughtRow({ createdAt: parentCreatedAt })])
-    llm('{"multiple":true,"tasks":["Buy milk","Call mom"]}')
+    llm('{"tasks":["Buy milk","Call mom"]}')
 
     await fanOutMultipleTasks({
       userId: 'u1',
@@ -183,7 +183,7 @@ describe('fanOutMultipleTasks', () => {
 
   it('a split child (metadata.splitFrom) is never split again', async () => {
     chainSelect([thoughtRow({ metadata: { splitFrom: 'grandparent-1' } })])
-    llm('{"multiple":true,"tasks":["A","B"]}')
+    llm('{"tasks":["A","B"]}')
 
     const result = await fanOutMultipleTasks({
       userId: 'u1',
@@ -198,7 +198,7 @@ describe('fanOutMultipleTasks', () => {
 
   it('a parent that already fanned out (metadata.splitInto) never duplicates children on a retried enrich', async () => {
     chainSelect([thoughtRow({ metadata: { splitInto: ['A', 'B'] } })])
-    llm('{"multiple":true,"tasks":["A","B"]}')
+    llm('{"tasks":["A","B"]}')
 
     const result = await fanOutMultipleTasks({
       userId: 'u1',
@@ -224,9 +224,25 @@ describe('fanOutMultipleTasks', () => {
     expect(queueCaptureMock).not.toHaveBeenCalled()
   })
 
-  it('a contract violation — multiple with fewer than two tasks — fails loudly', async () => {
+  it('an empty tasks list means no fan-out — no children, no worker churn', async () => {
     chainSelect([thoughtRow()])
-    llm('{"multiple":true,"tasks":["Buy milk"]}')
+    llm('{"tasks":[]}')
+
+    const result = await fanOutMultipleTasks({
+      userId: 'u1',
+      thoughtId: 'parent-1',
+      normalizedText: 'Just thinking out loud',
+    })
+
+    expect(result).toEqual([])
+    expect(queueCaptureMock).not.toHaveBeenCalled()
+    expect(updateMock).not.toHaveBeenCalled()
+    expect(scheduleCaptureEnrichWorkerMock).not.toHaveBeenCalled()
+  })
+
+  it('exactly one task is no fan-out and not a contract violation (the old multiple flag is gone)', async () => {
+    chainSelect([thoughtRow()])
+    llm('{"tasks":["Buy milk"]}')
 
     await expect(
       fanOutMultipleTasks({
@@ -234,14 +250,75 @@ describe('fanOutMultipleTasks', () => {
         thoughtId: 'parent-1',
         normalizedText: 'Buy milk',
       }),
-    ).rejects.toThrow(/at least two/)
+    ).resolves.toEqual([])
+    expect(queueCaptureMock).not.toHaveBeenCalled()
+    expect(updateMock).not.toHaveBeenCalled()
+  })
+
+  it('two tasks fan out', async () => {
+    chainSelect([thoughtRow()])
+    llm('{"tasks":["Buy milk","Call mom"]}')
+
+    const result = await fanOutMultipleTasks({
+      userId: 'u1',
+      thoughtId: 'parent-1',
+      normalizedText: 'Buy milk. Call mom.',
+    })
+
+    expect(result).toHaveLength(2)
+    expect(queueCaptureMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('the judge prompt asks for {"tasks":[…]} only — no redundant multiple flag', async () => {
+    chainSelect([thoughtRow()])
+    llm('{"tasks":[]}')
+
+    await fanOutMultipleTasks({
+      userId: 'u1',
+      thoughtId: 'parent-1',
+      normalizedText: 'Buy milk',
+    })
+
+    const [{ messages }] = llmChatCompletionMock.mock.calls[0] as [
+      { messages: Array<{ content: string }> },
+    ]
+    const prompt = messages[messages.length - 1]!.content
+    expect(prompt).toContain('"tasks"')
+    expect(prompt).not.toContain('multiple')
+  })
+
+  it('an answer without a tasks array (e.g. only the old multiple flag) fails loudly', async () => {
+    chainSelect([thoughtRow()])
+    llm('{"multiple":true}')
+
+    await expect(
+      fanOutMultipleTasks({
+        userId: 'u1',
+        thoughtId: 'parent-1',
+        normalizedText: 'Buy milk. Call mom.',
+      }),
+    ).rejects.toThrow(/tasks array/)
+    expect(queueCaptureMock).not.toHaveBeenCalled()
+  })
+
+  it('a non-string task entry fails loudly', async () => {
+    chainSelect([thoughtRow()])
+    llm('{"tasks":["Buy milk",42]}')
+
+    await expect(
+      fanOutMultipleTasks({
+        userId: 'u1',
+        thoughtId: 'parent-1',
+        normalizedText: 'Buy milk. Call mom.',
+      }),
+    ).rejects.toThrow(/non-empty string/)
     expect(queueCaptureMock).not.toHaveBeenCalled()
   })
 
   it(`more than ${MULTI_TASK_FANOUT_MAX} tasks is a contract violation, not a silent truncation`, async () => {
     chainSelect([thoughtRow()])
     const tasks = Array.from({ length: MULTI_TASK_FANOUT_MAX + 1 }, (_, i) => `Task ${i + 1}`)
-    llm(JSON.stringify({ multiple: true, tasks }))
+    llm(JSON.stringify({ tasks }))
 
     await expect(
       fanOutMultipleTasks({
@@ -255,7 +332,7 @@ describe('fanOutMultipleTasks', () => {
 
   it('empty or whitespace-only task texts in the judge answer are a contract violation', async () => {
     chainSelect([thoughtRow()])
-    llm('{"multiple":true,"tasks":["Buy milk","   "]}')
+    llm('{"tasks":["Buy milk","   "]}')
 
     await expect(
       fanOutMultipleTasks({
