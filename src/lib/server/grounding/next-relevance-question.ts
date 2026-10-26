@@ -99,6 +99,7 @@ export async function generateRelevanceQuestion(
     userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
     logContext: 'relevance_checkin_next_question',
   })
 

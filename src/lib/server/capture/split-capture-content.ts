@@ -266,6 +266,7 @@ async function resolveCaptureContentSplitOnce(
       { role: 'user', content: prompt },
     ],
     temperature: 0,
+    responseFormat: 'json_object',
   })
 
   const content = stripMarkdownJsonFences(extractChatContent(response))

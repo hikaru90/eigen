@@ -87,6 +87,7 @@ export async function detectProjectFromThought(
       { role: 'user', content: buildDetectionPrompt(input) },
     ],
     temperature: 0,
+    responseFormat: 'json_object',
   })
 
   const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown

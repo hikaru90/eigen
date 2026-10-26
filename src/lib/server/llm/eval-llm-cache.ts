@@ -8,10 +8,12 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  unlinkSync,
   writeSync,
 } from 'node:fs'
 import { join } from 'node:path'
 import { resolveHarnessBillingUserId } from '$lib/server/auth/harness-billing'
+import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 
 /**
  * Eval-only response cache for paid gateway calls (chat completions, embeddings, Decisions).
@@ -69,6 +71,8 @@ export type EvalLlmCache = {
   lookup(request: EvalLlmCacheRequest): EvalLlmCacheEntry | undefined
   /** Persists the response durably; returns only after the file is renamed into place. */
   store(request: EvalLlmCacheRequest, value: { response: unknown; costUsd: number }): void
+  /** Removes the stored entry of a request; false when there was none. */
+  evict(request: EvalLlmCacheRequest): boolean
   noteHit(endpoint: EvalLlmCacheEndpoint, usd: number): void
   notePaid(endpoint: EvalLlmCacheEndpoint, usd: number): void
 }
@@ -186,6 +190,13 @@ export function createEvalLlmCache(
       writeFileDurably(path, JSON.stringify(entry))
       fsyncDirectory(modelDir)
     },
+    evict(request) {
+      const path = pathFor(request, evalLlmCacheKey(request))
+      if (!existsSync(path)) return false
+      unlinkSync(path)
+      fsyncDirectory(join(dir, modelDirName(request.model)))
+      return true
+    },
     noteHit(endpoint, usd) {
       stats.hits += 1
       stats.usdAvoided += usd
@@ -223,4 +234,56 @@ export function evalLlmCacheFor(userId: string | undefined): EvalLlmCache | unde
     )
   }
   return cache
+}
+
+/**
+ * Which cache entry a chat response was served from or stored as. Keyed by the response object
+ * itself, so a caller that rejects the response it holds can evict exactly that entry.
+ */
+const responseOrigins = new WeakMap<object, { cache: EvalLlmCache; request: EvalLlmCacheRequest }>()
+
+export function rememberEvalLlmCacheOrigin(
+  response: unknown,
+  cache: EvalLlmCache,
+  request: EvalLlmCacheRequest,
+): void {
+  if (response !== null && typeof response === 'object') {
+    responseOrigins.set(response, { cache, request })
+  }
+}
+
+/**
+ * Call when a caller cannot use a response (parse or contract failure) before it throws or
+ * retries: drops that response's cache entry so the identical request reaches the gateway again.
+ * No-op (false) for a response that did not come through the eval cache, so production code may
+ * call it unconditionally.
+ */
+export function evictEvalLlmCacheEntry(response: unknown): boolean {
+  if (response === null || typeof response !== 'object') return false
+  const origin = responseOrigins.get(response)
+  if (origin === undefined) return false
+  return origin.cache.evict(origin.request)
+}
+
+/** Message content of a chat response when it is a string, else undefined. */
+function chatMessageContent(response: unknown): string | undefined {
+  const choices = (response as { choices?: unknown } | null)?.choices
+  if (!Array.isArray(choices)) return undefined
+  const content = (choices[0] as { message?: { content?: unknown } } | undefined)?.message?.content
+  return typeof content === 'string' ? content : undefined
+}
+
+/**
+ * A json_object response is only worth keeping when its content parses as JSON (any value,
+ * optionally fenced). Prose, empty content or a missing message must be asked again.
+ */
+export function isUsableJsonModeResponse(response: unknown): boolean {
+  const content = chatMessageContent(response)
+  if (content === undefined) return false
+  try {
+    JSON.parse(stripMarkdownJsonFences(content))
+    return true
+  } catch {
+    return false
+  }
 }

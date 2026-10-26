@@ -30,7 +30,10 @@ const mcq: McqOptions = {
 
 describe('chooseFromComposed', () => {
   it('shows the chooser every context item, dated, not only the cited ones', async () => {
-    const complete = vi.fn(async (_messages: ChatMessage[]) => '{"letter":"B"}')
+    const complete = vi.fn(async (_messages: ChatMessage[]) => ({
+      content: '{"letter":"B"}',
+      reject: vi.fn(),
+    }))
     const letter = await chooseFromComposed({
       composed,
       query: 'a drink?',
@@ -44,7 +47,10 @@ describe('chooseFromComposed', () => {
   })
 
   it('an empty context yields the "retrieved no memories" block', async () => {
-    const complete = vi.fn(async (_messages: ChatMessage[]) => '{"letter":"A"}')
+    const complete = vi.fn(async (_messages: ChatMessage[]) => ({
+      content: '{"letter":"A"}',
+      reject: vi.fn(),
+    }))
     await chooseFromComposed({
       composed: { ...composed, context: [], retrieved: [] } as unknown as ComposedAnswer,
       query: 'q',

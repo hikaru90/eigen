@@ -115,6 +115,7 @@ export async function judgeCaptureFidelity(input: {
       userId: EVAL_JUDGE_USER_ID,
       messages,
       temperature: 0,
+      responseFormat: 'json_object',
     })
   const billingUserId = input.billingUserId?.trim()
   const response = billingUserId
@@ -202,8 +203,8 @@ export async function judgeCaptureFidelityBatch(input: {
 
   const expectedIds = input.items.map((i) => i.id)
   const userPrompt = [
-    'Rate each capture independently. Return ONLY a JSON array.',
-    'Each element must have: "id" (string), "score" (1-5 integer), "rationale" (one sentence).',
+    'Rate each capture independently. Return ONLY a JSON object {"items": [...]}.',
+    'Each element of "items" must have: "id" (string), "score" (1-5 integer), "rationale" (one sentence).',
     'Captures:',
     itemBlocks.join('\n\n'),
   ].join('\n')
@@ -218,13 +219,22 @@ export async function judgeCaptureFidelityBatch(input: {
       userId: EVAL_JUDGE_USER_ID,
       messages,
       temperature: 0,
+      responseFormat: 'json_object',
     })
   const billingUserId = input.billingUserId?.trim()
   const response = billingUserId
     ? await billingUserAsyncLocal.run(billingUserId, callLlm)
     : await callLlm()
 
-  const content = extractBatchChatContent(response, 'capture-fidelity batch')
+  const wrapped = JSON.parse(extractBatchChatContent(response, 'capture-fidelity batch')) as unknown
+  const items =
+    wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped)
+      ? (wrapped as { items?: unknown }).items
+      : undefined
+  if (!Array.isArray(items)) {
+    throw new Error('capture-fidelity batch: output must be a JSON object with an "items" array')
+  }
+  const content = JSON.stringify(items)
   const parsed = parseBatchJsonArray(content, expectedIds, 'capture-fidelity batch', (id, value) =>
     parseFidelityItem(id, value),
   )

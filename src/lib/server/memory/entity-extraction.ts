@@ -228,11 +228,11 @@ export async function extractEntityTriples(input: {
   const mentionLines = input.mentions.map((m) => `- ${m.surface} (${m.entityType})`)
 
   const prompt = [
-    'Return ONLY JSON.',
+    'Return ONLY a JSON object {"triples": [...]}.',
     'Given entity surfaces and text, emit directed relations between those surfaces only.',
     'Allowed predicates: related_to, depends_on, part_of, located_in, knows, works_at.',
-    'Schema: [{"subject":"<surface>","object":"<surface>","predicate":"related_to","confidence":0.0-1.0}]',
-    'Use empty array if none.',
+    'Schema: {"triples":[{"subject":"<surface>","object":"<surface>","predicate":"related_to","confidence":0.0-1.0}]}',
+    'Use an empty triples array if none.',
     `Surfaces:\n${mentionLines.join('\n')}`,
     `Text:\n${input.normalizedText}`,
   ].join('\n')
@@ -246,9 +246,20 @@ export async function extractEntityTriples(input: {
     userId: input.userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
   })
 
-  return parseEntityTriples(stripMarkdownJsonFences(extractChatContent(response)), allowed)
+  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
+  const triples =
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as { triples?: unknown }).triples
+      : undefined
+  if (!Array.isArray(triples)) {
+    throw new Error(
+      'Entity relation extraction output must be a JSON object with a "triples" array',
+    )
+  }
+  return parseEntityTriples(JSON.stringify(triples), allowed)
 }
 
 /** Single LLM call: entity mentions + typed triples. An empty `mentions` array is a valid answer. */
@@ -330,6 +341,7 @@ export async function extractEntityGraphBundle(input: {
     userId: input.userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
   })
   const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
   if (!parsed || typeof parsed !== 'object') {

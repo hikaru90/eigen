@@ -71,6 +71,7 @@ export async function runPatternsJudge(userId: string, input: PatternsLlmInput):
     userId,
     messages: buildPatternsJudgeMessages(input),
     temperature: 0,
+    responseFormat: 'json_object',
   })
   return parseLlmJsonPayload(extractChatContent(response))
 }

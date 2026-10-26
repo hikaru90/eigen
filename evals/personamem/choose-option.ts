@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { evictEvalLlmCacheEntry } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import { optionLetterSchema, type OptionLetter } from './types'
@@ -7,7 +8,9 @@ const MAX_ATTEMPTS = 3
 
 const responseSchema = z.object({ letter: optionLetterSchema })
 
-export type Complete = (messages: ChatMessage[]) => Promise<string>
+/** `reject` drops the reply from the eval response cache, so asking again really re-asks. */
+export type CompleteReply = { content: string; reject: () => void }
+export type Complete = (messages: ChatMessage[]) => Promise<CompleteReply>
 
 /** JSON-mode chat completion on the run's chat model (call inside `withEvalDb`). */
 export function llmComplete(userId: string): Complete {
@@ -24,7 +27,7 @@ export function llmComplete(userId: string): Complete {
       raw as { choices?: Array<{ message?: { content?: string } }> }
     ).choices?.[0]?.message?.content?.trim()
     if (!content) throw new Error('[personamem] chooser: empty LLM response')
-    return content
+    return { content, reject: () => void evictEvalLlmCacheEntry(raw) }
   }
 }
 
@@ -39,10 +42,11 @@ export async function chooseOption(input: {
 }): Promise<OptionLetter> {
   let lastProblem = ''
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const content = await input.complete(input.messages)
+    const reply = await input.complete(input.messages)
     try {
-      return responseSchema.parse(parseLlmJsonPayload(content)).letter
+      return responseSchema.parse(parseLlmJsonPayload(reply.content)).letter
     } catch (err) {
+      reply.reject()
       lastProblem = err instanceof Error ? err.message : String(err)
     }
   }

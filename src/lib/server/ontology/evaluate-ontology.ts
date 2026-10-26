@@ -110,6 +110,7 @@ async function refreshUserOntologyProfileFromRecentThoughts(input: {
     userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
   })
 
   const profile = parseOntologyEvalOutput(extractChatContent(response), activeKeys)

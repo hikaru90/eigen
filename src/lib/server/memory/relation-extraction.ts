@@ -58,9 +58,13 @@ function extractChatContent(response: unknown): string {
 }
 
 function parseRelations(content: string): ExtractedRelation[] {
-  const parsed = JSON.parse(content) as unknown
+  const wrapped = JSON.parse(content) as unknown
+  const parsed =
+    wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped)
+      ? (wrapped as { relations?: unknown }).relations
+      : undefined
   if (!Array.isArray(parsed)) {
-    throw new Error('Relation extraction output must be a JSON array')
+    throw new Error('Relation extraction output must be a JSON object with a "relations" array')
   }
 
   return parsed
@@ -147,12 +151,17 @@ export async function extractRelations(input: {
       kind: 'relation_type',
       state: input.normalizedText,
       criteria: {
-        mentions: 'Source explicitly names or references the specific person, place, technology, or idea that is the subject of the candidate.',
-        refines: 'Source adds precision, detail, or nuance to a more general statement in the candidate.',
-        contradicts: 'Source directly conflicts with, negates, or challenges a claim or framing in the candidate.',
+        mentions:
+          'Source explicitly names or references the specific person, place, technology, or idea that is the subject of the candidate.',
+        refines:
+          'Source adds precision, detail, or nuance to a more general statement in the candidate.',
+        contradicts:
+          'Source directly conflicts with, negates, or challenges a claim or framing in the candidate.',
         depends_on: 'Source presupposes or requires the candidate to be true or completed first.',
-        follows_from: 'Source is a natural next step or logical consequence after the candidate (temporal or sequential).',
-        continuation_of: 'Source continues the exact same thread, topic, or action in progress in the candidate.',
+        follows_from:
+          'Source is a natural next step or logical consequence after the candidate (temporal or sequential).',
+        continuation_of:
+          'Source continues the exact same thread, topic, or action in progress in the candidate.',
         caused_by: 'Source was directly caused or triggered by what is described in the candidate.',
         related_to: 'Shares a general topic or domain, but none of the more specific types apply.',
         none: 'No meaningful relationship exists between source and candidate — omit the pair.',
@@ -171,7 +180,7 @@ export async function extractRelations(input: {
   }
 
   const prompt = [
-    'Return ONLY a JSON array. No explanation, no markdown.',
+    'Return ONLY a JSON object {"relations": [...]}. No explanation, no markdown.',
     '',
     'Task: classify the relationship from SOURCE to each CANDIDATE thought.',
     '',
@@ -209,7 +218,7 @@ export async function extractRelations(input: {
     'CANDIDATE: "I find it hard to remember insights from client calls."',
     '-> follows_from  (the notebook purchase is a natural next step after recognising the recall problem)',
     '',
-    'Output schema: [{"targetId":"<candidate-id>","relationType":"<type>"}]',
+    'Output schema: {"relations":[{"targetId":"<candidate-id>","relationType":"<type>"}]}',
     'Include only candidates that have a clear relationship. Omit the rest.',
     '',
     `Source thought (${input.thoughtId}): ${input.normalizedText}`,
@@ -230,6 +239,7 @@ export async function extractRelations(input: {
     userId: input.userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
   })
 
   const parsed = parseRelations(extractChatContent(response))

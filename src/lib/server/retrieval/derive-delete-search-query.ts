@@ -63,6 +63,7 @@ export async function deriveDeleteSearchQueries(params: {
     userId: params.userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
     logContext: 'delete_search_query',
   })
 

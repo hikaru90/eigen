@@ -86,6 +86,7 @@ export async function judgeAnswerAcceptance(input: {
       userId: EVAL_JUDGE_USER_ID,
       messages,
       temperature: 0,
+      responseFormat: 'json_object',
     })
   const billingUserId = input.billingUserId?.trim()
   const response = billingUserId

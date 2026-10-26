@@ -150,6 +150,7 @@ export async function classifyQueryIntent(params: {
     userId: params.userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
     logContext: 'query_intent_classifier',
   })
 

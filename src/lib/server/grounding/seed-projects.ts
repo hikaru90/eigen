@@ -78,6 +78,7 @@ export async function extractProjectsFromGroundingFacet(
       { role: 'user', content: prompt },
     ],
     temperature: 0,
+    responseFormat: 'json_object',
   })
 
   const choices = (response as { choices?: Array<{ message?: { content?: string } }> }).choices

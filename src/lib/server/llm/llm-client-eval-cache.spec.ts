@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ExtendedPrivateEnv } from '$lib/server/env/private-env'
-import { createEvalLlmCache, withEvalLlmCache } from './eval-llm-cache'
+import { createEvalLlmCache, evictEvalLlmCacheEntry, withEvalLlmCache } from './eval-llm-cache'
 import { llmChatCompletion, llmCreateEmbeddings } from './llm-client'
 
 const { mockEnv, logActivityCallMock, chargeMock, billingCalls } = vi.hoisted(() => ({
@@ -155,6 +155,176 @@ describe('llmChatCompletion with the eval cache', () => {
         llmChatCompletion({ userId: 'real-user', messages: [{ role: 'user', content: 'x' }] }),
       ),
     ).rejects.toThrow(/only allowed for harness billing users/)
+  })
+})
+
+function chatReply(content: string) {
+  return { choices: [{ message: { content } }], usage: { cost: 0.004 } }
+}
+
+const freeTextChat = () =>
+  llmChatCompletion({ userId: TENANT, messages: [{ role: 'user', content: 'hello' }] })
+
+describe('llmChatCompletion eval cache: only usable responses are stored', () => {
+  const prose = chatReply('Please paste the text you want help with.')
+
+  it('does not store a json_object response whose content is not JSON, but still bills it', async () => {
+    const fetchMock = vi.fn(async () => ok(prose))
+    vi.stubGlobal('fetch', fetchMock)
+    const cache = createEvalLlmCache(dir)
+
+    const result = await withEvalLlmCache(cache, () => chat())
+
+    expect(result).toEqual(prose)
+    expect(existsSync(join(dir, MODEL_DIR))).toBe(false)
+    expect(chargeMock).toHaveBeenCalledWith(0.004)
+    expect(cache.stats).toMatchObject({ hits: 0, misses: 1, usdPaid: 0.004 })
+  })
+
+  it('asks the model again on the next identical json_object request after a prose answer', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(ok(prose))
+      .mockResolvedValueOnce(ok(chatReply('{"mentions":[]}')))
+    vi.stubGlobal('fetch', fetchMock)
+    const cache = createEvalLlmCache(dir)
+
+    const first = await withEvalLlmCache(cache, () => chat())
+    const second = await withEvalLlmCache(cache, () => chat())
+
+    expect(first).toEqual(prose)
+    expect(second).toEqual(chatReply('{"mentions":[]}'))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(cache.stats.hits).toBe(0)
+  })
+
+  it('does not store an empty json_object answer or one without message content', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(ok(chatReply('')))
+      .mockResolvedValueOnce(ok({ choices: [], usage: { cost: 0.004 } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const cache = createEvalLlmCache(dir)
+
+    await withEvalLlmCache(cache, async () => {
+      await chat()
+      await chat()
+    })
+
+    expect(existsSync(join(dir, MODEL_DIR))).toBe(false)
+  })
+
+  it.each(['{"a":1}', '[]', '```json\n{"a":1}\n```', '0', 'null'])(
+    'stores a json_object answer that parses as JSON (%s)',
+    async (content) => {
+      const fetchMock = vi.fn(async () => ok(chatReply(content)))
+      vi.stubGlobal('fetch', fetchMock)
+      const cache = createEvalLlmCache(dir)
+
+      await withEvalLlmCache(cache, async () => {
+        await chat()
+        await chat()
+      })
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(cache.stats).toMatchObject({ hits: 1, misses: 1 })
+    },
+  )
+
+  it('keeps caching free-text answers (no json_object requested)', async () => {
+    const fetchMock = vi.fn(async () => ok(prose))
+    vi.stubGlobal('fetch', fetchMock)
+    const cache = createEvalLlmCache(dir)
+
+    await withEvalLlmCache(cache, async () => {
+      await freeTextChat()
+      await freeTextChat()
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(cache.stats).toMatchObject({ hits: 1, misses: 1 })
+  })
+
+  it('never stores an HTTP error', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        ({
+          ok: false,
+          status: 400,
+          text: async () => JSON.stringify({ error: { message: 'bad request' } }),
+        }) as unknown as Response,
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const cache = createEvalLlmCache(dir)
+
+    await expect(withEvalLlmCache(cache, () => chat())).rejects.toThrow(/bad request/)
+
+    expect(existsSync(join(dir, MODEL_DIR))).toBe(false)
+    expect(cache.stats.misses).toBe(0)
+  })
+})
+
+describe('evictEvalLlmCacheEntry: a caller that rejects a response makes the retry ask again', () => {
+  it('drops the entry of a stored response so the identical request reaches the gateway again', async () => {
+    const bad = chatReply('{"unexpected":"shape"}')
+    const good = chatReply('{"letter":"A"}')
+    const fetchMock = vi.fn().mockResolvedValueOnce(ok(bad)).mockResolvedValueOnce(ok(good))
+    vi.stubGlobal('fetch', fetchMock)
+    const cache = createEvalLlmCache(dir)
+
+    await withEvalLlmCache(cache, async () => {
+      const first = await chat()
+      expect(evictEvalLlmCacheEntry(first)).toBe(true)
+      expect(await chat()).toEqual(good)
+      // the replacement is what future identical requests now hit
+      expect(await chat()).toEqual(good)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(cache.stats).toMatchObject({ hits: 1, misses: 2 })
+  })
+
+  it('also evicts a response that was served from the cache', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(ok(chatReply('{"v":1}')))
+      .mockResolvedValueOnce(ok(chatReply('{"v":2}')))
+    vi.stubGlobal('fetch', fetchMock)
+    const cache = createEvalLlmCache(dir)
+
+    await withEvalLlmCache(cache, async () => {
+      await chat()
+      const hit = await chat()
+      expect(evictEvalLlmCacheEntry(hit)).toBe(true)
+      expect(await chat()).toEqual(chatReply('{"v":2}'))
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('is a no-op for a response that never came from the cache (and for non-objects)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok(chatBody)),
+    )
+    const uncached = await chat()
+    expect(evictEvalLlmCacheEntry(uncached)).toBe(false)
+    expect(evictEvalLlmCacheEntry({ choices: [] })).toBe(false)
+    expect(evictEvalLlmCacheEntry('text')).toBe(false)
+    expect(evictEvalLlmCacheEntry(undefined)).toBe(false)
+  })
+
+  it('returns false when the entry is already gone', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok(chatBody)),
+    )
+    const cache = createEvalLlmCache(dir)
+    await withEvalLlmCache(cache, async () => {
+      const first = await chat()
+      expect(evictEvalLlmCacheEntry(first)).toBe(true)
+      expect(evictEvalLlmCacheEntry(first)).toBe(false)
+    })
   })
 })
 

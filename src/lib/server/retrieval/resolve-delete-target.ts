@@ -202,6 +202,7 @@ export async function resolveDeleteTargets(params: {
     userId: params.userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
     logContext: 'delete_target_resolver',
   })
 

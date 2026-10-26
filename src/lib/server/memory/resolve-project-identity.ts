@@ -382,6 +382,7 @@ async function resolveViaChatJudge(input: ResolutionEngineInput): Promise<Resolu
       { role: 'user', content: prompt },
     ],
     temperature: 0,
+    responseFormat: 'json_object',
   })
 
   const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown

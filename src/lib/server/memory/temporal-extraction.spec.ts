@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { extractTemporalMentions } from './temporal-extraction'
 
-const { llmChatCompletionMock } = vi.hoisted(() => ({
+const { llmChatCompletionMock, evictMock } = vi.hoisted(() => ({
   llmChatCompletionMock: vi.fn(),
+  evictMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/llm/llm-client', () => ({
   llmChatCompletion: llmChatCompletionMock,
+}))
+vi.mock('$lib/server/llm/eval-llm-cache', () => ({
+  evictEvalLlmCacheEntry: evictMock,
 }))
 
 function llmContent(content: string) {
@@ -18,10 +22,10 @@ describe('extractTemporalMentions', () => {
     vi.clearAllMocks()
   })
 
-  it('returns parsed mentions from a JSON array response', async () => {
+  it('returns parsed mentions from a { mentions: [...] } object response', async () => {
     llmChatCompletionMock.mockResolvedValue(
       llmContent(
-        `[{"surface":"due Friday","kind":"deadline","startAt":"2026-05-22T00:00:00.000Z","timePrecision":"day","timezone":"UTC","isAllDay":true,"confidence":0.9,"semanticSummary":"Report due Friday"}]`,
+        `{"mentions":[{"surface":"due Friday","kind":"deadline","startAt":"2026-05-22T00:00:00.000Z","timePrecision":"day","timezone":"UTC","isAllDay":true,"confidence":0.9,"semanticSummary":"Report due Friday"}]}`,
       ),
     )
 
@@ -42,10 +46,41 @@ describe('extractTemporalMentions', () => {
     )
   })
 
-  it('unwraps { events: [...] } payloads from the model', async () => {
+  it('requests JSON object mode and asks for a JSON object with a "mentions" array', async () => {
+    llmChatCompletionMock.mockResolvedValue(llmContent('{"mentions":[]}'))
+
+    await extractTemporalMentions({
+      userId: 'u1',
+      normalizedText: 'can you help me with this?',
+      capturedAt: new Date('2026-05-20T12:00:00.000Z'),
+      timezone: 'UTC',
+    })
+
+    const call = llmChatCompletionMock.mock.calls[0]?.[0]
+    expect(call.responseFormat).toBe('json_object')
+    const prompt = call.messages[0].content as string
+    expect(prompt).toContain('Return ONLY a JSON object')
+    expect(prompt).toContain('"mentions"')
+    expect(prompt).not.toContain('Return ONLY a JSON array')
+    expect(prompt).not.toContain('return []')
+  })
+
+  it('returns no mentions for { mentions: [] }', async () => {
+    llmChatCompletionMock.mockResolvedValue(llmContent('{"mentions":[]}'))
+    await expect(
+      extractTemporalMentions({
+        userId: 'u1',
+        normalizedText: 'nothing dated here',
+        capturedAt: new Date('2026-05-20T12:00:00.000Z'),
+        timezone: 'UTC',
+      }),
+    ).resolves.toEqual([])
+  })
+
+  it('accepts a fenced object response', async () => {
     llmChatCompletionMock.mockResolvedValue(
       llmContent(
-        '```json\n{"events":[{"surface":"next Wednesday","kind":"appointment","startAt":"2026-05-27T15:00:00.000Z","timePrecision":"exact","timezone":"UTC","isAllDay":false,"confidence":0.8,"semanticSummary":"Dentist appointment"}]}\n```',
+        '```json\n{"mentions":[{"surface":"next Wednesday","kind":"appointment","startAt":"2026-05-27T15:00:00.000Z","timePrecision":"exact","timezone":"UTC","isAllDay":false,"confidence":0.8,"semanticSummary":"Dentist appointment"}]}\n```',
       ),
     )
 
@@ -58,6 +93,37 @@ describe('extractTemporalMentions', () => {
 
     expect(mentions).toHaveLength(1)
     expect(mentions[0]?.kind).toBe('appointment')
+  })
+
+  const input = {
+    userId: 'u1',
+    normalizedText: 'can you help me with this?',
+    capturedAt: new Date('2026-05-20T12:00:00.000Z'),
+    timezone: 'UTC',
+  }
+
+  it.each([
+    ['prose', 'Please paste the text you want me to look at.'],
+    ['a bare array (the old contract)', '[]'],
+    ['an object without a mentions array', '{"events":[]}'],
+    ['an object whose mentions is not an array', '{"mentions":"none"}'],
+  ])(
+    'fails loud on %s and evicts the cached response so a retry asks the model again',
+    async (_label, content) => {
+      const response = llmContent(content)
+      llmChatCompletionMock.mockResolvedValue(response)
+
+      await expect(extractTemporalMentions(input)).rejects.toThrow()
+
+      expect(evictMock).toHaveBeenCalledTimes(1)
+      expect(evictMock).toHaveBeenCalledWith(response)
+    },
+  )
+
+  it('does not evict a response it could parse', async () => {
+    llmChatCompletionMock.mockResolvedValue(llmContent('{"mentions":[]}'))
+    await extractTemporalMentions(input)
+    expect(evictMock).not.toHaveBeenCalled()
   })
 
   it('throws when the LLM response has no choices', async () => {
@@ -76,7 +142,7 @@ describe('extractTemporalMentions', () => {
   it('prompt prefers acquisition milestone over pre-order for devices', async () => {
     llmChatCompletionMock.mockResolvedValue(
       llmContent(
-        `[{"surface":"pre-ordered the laptop on January 28th","kind":"milestone","startAt":"2023-01-28T00:00:00.000Z","timePrecision":"day","timezone":"UTC","isAllDay":true,"confidence":0.9,"semanticSummary":"Dell XPS 13 laptop arrived on February 25th","relativeSpec":{"dateAnchor":"explicit","calendarDate":"2023-02-25"}}]`,
+        `{"mentions":[{"surface":"pre-ordered the laptop on January 28th","kind":"milestone","startAt":"2023-01-28T00:00:00.000Z","timePrecision":"day","timezone":"UTC","isAllDay":true,"confidence":0.9,"semanticSummary":"Dell XPS 13 laptop arrived on February 25th","relativeSpec":{"dateAnchor":"explicit","calendarDate":"2023-02-25"}}]}`,
       ),
     )
 
@@ -94,7 +160,7 @@ describe('extractTemporalMentions', () => {
   })
 
   it('prompt covers book completion, malfunctions, lodging, and seed-start dates', async () => {
-    llmChatCompletionMock.mockResolvedValue(llmContent('[]'))
+    llmChatCompletionMock.mockResolvedValue(llmContent('{"mentions":[]}'))
 
     await extractTemporalMentions({
       userId: 'u1',

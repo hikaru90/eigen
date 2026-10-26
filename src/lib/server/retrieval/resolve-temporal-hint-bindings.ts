@@ -230,6 +230,7 @@ async function callBindingLlm(params: {
     userId: params.userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
     logContext: 'temporal_hint_bindings',
   })
 

@@ -538,7 +538,7 @@ describe('extractEntityTriples', () => {
   it('returns parsed triples from the chat completion content', async () => {
     llmChatCompletionMock.mockResolvedValue(
       chatResponse(
-        '[{"subject":"Sam","object":"Berlin","predicate":"located_in","confidence":0.5}]',
+        '{"triples":[{"subject":"Sam","object":"Berlin","predicate":"located_in","confidence":0.5}]}',
       ),
     )
     const mentions = [{ surface: 'Sam', entityType: 'person', confidence: 0.9 }]
@@ -553,7 +553,7 @@ describe('extractEntityTriples', () => {
   it('returns triples when endpoints match mention surfaces', async () => {
     llmChatCompletionMock.mockResolvedValue(
       chatResponse(
-        '[{"subject":"Sam","object":"Berlin","predicate":"located_in","confidence":0.6}]',
+        '{"triples":[{"subject":"Sam","object":"Berlin","predicate":"located_in","confidence":0.6}]}',
       ),
     )
     const mentions = [
@@ -581,20 +581,23 @@ describe('extractEntityTriples', () => {
     ).rejects.toThrow(/no choices/)
   })
 
-  it('throws when triple JSON is not an array', async () => {
-    llmChatCompletionMock.mockResolvedValue(chatResponse('{"subject":"Sam"}'))
-    const mentions = [{ surface: 'Sam', entityType: 'person', confidence: 0.9 }]
-    await expect(
-      extractEntityTriples({
-        userId: 'u1',
-        normalizedText: 'Sam was here',
-        mentions,
-      }),
-    ).rejects.toThrow(/must be a JSON array/)
-  })
+  it.each(['{"subject":"Sam"}', '[]'])(
+    'throws when triple JSON is not a { triples: [...] } object (%s)',
+    async (content) => {
+      llmChatCompletionMock.mockResolvedValue(chatResponse(content))
+      const mentions = [{ surface: 'Sam', entityType: 'person', confidence: 0.9 }]
+      await expect(
+        extractEntityTriples({
+          userId: 'u1',
+          normalizedText: 'Sam was here',
+          mentions,
+        }),
+      ).rejects.toThrow(/"triples" array/)
+    },
+  )
 
   it('includes mention surfaces in the triple extraction prompt', async () => {
-    llmChatCompletionMock.mockResolvedValue(chatResponse('[]'))
+    llmChatCompletionMock.mockResolvedValue(chatResponse('{"triples":[]}'))
     const mentions = [
       { surface: 'Sam', entityType: 'person', confidence: 0.9 },
       { surface: 'Berlin', entityType: 'place', confidence: 0.8 },
@@ -607,5 +610,6 @@ describe('extractEntityTriples', () => {
     const prompt = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[1]?.content
     expect(String(prompt)).toContain('- Sam (person)')
     expect(String(prompt)).toContain('- Berlin (place)')
+    expect(llmChatCompletionMock.mock.calls[0]?.[0]?.responseFormat).toBe('json_object')
   })
 })

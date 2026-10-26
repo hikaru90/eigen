@@ -180,6 +180,7 @@ export async function applyThoughtEditRequest(input: {
     userId: input.userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
     logContext: 'apply_thought_edit',
   })
 

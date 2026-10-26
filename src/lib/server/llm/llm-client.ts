@@ -12,7 +12,12 @@ import { withPlatformBilling } from '$lib/server/billing/usage-gate'
 import { getDb } from '$lib/server/db'
 import { env } from '$lib/server/env/private-env'
 import { LlmHttpError } from '$lib/server/llm/errors'
-import { evalLlmCacheFor, type EvalLlmCache } from '$lib/server/llm/eval-llm-cache'
+import {
+  evalLlmCacheFor,
+  isUsableJsonModeResponse,
+  rememberEvalLlmCacheOrigin,
+  type EvalLlmCache,
+} from '$lib/server/llm/eval-llm-cache'
 import {
   gatewayReportedCostUsdForLog,
   requireGatewayReportedCostUsd,
@@ -469,6 +474,7 @@ async function llmChatCompletionCached(
       cached: true,
     })
     cache.noteHit('chat', hit.costUsd)
+    rememberEvalLlmCacheOrigin(hit.response, cache, request)
     return hit.response
   }
 
@@ -481,7 +487,12 @@ async function llmChatCompletionCached(
         ? runLlmRequestGated(input.userId, () => llmChatCompletionInner(input))
         : llmChatCompletionInner(input))
       costUsd = requireGatewayReportedCostUsd(body)
-      cache.store(request, { response: body, costUsd })
+      // JSON mode: prose / empty content is returned (and billed) but never stored, so the
+      // caller's failure + retry really asks the model again instead of replaying it.
+      if (input.responseFormat !== 'json_object' || isUsableJsonModeResponse(body)) {
+        cache.store(request, { response: body, costUsd })
+        rememberEvalLlmCacheOrigin(body, cache, request)
+      }
       return body
     },
   )
@@ -858,7 +869,6 @@ function sttTranscriptPreview(body: unknown): string {
   }
   return ''
 }
-
 
 /**
  * Speech-to-text via OpenRouter `POST /audio/transcriptions` (OpenAI-compatible JSON body).

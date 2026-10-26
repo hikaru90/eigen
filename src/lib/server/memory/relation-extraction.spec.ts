@@ -1,14 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { extractRelations } from './relation-extraction'
 
-const { llmChatCompletionMock, searchThoughtsMock, getDbMock, runEnforcedPerItemDecisionsMock, resolveEnforceKindsMock } =
-  vi.hoisted(() => ({
-    llmChatCompletionMock: vi.fn(),
-    searchThoughtsMock: vi.fn(),
-    getDbMock: vi.fn(),
-    runEnforcedPerItemDecisionsMock: vi.fn(),
-    resolveEnforceKindsMock: vi.fn(),
-  }))
+const {
+  llmChatCompletionMock,
+  searchThoughtsMock,
+  getDbMock,
+  runEnforcedPerItemDecisionsMock,
+  resolveEnforceKindsMock,
+} = vi.hoisted(() => ({
+  llmChatCompletionMock: vi.fn(),
+  searchThoughtsMock: vi.fn(),
+  getDbMock: vi.fn(),
+  runEnforcedPerItemDecisionsMock: vi.fn(),
+  resolveEnforceKindsMock: vi.fn(),
+}))
 
 vi.mock('$lib/server/llm/llm-client', () => ({
   llmChatCompletion: llmChatCompletionMock,
@@ -70,6 +75,8 @@ function makeDecisionAnswer(choice: string) {
   return { choice, probability: 0.9, alternatives: {} }
 }
 
+const relationsJson = (relations: unknown[]) => JSON.stringify({ relations })
+
 describe('extractRelations', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -99,7 +106,7 @@ describe('extractRelations', () => {
       choices: [
         {
           message: {
-            content: JSON.stringify([{ targetId: 't2', relationType: 'related_to' }]),
+            content: relationsJson([{ targetId: 't2', relationType: 'related_to' }]),
           },
         },
       ],
@@ -137,7 +144,7 @@ describe('extractRelations', () => {
         },
       ])
       llmChatCompletionMock.mockResolvedValue({
-        choices: [{ message: { content: JSON.stringify([{ targetId: 't2', relationType }]) } }],
+        choices: [{ message: { content: relationsJson([{ targetId: 't2', relationType }]) } }],
       })
       const out = await extractRelations({
         userId: 'u1',
@@ -161,7 +168,7 @@ describe('extractRelations', () => {
       },
     ])
     llmChatCompletionMock.mockResolvedValue({
-      choices: [{ message: { content: JSON.stringify([]) } }],
+      choices: [{ message: { content: relationsJson([]) } }],
     })
     await extractRelations({ userId: 'u1', thoughtId: 't1', normalizedText: 'source' })
 
@@ -211,7 +218,7 @@ describe('extractRelations', () => {
       choices: [
         {
           message: {
-            content: JSON.stringify([
+            content: relationsJson([
               { targetId: 't2', relationType: 'contradicts' },
               { targetId: 't3', relationType: 'related_to' },
             ]),
@@ -249,7 +256,7 @@ describe('extractRelations', () => {
       choices: [
         {
           message: {
-            content: JSON.stringify([{ targetId: 't2', relationType: 'unsupported' }]),
+            content: relationsJson([{ targetId: 't2', relationType: 'unsupported' }]),
           },
         },
       ],
@@ -299,7 +306,7 @@ describe('extractRelations', () => {
     ])
     llmChatCompletionMock.mockResolvedValue({
       choices: [
-        { message: { content: JSON.stringify([{ targetId: 't2', relationType: 'related_to' }]) } },
+        { message: { content: relationsJson([{ targetId: 't2', relationType: 'related_to' }]) } },
       ],
     })
     const out = await extractRelations({
@@ -361,7 +368,7 @@ describe('extractRelations', () => {
     llmChatCompletionMock.mockResolvedValue({
       choices: [
         {
-          message: { content: JSON.stringify([{ targetId: 't3', relationType: 'follows_from' }]) },
+          message: { content: relationsJson([{ targetId: 't3', relationType: 'follows_from' }]) },
         },
       ],
     })
@@ -394,7 +401,7 @@ describe('extractRelations', () => {
     ).rejects.toThrow(/no choices/)
   })
 
-  it('throws when llm output is not a json array', async () => {
+  it('throws when llm output is not a { relations: [...] } object (bare array included)', async () => {
     searchThoughtsMock.mockResolvedValue([
       {
         id: 't2',
@@ -407,7 +414,7 @@ describe('extractRelations', () => {
       },
     ])
     llmChatCompletionMock.mockResolvedValue({
-      choices: [{ message: { content: '{}' } }],
+      choices: [{ message: { content: '[]' } }],
     })
     await expect(
       extractRelations({
@@ -415,7 +422,8 @@ describe('extractRelations', () => {
         thoughtId: 't1',
         normalizedText: 'source thought',
       }),
-    ).rejects.toThrow(/JSON array/)
+    ).rejects.toThrow(/"relations" array/)
+    expect(llmChatCompletionMock.mock.calls[0]![0].responseFormat).toBe('json_object')
   })
 
   it('throws when llm response message is missing', async () => {
@@ -500,7 +508,7 @@ describe('extractRelations', () => {
       choices: [
         {
           message: {
-            content: JSON.stringify([
+            content: relationsJson([
               'bad',
               { targetId: 123, relationType: 'related_to' },
               { targetId: 't2', relationType: 999 },
@@ -537,7 +545,7 @@ describe('extractRelations', () => {
       })),
     })
     llmChatCompletionMock.mockResolvedValue({
-      choices: [{ message: { content: JSON.stringify([]) } }],
+      choices: [{ message: { content: relationsJson([]) } }],
     })
     const out = await extractRelations({
       userId: 'u1',
@@ -567,7 +575,7 @@ describe('extractRelations', () => {
       })),
     })
     llmChatCompletionMock.mockResolvedValue({
-      choices: [{ message: { content: JSON.stringify([]) } }],
+      choices: [{ message: { content: relationsJson([]) } }],
     })
     const out = await extractRelations({
       userId: 'u1',
@@ -605,7 +613,7 @@ describe('extractRelations', () => {
     })
     llmChatCompletionMock.mockResolvedValue({
       choices: [
-        { message: { content: JSON.stringify([{ targetId: 't2', relationType: 'related_to' }]) } },
+        { message: { content: relationsJson([{ targetId: 't2', relationType: 'related_to' }]) } },
       ],
     })
     const out = await extractRelations({
@@ -633,7 +641,7 @@ describe('extractRelations', () => {
       choices: [
         {
           message: {
-            content: JSON.stringify([{ targetId: 'missing-id', relationType: 'related_to' }]),
+            content: relationsJson([{ targetId: 'missing-id', relationType: 'related_to' }]),
           },
         },
       ],
@@ -688,7 +696,9 @@ describe('extractRelations', () => {
         'none',
       ].sort(),
     )
-    expect(Object.values(call.criteria).every((v) => typeof v === 'string' && v.length > 0)).toBe(true)
+    expect(Object.values(call.criteria).every((v) => typeof v === 'string' && v.length > 0)).toBe(
+      true,
+    )
     expect(call.items).toEqual([
       {
         ref: 'p1',
@@ -760,7 +770,7 @@ describe('extractRelations', () => {
       choices: [
         {
           message: {
-            content: JSON.stringify([{ targetId: 't2', relationType: 'refines' }]),
+            content: relationsJson([{ targetId: 't2', relationType: 'refines' }]),
           },
         },
       ],
@@ -785,7 +795,7 @@ describe('extractRelations', () => {
       choices: [
         {
           message: {
-            content: JSON.stringify([{ targetId: 't2', relationType: 'unsupported' }]),
+            content: relationsJson([{ targetId: 't2', relationType: 'unsupported' }]),
           },
         },
       ],

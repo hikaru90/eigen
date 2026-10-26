@@ -1,6 +1,7 @@
 import { m } from '$lib/paraglide/messages.js'
+import { evictEvalLlmCacheEntry } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
-import { parseLlmJsonPayload, stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
+import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import {
   applyCaptureAnchoredMentions,
   parseTemporalMentions,
@@ -43,7 +44,7 @@ export async function extractTemporalMentions(input: {
 
 Additional guidelines:
 The capture happened at ${capturedIso} in timezone ${anchorTz}. Always set "timezone" to "${anchorTz}" unless the text explicitly names a different place/timezone.
-Return ONLY a JSON array. Each element:
+Return ONLY a JSON object of the form {"mentions": [ ... ]}. Each element of "mentions":
 {
   "surface": "verbatim phrase from text",
   "kind": "deadline|appointment|milestone|period|reminder|inferred_event",
@@ -75,7 +76,7 @@ For malfunctions and repairs: appliance breakdown or repair shop visits → kind
 For lodging: distinguish booking/reservation date (booked, reserved → kind "milestone") from payment deadlines or booking deadlines (kind "deadline" only — do not use deadline as the booking date).
 For gardening/seeds: "started X since DATE" or "started seeds on DATE" → kind "milestone" with calendarDate at the start date (when planting began, not when seeds arrived).
 Text may be in any language (e.g. German "nächsten Mittwoch" = next Wednesday).
-If no temporal content exists, return [].`
+If no temporal content exists, return {"mentions": []}.`
 
   const response = await llmChatCompletion({
     userId: input.userId,
@@ -84,21 +85,26 @@ If no temporal content exists, return [].`
       { role: 'user', content: input.normalizedText },
     ],
     temperature: 0,
+    responseFormat: 'json_object',
+    logContext: 'enrich_temporal',
   })
 
-  let content = stripMarkdownJsonFences(extractChatContent(response))
-  // Some models wrap the array in { "events": [...] }.
   try {
-    const wrapped = parseLlmJsonPayload(content) as unknown
-    if (wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped)) {
-      const events = (wrapped as { events?: unknown }).events
-      if (Array.isArray(events)) {
-        content = JSON.stringify(events)
-      }
+    const parsed = parseLlmJsonPayload(extractChatContent(response)) as unknown
+    const mentions =
+      parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as { mentions?: unknown }).mentions
+        : undefined
+    if (!Array.isArray(mentions)) {
+      throw new Error('Temporal extraction output must be a JSON object with a "mentions" array')
     }
-  } catch {
-    // use stripped raw content for array parser below
+    return applyCaptureAnchoredMentions(
+      parseTemporalMentions(JSON.stringify(mentions)),
+      input.capturedAt,
+    )
+  } catch (err) {
+    // an unusable answer must not be replayed by the eval response cache on retry
+    evictEvalLlmCacheEntry(response)
+    throw err
   }
-
-  return applyCaptureAnchoredMentions(parseTemporalMentions(content), input.capturedAt)
 }

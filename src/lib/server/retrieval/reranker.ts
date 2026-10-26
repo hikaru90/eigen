@@ -9,6 +9,7 @@
  */
 
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
+import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 
 export type RerankCandidate = {
   id: string
@@ -77,9 +78,9 @@ export async function rerankCandidates<T extends RerankCandidate>(
     'Candidates to rerank (most to least useful for answering the query):',
     candidateBlock,
     '',
-    `Return ONLY a JSON array of up to ${returnCount} IDs in order from most to least relevant.`,
-    'Example: ["id-3", "id-1", "id-2"]',
-    'If every candidate is weak, still return your best-guess ordering — never return an empty array.',
+    `Return ONLY a JSON object {"ids": [...]} with up to ${returnCount} IDs in order from most to least relevant.`,
+    'Example: {"ids": ["id-3", "id-1", "id-2"]}',
+    'If every candidate is weak, still return your best-guess ordering — never return an empty ids array.',
   ]
     .filter((l) => l !== null)
     .join('\n')
@@ -92,12 +93,13 @@ export async function rerankCandidates<T extends RerankCandidate>(
         {
           role: 'system',
           content:
-            'You rerank search results by relevance. Return only a JSON array of IDs, most relevant first.',
+            'You rerank search results by relevance. Return only a JSON object {"ids": [...]} of IDs, most relevant first.',
         },
         { role: 'user', content: prompt },
       ],
       temperature: 0,
       logContext: 'retrieval_rerank',
+      responseFormat: 'json_object',
     })
   } catch (err) {
     throw new RerankError(
@@ -144,49 +146,6 @@ export async function rerankCandidates<T extends RerankCandidate>(
   })
 }
 
-function stripMarkdownFences(text: string): string {
-  return text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/, '')
-}
-
-/** Collect every top-level JSON array in model output (handles trailing prose / revisions). */
-export function extractJsonArraysFromText(text: string): unknown[][] {
-  const cleaned = stripMarkdownFences(text)
-  const arrays: unknown[][] = []
-
-  try {
-    const whole = JSON.parse(cleaned) as unknown
-    if (Array.isArray(whole)) return [whole]
-  } catch {
-    // Model often prefixes valid JSON with explanation — scan for bracket-balanced arrays.
-  }
-
-  for (let i = 0; i < cleaned.length; i++) {
-    if (cleaned[i] !== '[') continue
-    let depth = 0
-    for (let j = i; j < cleaned.length; j++) {
-      const ch = cleaned[j]
-      if (ch === '[') depth++
-      else if (ch === ']') {
-        depth--
-        if (depth === 0) {
-          try {
-            const parsed = JSON.parse(cleaned.slice(i, j + 1)) as unknown
-            if (Array.isArray(parsed)) arrays.push(parsed)
-          } catch {
-            // ignore malformed fragments
-          }
-          break
-        }
-      }
-    }
-  }
-
-  return arrays
-}
-
 /** Map literal IDs or prompt-style placeholders (e.g. id-2, 2) to candidate IDs. */
 export function resolveRankedIds(rawIds: unknown[], candidates: RerankCandidate[]): string[] {
   const idSet = new Set(candidates.map((c) => c.id))
@@ -228,16 +187,13 @@ function parseRankedIdsFromRerankResponse(
   content: string,
   candidates: RerankCandidate[],
 ): string[] {
-  const arrays = extractJsonArraysFromText(content)
-  if (arrays.length === 0) {
-    throw new RerankError('Rerank LLM response is not a JSON array')
+  const parsed = parseLlmJsonPayload(content) as unknown
+  const ids =
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as { ids?: unknown }).ids
+      : undefined
+  if (!Array.isArray(ids)) {
+    throw new RerankError('Rerank LLM response is not a JSON object with an "ids" array')
   }
-
-  // Prefer the last array that resolves to known candidates (models often revise downward).
-  for (let i = arrays.length - 1; i >= 0; i--) {
-    const resolved = resolveRankedIds(arrays[i], candidates)
-    if (resolved.length > 0) return resolved
-  }
-
-  return []
+  return resolveRankedIds(ids, candidates)
 }

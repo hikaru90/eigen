@@ -196,6 +196,7 @@ export async function resolveThoughtCategory(input: {
     userId: input.userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
     logContext: 'thought_category',
   })
   logOntology('[capture.ontology] LLM returned for category', { llmMs: Date.now() - tLlm })

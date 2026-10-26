@@ -101,6 +101,7 @@ export async function generateGroundingQuestion(userId: string): Promise<Groundi
     userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
     logContext: 'grounding_next_question',
   })
 

@@ -172,6 +172,7 @@ export async function applyTemporalEventActionRequest(input: {
     userId: input.userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
     logContext: 'apply_temporal_event_action',
   })
 

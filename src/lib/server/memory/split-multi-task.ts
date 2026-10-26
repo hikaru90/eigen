@@ -125,6 +125,7 @@ export async function fanOutMultipleTasks(input: {
       },
     ],
     temperature: 0,
+    responseFormat: 'json_object',
   })
   const judge = parseJudgePayload(extractChatContent(response))
   if (!judge.multiple || !judge.tasks) return []

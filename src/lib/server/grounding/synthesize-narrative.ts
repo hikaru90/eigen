@@ -70,6 +70,7 @@ export async function synthesizeGroundingNarrative(input: {
     userId: input.userId,
     messages,
     temperature: 0,
+    responseFormat: 'json_object',
     logContext: 'grounding_narrative_synthesis',
   })
 

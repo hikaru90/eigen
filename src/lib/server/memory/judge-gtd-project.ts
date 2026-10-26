@@ -247,6 +247,7 @@ async function runChatHubJudge(
       { role: 'user', content: buildJudgePrompt(context) },
     ],
     temperature: 0,
+    responseFormat: 'json_object',
   })
 
   const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
@@ -432,6 +433,7 @@ export async function auditGtdProjectProfiles(userId: string): Promise<{ demoted
         { role: 'user', content: buildBatchAuditPrompt(entries) },
       ],
       temperature: 0,
+      responseFormat: 'json_object',
     })
 
     const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown

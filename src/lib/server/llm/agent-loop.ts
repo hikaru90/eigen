@@ -515,6 +515,7 @@ export async function agentChat(input: {
       userId: input.userId,
       messages,
       temperature: 0,
+      responseFormat: 'json_object',
       logContext: `agent_iter_${iteration}`,
       aiSessionId: input.aiSessionId,
       aiTraceId,
