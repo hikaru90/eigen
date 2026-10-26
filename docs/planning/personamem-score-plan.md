@@ -123,6 +123,39 @@ Advice questions ("what should I eat / try / do") don't resemble the implicit ev
   no re-ingest) — evidence-hit rate and accuracy vs the baseline; plus the evidence-only dev set.
 
 
+### S6a — Confirmation run on unseen personas: S2 + S3 (planned 2026-10-26)
+
+**Question:** do S2 (forget at capture) and S3 (advice-question retrieval) hold on personas we
+never looked at? S3 was measured on `val-full-1` (Eigen 40.6% → 50.7%, no-memory 29.0%,
+evidence hit 42% → 50%, fixed 10 / broke 3) — the same personas used to diagnose it.
+
+**Set `val-full-2`:** 20 val personas, seed `val-full-2` (sha256 order over val personas not in
+the benchmark split and not in `val-full-1`): 24, 77, 112, 152, 227, 373, 380, 381, 400, 475,
+503, 552, 567, 703, 830, 833, 852, 915, 922, 999 — 73 questions (ask_to_forget 14, neutral 13,
+stereotypical 13, anti-stereotypical 13, health 10, therapy 7, sensitive 3), 2,274 captures;
+70/73 aligned to history evidence. Histories downloaded, `prepare.py --split val` re-run.
+
+**Config:** `.env` `DECISION_ENFORCE_KINDS` now includes `capture_intent` (S2 active at ingest).
+S3 is always on in `composeAnswer`.
+
+**Runs (operator or Claude in background; durable: cache, per-capture resume, preflight):**
+1. `val-full-2-deepseek` — fresh ingest + answers, `--chat-model deepseek/deepseek-v4.1-flash-1017`.
+2. `val-full-2-4omini` — same with `--chat-model openai/gpt-4o-mini` (separate tenants).
+
+**Budget:** measured cost of a 2.3k-capture full-history run on deepseek was **$8.98**
+(`val-full-1-product`); the dry-run estimate ($4.00) uses $0.0015/capture and is ~2× too low, so
+preflight under-budgets — runs stay safe (resumable) but can stop on the OpenRouter limit.
+Key limit $20/week with ~$12.7 left → run 1 fits now; run 2 after the weekly reset or a higher
+limit. Time ≈ 3 h each (5 tenants in parallel); runs 1 and 2 can run concurrently when budget
+allows.
+
+**Read-out (per model):** Eigen accuracy, no-memory, lift, evidence-hit, per pref_type, with
+`val-full-1` S3 numbers alongside. **Confirmed** if Eigen ≥ 45% and lift over no-memory
+≥ +15 pp on the new personas (val-full-1 S3: 50.7%, +21.7 pp); ask_to_forget is the S2 slice
+(val-full-1 S3: 56%). Limits: no S2-off / S3-off arm on the new personas — attribution would
+need an eval-only S3 toggle (answer-only, cheap) and a second ingest for S2 (expensive); not
+planned unless the result is ambiguous.
+
 ### S4 — Cross-language retrieval (product, retrieval)
 - Keyword search must not drop non-Latin scripts (CJK, Arabic, Hebrew, Cyrillic): Unicode-aware
   tokenization in `buildLexicalTsQuery` / `lexical_text`, and n-gram matching for scripts without
