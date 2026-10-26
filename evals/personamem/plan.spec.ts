@@ -6,7 +6,13 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { parsePersonaMemCli } from './cli'
 import { buildDevSetFile } from './dev-set'
 import { buildPlan, estimateUsd, formatPlan, tenantUserIdFor } from './plan'
-import { writeFixtureDataDir } from './test-fixtures'
+import {
+  FIXTURE_EVIDENCE,
+  FIXTURE_ROWS,
+  toCsv,
+  writeFixtureDataDir,
+  type CsvRow,
+} from './test-fixtures'
 
 let dataDir = ''
 /** A `val` data dir with no history files, the way val is downloaded. */
@@ -47,6 +53,8 @@ function cliFor(
     '1',
     '--answer',
     answer,
+    '--relevance-floor',
+    'product',
     ...selection,
     ...extra,
   ])
@@ -165,17 +173,12 @@ describe('buildPlan --evidence-only', () => {
       expect(p.questions).toHaveLength(1)
       const suffix = p.questions[0]!.row.questionId.split('-')[1]
       expect(p.tenantUserId).toBe(`public-bench-personamem-v2-capture-gpt-4o-mini-p7-q${suffix}`)
-      expect(p.captures.map((c) => c.rawText)).toEqual([
-        'I like calm evenings.',
-        'Really, nothing loud after dinner.',
-      ])
-      expect(p.captures.map((c) => c.capturedAt.toISOString())).toEqual([
-        '2025-01-01T00:00:00.000Z',
-        '2025-01-02T00:00:00.000Z',
-      ])
-      expect(p.referenceTime.toISOString()).toBe('2025-01-03T00:00:00.000Z')
+      expect(p.captures.map((c) => c.rawText)).toEqual(
+        p.questions[0]!.row.evidenceTurns.filter((t) => t.role === 'user').map((t) => t.content),
+      )
+      expect(p.captures[0]!.capturedAt.toISOString()).toBe('2025-01-01T00:00:00.000Z')
     }
-    expect(plan.totals).toMatchObject({ captures: 6, queries: 3 })
+    expect(plan.totals).toMatchObject({ captures: 4, queries: 3 })
   })
 
   it('applies --limit-queries and selects exact --question-ids', () => {
@@ -203,6 +206,7 @@ describe('buildPlan --evidence-only', () => {
     expect(text).toMatch(
       /-q[0-9a-f]{12} {2}question=p7-[0-9a-f]{12} {2}evidence turns=2 {2}estimate=\$0\.011/,
     )
+    expect(text).not.toMatch(/evidence alignment/)
   })
 })
 
@@ -255,6 +259,8 @@ describe('buildPlan --split val', () => {
       '1',
       '--answer',
       'compose',
+      '--relevance-floor',
+      'product',
       '--all',
     ])
     expect(buildPlan(cli).totals).toMatchObject({ personas: 2, captures: 10, queries: 6 })
@@ -277,6 +283,8 @@ describe('buildPlan --split val', () => {
       '1',
       '--answer',
       'compose',
+      '--relevance-floor',
+      'product',
       '--persona-ids',
       '9',
     ])
@@ -341,5 +349,182 @@ describe('buildPlan --dev-set', () => {
     const path = devSetFile()
     const cli = cliFor(['--dev-set', path], ['--evidence-only'], 'ask', 'val')
     expect(formatPlan(buildPlan(cli), cli).join('\n')).toContain(`dev set ${path}`)
+  })
+})
+
+describe('evidence alignment (full history)', () => {
+  const questionsOf = (plan: ReturnType<typeof buildPlan>) =>
+    plan.personas.flatMap((p) => p.questions.map((q) => ({ prefType: q.row.prefType, ...q })))
+
+  it('maps each question evidence user turns to the history captures they came from', () => {
+    const questions = questionsOf(buildPlan(cliFor(['--all'])))
+    expect(questions.map((q) => [q.row.prefType, q.evidence])).toEqual([
+      ['neutral', { kind: 'aligned', captureIndexes: [0, 1] }],
+      ['health_and_medical', { kind: 'aligned', captureIndexes: [2] }],
+      ['sensitive_info', { kind: 'not-in-history' }],
+      ['stereotypical_pref', { kind: 'aligned', captureIndexes: [1] }],
+      ['anti_stereotypical_pref', { kind: 'aligned', captureIndexes: [2] }],
+      ['ask_to_forget', { kind: 'aligned', captureIndexes: [3, 4] }],
+    ])
+  })
+
+  it('the aligned capture is exactly the evidence text', () => {
+    const plan = buildPlan(cliFor(['--persona-ids', '7']))
+    const tea = plan.personas[0]!.questions[0]!
+    expect(tea.evidence).toEqual({ kind: 'aligned', captureIndexes: [0, 1] })
+    expect(plan.personas[0]!.captures.slice(0, 2).map((c) => c.rawText)).toEqual(
+      FIXTURE_EVIDENCE.tea.filter((t) => t.role === 'user').map((t) => t.content),
+    )
+  })
+
+  it('evidence-only questions carry no alignment: every item of their tenant is evidence', () => {
+    const plan = buildPlan(cliFor(['--persona-ids', '7'], ['--evidence-only']))
+    for (const q of questionsOf(plan)) expect(q.evidence).toEqual({ kind: 'evidence-only' })
+  })
+
+  function brokenDir(patch: (rows: CsvRow[]) => CsvRow[]): string {
+    const dir = writeFixtureDataDir({ rows: patch(FIXTURE_ROWS) })
+    prepare(dir, 'benchmark')
+    return dir
+  }
+  const cliForDir = (dir: string, extra: string[] = []) =>
+    parsePersonaMemCli([
+      '--data-dir',
+      dir,
+      '--split',
+      'benchmark',
+      '--chat-model',
+      'openai/gpt-4o-mini',
+      '--tenant-concurrency',
+      '1',
+      '--enrich-concurrency',
+      '1',
+      '--answer',
+      'compose',
+      '--relevance-floor',
+      'product',
+      '--all',
+      ...extra,
+    ])
+  const withEvidence = (index: number, evidence: unknown) => (rows: CsvRow[]) =>
+    rows.map((r, i) =>
+      i === index ? { ...r, related_conversation_snippet: JSON.stringify(evidence) } : r,
+    )
+
+  it('fails loud, naming the question and the turn, when an evidence turn is not in the history', () => {
+    const dir = brokenDir(withEvidence(1, [{ role: 'user', content: 'A turn nobody said.' }]))
+    const questionId = JSON.parse(
+      readFileSync(join(dir, 'personamem.benchmark.jsonl'), 'utf8').split('\n')[1]!,
+    ).questionId as string
+    const run = () => buildPlan(cliForDir(dir))
+    expect(run).toThrow(questionId)
+    expect(run).toThrow(/A turn nobody said\./)
+  })
+
+  it('names every unaligned question, not only the first', () => {
+    const dir = brokenDir((rows) =>
+      withEvidence(0, [{ role: 'user', content: 'Ghost one.' }])(
+        withEvidence(4, [{ role: 'user', content: 'Ghost two.' }])(rows),
+      ),
+    )
+    const run = () => buildPlan(cliForDir(dir))
+    expect(run).toThrow(/Ghost one\./)
+    expect(run).toThrow(/Ghost two\./)
+    expect(run).toThrow(/2 question/)
+  })
+
+  it('an evidence-only plan does not need the evidence to be in a history', () => {
+    const dir = brokenDir(withEvidence(0, [{ role: 'user', content: 'A turn nobody said.' }]))
+    expect(() => buildPlan(cliForDir(dir, ['--evidence-only']))).not.toThrow()
+  })
+
+  it('formatPlan prints the alignment totals, the questions without history evidence, and the floor', () => {
+    const cli = cliForDir(brokenDir((rows) => rows))
+    const text = formatPlan(buildPlan(cli), cli).join('\n')
+    expect(text).toMatch(
+      /evidence alignment: 5 of 6 question\(s\) aligned to 7 history capture\(s\)/,
+    )
+    expect(text).toMatch(/1 question\(s\) without history evidence \(sensitive_info\)/)
+    expect(text).toMatch(/relevance floor: product/)
+  })
+
+  it('formatPlan names an eval-only floor override', () => {
+    const cli = cliForDir(
+      brokenDir((rows) => rows),
+      [],
+    )
+    const withFloor = { ...cli, relevanceFloor: 0.15 }
+    expect(formatPlan(buildPlan(withFloor), withFloor).join('\n')).toMatch(
+      /relevance floor: 0\.15 \(eval-only override/,
+    )
+  })
+})
+
+describe('val full-history persona selection', () => {
+  /** A val data dir where persona 9 is also a benchmark persona, both splits prepared. */
+  function valWithBenchmark(): string {
+    const dir = writeFixtureDataDir({ split: 'val' })
+    const benchmarkRows = FIXTURE_ROWS.filter((r) => r.persona_id === '9')
+    writeFileSync(join(dir, 'benchmark/text/benchmark.csv'), toCsv(benchmarkRows))
+    prepare(dir, 'val')
+    prepare(dir, 'benchmark')
+    return dir
+  }
+  const valCli = (dir: string, selection: string[]) =>
+    parsePersonaMemCli([
+      '--data-dir',
+      dir,
+      '--split',
+      'val',
+      '--chat-model',
+      'openai/gpt-4o-mini',
+      '--tenant-concurrency',
+      '1',
+      '--enrich-concurrency',
+      '1',
+      '--answer',
+      'compose',
+      '--relevance-floor',
+      'product',
+      ...selection,
+    ])
+
+  it('a seeded sample never contains a benchmark persona', () => {
+    const dir = valWithBenchmark()
+    for (const seed of ['a', 'b', 'c', 'd']) {
+      const plan = buildPlan(valCli(dir, ['--personas', '1', '--seed', seed]))
+      expect(plan.personas.map((p) => p.personaId)).toEqual([7])
+    }
+  })
+
+  it('asking for more val personas than are not in the benchmark fails loud', () => {
+    const dir = valWithBenchmark()
+    expect(() => buildPlan(valCli(dir, ['--personas', '2', '--seed', 'a']))).toThrow(
+      /only 1 .* eligible/,
+    )
+  })
+
+  it('needs the prepared benchmark split to know which personas to exclude', () => {
+    const dir = writeFixtureDataDir({ split: 'val' })
+    prepare(dir, 'val')
+    expect(() => buildPlan(valCli(dir, ['--personas', '1', '--seed', 'a']))).toThrow(
+      /personamem\.benchmark\.jsonl not found/,
+    )
+  })
+
+  it('explicit --persona-ids are the operator choice and are not filtered', () => {
+    const dir = valWithBenchmark()
+    expect(buildPlan(valCli(dir, ['--persona-ids', '9'])).personas.map((p) => p.personaId)).toEqual(
+      [9],
+    )
+  })
+
+  it('missing histories: the error lists the selected personas and the exact command to fetch just them', () => {
+    const dir = valWithBenchmark()
+    for (const persona of ['persona7', 'persona9']) {
+      rmSync(join(dir, `data/chat_history_32k/chat_history_fixture_${persona}.json`))
+    }
+    const run = () => buildPlan(valCli(dir, ['--personas', '1', '--seed', 'a']))
+    expect(run).toThrow(/--print-history-urls --persona-ids 7\b/)
   })
 })

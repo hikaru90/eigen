@@ -9,7 +9,7 @@ import {
   USER_AUTHORSHIP,
   resolveAuthorSqlCondition,
 } from '$lib/server/memory/authorship'
-import { COMPOSE_ANSWER_RELEVANCE_MIN } from '$lib/server/retrieval/rrf-scoring'
+import { relevanceFloorFor } from '$lib/server/retrieval/relevance-floor'
 import { redactedText } from '$lib/server/security/detect-secrets'
 import {
   assertNoSecretPlaceholders,
@@ -421,7 +421,7 @@ export async function searchTextFiles(
     authorFilter?: 'user' | 'agent'
     authorLayerKey?: string | null
     queryEmbedding?: number[]
-    /** Relevance floor on the 0..1 hit score. Default: the Q&A context floor for thoughts. */
+    /** Relevance floor on the 0..1 hit score. Default: the Q&A context floor for thoughts (eval harness: its override). */
     minScore?: number
     /** Eval observability: the best passage score the floor dropped (null: none). */
     onBelowFloor?: (best: number | null) => void
@@ -439,7 +439,7 @@ export async function searchTextFiles(
       authorLayerKey: input.authorLayerKey,
     }),
     {
-      minScore: input.minScore ?? COMPOSE_ANSWER_RELEVANCE_MIN,
+      minScore: input.minScore ?? relevanceFloorFor(userId),
       noteLimit: limit,
       onBelowFloor: input.onBelowFloor,
     },

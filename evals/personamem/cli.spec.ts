@@ -15,6 +15,8 @@ const required = [
   'ask',
   '--split',
   'benchmark',
+  '--relevance-floor',
+  'product',
 ]
 const sample = ['--personas', '20', '--seed', 'pilot-1']
 
@@ -37,7 +39,8 @@ describe('parsePersonaMemCli', () => {
       selection: { kind: 'sample', count: 20, seed: 'pilot-1' },
       dryRun: true,
       resume: false,
-      skipIngest: false,
+      reuseIngest: null,
+      relevanceFloor: 'product',
       limitQueries: null,
       runId: null,
     })
@@ -50,6 +53,7 @@ describe('parsePersonaMemCli', () => {
     '--enrich-concurrency',
     '--answer',
     '--split',
+    '--relevance-floor',
   ])('fails naming %s when it is missing', (flag) => {
     expect(() => parsePersonaMemCli([...without(required, flag), ...sample])).toThrow(
       new RegExp(flag),
@@ -204,16 +208,67 @@ describe('parsePersonaMemCli', () => {
     )
   })
 
-  it('parses --limit-queries and --skip-ingest', () => {
-    const cli = parsePersonaMemCli([
-      ...required,
-      ...sample,
-      '--limit-queries',
-      '5',
-      '--skip-ingest',
-    ])
+  it('parses --limit-queries', () => {
+    const cli = parsePersonaMemCli([...required, ...sample, '--limit-queries', '5'])
     expect(cli.limitQueries).toBe(5)
-    expect(cli.skipIngest).toBe(true)
+  })
+
+  describe('--relevance-floor', () => {
+    const withFloor = (value: string) => [
+      ...without(required, '--relevance-floor'),
+      '--relevance-floor',
+      value,
+      ...sample,
+    ]
+
+    it('takes product, or a number from 0 to 1', () => {
+      expect(parsePersonaMemCli(withFloor('product')).relevanceFloor).toBe('product')
+      expect(parsePersonaMemCli(withFloor('0.15')).relevanceFloor).toBe(0.15)
+      expect(parsePersonaMemCli(withFloor('0.10')).relevanceFloor).toBe(0.1)
+      expect(parsePersonaMemCli(withFloor('0')).relevanceFloor).toBe(0)
+      expect(parsePersonaMemCli(withFloor('1')).relevanceFloor).toBe(1)
+    })
+
+    it.each(['1.01', '-0.1', '2', 'abc', 'Product', '', ' ', '0.1.2', '1e-1', 'NaN', 'Infinity'])(
+      'rejects %j, naming the flag',
+      (bad) => {
+        expect(() => parsePersonaMemCli(withFloor(bad))).toThrow(/--relevance-floor/)
+      },
+    )
+  })
+
+  describe('--reuse-ingest', () => {
+    it('takes the run id of an earlier run', () => {
+      expect(
+        parsePersonaMemCli([...required, ...sample, '--reuse-ingest', 'run-a']).reuseIngest,
+      ).toBe('run-a')
+    })
+
+    it('rejects a value that is not a single path segment', () => {
+      for (const bad of ['a/b', '..', 'a\\b']) {
+        expect(() => parsePersonaMemCli([...required, ...sample, '--reuse-ingest', bad])).toThrow(
+          /--reuse-ingest/,
+        )
+      }
+    })
+
+    it('needs its value', () => {
+      expect(() => parsePersonaMemCli([...required, ...sample, '--reuse-ingest'])).toThrow(
+        /--reuse-ingest/,
+      )
+    })
+
+    it('cannot name the run it is creating', () => {
+      expect(() =>
+        parsePersonaMemCli([...required, ...sample, '--reuse-ingest', 'r1', '--run-id', 'r1']),
+      ).toThrow(/--reuse-ingest.*--run-id/)
+    })
+  })
+
+  it('the retired --skip-ingest is an unknown argument', () => {
+    expect(() => parsePersonaMemCli([...required, ...sample, '--skip-ingest'])).toThrow(
+      /unknown argument: --skip-ingest/,
+    )
   })
 
   it('throws PersonaMemUsageError', () => {

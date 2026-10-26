@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { FIXTURE_ROWS, writeFixtureDataDir, type CsvRow } from './test-fixtures'
+import { FIXTURE_EVIDENCE, FIXTURE_ROWS, writeFixtureDataDir, type CsvRow } from './test-fixtures'
 
 const PREPARE_PY = resolve(import.meta.dirname, 'prepare.py')
 
@@ -63,11 +63,7 @@ describe('prepare.py', () => {
     expect(runPrepare(dir).status).toBe(0)
     expect(readPrepared(dir)[0]).toMatchObject({
       preference: 'Prefers calm evenings',
-      evidenceTurns: [
-        { role: 'user', content: 'I like calm evenings.' },
-        { role: 'assistant', content: 'Noted.' },
-        { role: 'user', content: 'Really, nothing loud after dinner.' },
-      ],
+      evidenceTurns: FIXTURE_EVIDENCE.tea,
     })
   })
 
@@ -150,6 +146,33 @@ describe('prepare.py', () => {
       'https://huggingface.co/datasets/bowen-upenn/PersonaMem-v2/resolve/main/data/chat_history_32k/chat_history_fixture_persona7.json',
       'https://huggingface.co/datasets/bowen-upenn/PersonaMem-v2/resolve/main/data/chat_history_32k/chat_history_fixture_persona9.json',
     ])
+  })
+
+  it('--print-history-urls --persona-ids lists only those personas, in the order given', () => {
+    const dir = writeFixtureDataDir({ skipHistoryFor: 'all' })
+    const res = runPrepare(dir, ['--print-history-urls', '--persona-ids', '9'])
+    expect(res.status, res.stderr).toBe(0)
+    expect(res.stdout.trim().split('\n')).toEqual([
+      'https://huggingface.co/datasets/bowen-upenn/PersonaMem-v2/resolve/main/data/chat_history_32k/chat_history_fixture_persona9.json',
+    ])
+    const both = runPrepare(dir, ['--print-history-urls', '--persona-ids', '9,7'])
+    expect(both.stdout.trim().split('\n')).toEqual([
+      expect.stringContaining('persona9.json'),
+      expect.stringContaining('persona7.json'),
+    ])
+  })
+
+  it('--persona-ids fails loud on an id the split does not have, a bad list, or without --print-history-urls', () => {
+    const dir = writeFixtureDataDir()
+    const unknown = runPrepare(dir, ['--print-history-urls', '--persona-ids', '7,8'])
+    expect(unknown.status).not.toBe(0)
+    expect(unknown.stderr).toMatch(/persona 8/)
+    const bad = runPrepare(dir, ['--print-history-urls', '--persona-ids', '7,x'])
+    expect(bad.status).not.toBe(0)
+    expect(bad.stderr).toMatch(/--persona-ids/)
+    const alone = runPrepare(dir, ['--persona-ids', '7'])
+    expect(alone.status).not.toBe(0)
+    expect(alone.stderr).toMatch(/--print-history-urls/)
   })
 
   it('fails without --data-dir', () => {

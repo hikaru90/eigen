@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -19,6 +19,8 @@ const identity: RunIdentity = {
   questionIds: ['p7-aaaaaaaaaaaa'],
   limitQueries: 5,
   enrichConcurrency: 1,
+  relevanceFloor: 'product',
+  reuseIngest: null,
 }
 const open = (id: RunIdentity, resume: boolean) =>
   openRun({ runId: 'r1', identity: id, resume, reportsRoot: root })
@@ -43,6 +45,37 @@ describe('openRun', () => {
   it('refuses to resume a run that used a different --split, naming both', () => {
     open(identity, false)
     expect(() => open({ ...identity, split: 'val' }, true)).toThrow(/--split.*benchmark.*val/)
+  })
+
+  it('refuses to resume a run that used a different --relevance-floor, naming both', () => {
+    open({ ...identity, relevanceFloor: 0.15 }, false)
+    expect(() => open({ ...identity, relevanceFloor: 'product' }, true)).toThrow(
+      /--relevance-floor.*0\.15.*product/,
+    )
+    expect(() => open({ ...identity, relevanceFloor: 0.1 }, true)).toThrow(
+      /--relevance-floor.*0\.15.*0\.1/,
+    )
+  })
+
+  it('resumes a run with the same numeric floor', () => {
+    const first = open({ ...identity, relevanceFloor: 0.15 }, false)
+    expect(open({ ...identity, relevanceFloor: 0.15 }, true).meta.startedAt).toBe(
+      first.meta.startedAt,
+    )
+  })
+
+  it('refuses to resume a run that reused another run ingest differently, naming both', () => {
+    open({ ...identity, reuseIngest: 'run-a' }, false)
+    expect(() => open({ ...identity, reuseIngest: 'run-b' }, true)).toThrow(
+      /--reuse-ingest.*run-a.*run-b/,
+    )
+    expect(() => open({ ...identity, reuseIngest: null }, true)).toThrow(/--reuse-ingest/)
+  })
+
+  it('records the floor and the reused ingest in run.json', () => {
+    const { paths } = open({ ...identity, relevanceFloor: 0.1, reuseIngest: 'run-a' }, false)
+    const saved = JSON.parse(readFileSync(paths.meta, 'utf8'))
+    expect(saved.identity).toMatchObject({ relevanceFloor: 0.1, reuseIngest: 'run-a' })
   })
 
   it('refuses to resume when any other identity field differs', () => {

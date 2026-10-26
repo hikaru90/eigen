@@ -42,6 +42,33 @@ export type CsvRow = Record<(typeof CSV_COLUMNS)[number], string>
 const LINK_7 = 'data/chat_history_32k/chat_history_fixture_persona7.json'
 const LINK_9 = 'data/chat_history_32k/chat_history_fixture_persona9.json'
 
+const turn = (role: 'user' | 'assistant', content: string) => ({ role, content })
+
+/** Evidence snippets quoted from the two fixture histories (chat_history_fixture_persona7/9.json). */
+export const FIXTURE_EVIDENCE = {
+  tea: [
+    turn('user', 'I only drink green tea in the evening, never black tea.'),
+    turn('assistant', 'Green tea in the evening is a lovely habit. Anything you pair it with?'),
+    turn('user', 'Usually a few almonds. I try to avoid sugar these days.'),
+  ],
+  knees: [
+    turn('user', 'My knees ache after gardening, so I kneel on a foam pad.'),
+    turn('assistant', 'A foam pad should take some strain off your knees.'),
+  ],
+  /** Quoted from nowhere: a sensitive_info probe whose evidence the history does not hold. */
+  probe: [turn('user', 'Here is my draft with my IBAN DE00 0000 0000 0000 0000 00 in it.')],
+  gravel: [
+    turn('user', 'Yes, but I switched from a road bike to a gravel bike last month.'),
+    turn('assistant', 'Gravel bikes handle wet roads well.'),
+  ],
+  podcasts: [turn('user', 'I prefer podcasts about history while I ride.')],
+  forget: [
+    turn('user', "I'm saving money for a trip to Portugal in autumn."),
+    turn('assistant', 'Portugal in autumn is a great choice.'),
+    turn('user', 'Forget that I mentioned my salary earlier.'),
+  ],
+} as const
+
 function row(overrides: Partial<CsvRow>): CsvRow {
   const base = Object.fromEntries(CSV_COLUMNS.map((c) => [c, ''])) as CsvRow
   return {
@@ -54,11 +81,7 @@ function row(overrides: Partial<CsvRow>): CsvRow {
     preference: 'Prefers calm evenings',
     topic_preference: 't',
     conversation_scenario: 'personal_email',
-    related_conversation_snippet: JSON.stringify([
-      { role: 'user', content: 'I like calm evenings.' },
-      { role: 'assistant', content: 'Noted.' },
-      { role: 'user', content: 'Really, nothing loud after dinner.' },
-    ]),
+    related_conversation_snippet: JSON.stringify([{ role: 'user', content: 'placeholder' }]),
     who: 'self',
     updated: 'False',
     prev_pref: '',
@@ -82,6 +105,7 @@ export const FIXTURE_ROWS: CsvRow[] = [
       'An espresso is the best choice.',
       'A milk shake sounds perfect.',
     ]),
+    related_conversation_snippet: JSON.stringify(FIXTURE_EVIDENCE.tea),
     pref_type: 'neutral',
     distance_from_related_snippet_to_query_32k: '4000',
   }),
@@ -95,6 +119,7 @@ export const FIXTURE_ROWS: CsvRow[] = [
       'A bowl of ice cream.',
       'Candied peanuts.',
     ]),
+    related_conversation_snippet: JSON.stringify(FIXTURE_EVIDENCE.knees),
     pref_type: 'health_and_medical',
     distance_from_related_snippet_to_query_32k: '12000',
   }),
@@ -109,6 +134,7 @@ export const FIXTURE_ROWS: CsvRow[] = [
       'Lifting heavy stones daily.',
       'Skip the foam pad.',
     ]),
+    related_conversation_snippet: JSON.stringify(FIXTURE_EVIDENCE.probe),
     pref_type: 'sensitive_info',
     who: 'others',
     distance_from_related_snippet_to_query_32k: '26000',
@@ -123,6 +149,7 @@ export const FIXTURE_ROWS: CsvRow[] = [
       'Drive the car.',
       'Take the night bus.',
     ]),
+    related_conversation_snippet: JSON.stringify(FIXTURE_EVIDENCE.gravel),
     pref_type: 'stereotypical_pref',
     updated: 'True',
     prev_pref: 'Rides a road bike to work',
@@ -134,6 +161,7 @@ export const FIXTURE_ROWS: CsvRow[] = [
     user_query: "{'role': 'user', 'content': 'Pick something to listen to.'}",
     correct_answer: 'A history podcast.',
     incorrect_answers: JSON.stringify(['A pop playlist.', 'A cooking show.', 'Silence.']),
+    related_conversation_snippet: JSON.stringify(FIXTURE_EVIDENCE.podcasts),
     pref_type: 'anti_stereotypical_pref',
     distance_from_related_snippet_to_query_32k: '17000',
   }),
@@ -143,6 +171,7 @@ export const FIXTURE_ROWS: CsvRow[] = [
     user_query: "{'role': 'user', 'content': 'Where do you think I could go in autumn?'}",
     correct_answer: 'Portugal.',
     incorrect_answers: JSON.stringify(['Iceland.', 'Egypt.', 'Peru.']),
+    related_conversation_snippet: JSON.stringify(FIXTURE_EVIDENCE.forget),
     pref_type: 'ask_to_forget',
     distance_from_related_snippet_to_query_32k: '30000',
   }),

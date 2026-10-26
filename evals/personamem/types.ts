@@ -14,6 +14,13 @@ export const SPLITS = ['benchmark', 'val'] as const
 export const splitSchema = z.enum(SPLITS)
 export type Split = z.infer<typeof splitSchema>
 
+/**
+ * The Q&A relevance floor of a run: `product` (the constant real users get) or an eval-only
+ * override in [0, 1] (`withEvalRelevanceFloor`). Part of the run identity.
+ */
+export const relevanceFloorSchema = z.union([z.literal('product'), z.number().min(0).max(1)])
+export type RelevanceFloorSetting = z.infer<typeof relevanceFloorSchema>
+
 export const VARIANTS = ['eigen', 'no-memory'] as const
 export const variantSchema = z.enum(VARIANTS)
 export type Variant = z.infer<typeof variantSchema>
@@ -81,6 +88,25 @@ export const belowFloorSchema = z
   .strict()
 export type BelowFloor = z.infer<typeof belowFloorSchema>
 
+/**
+ * Full-history runs, eigen rows: whether the chooser context holds any item of the question's
+ * evidence. `inHistory: false` = the dataset keeps this question's evidence out of the history,
+ * so there is nothing to hit (accuracy is still scored). Evidence-only runs carry no such field.
+ */
+export const evidenceHitSchema = z.discriminatedUnion('inHistory', [
+  z.object({ inHistory: z.literal(false) }).strict(),
+  z
+    .object({
+      inHistory: z.literal(true),
+      /** Stored items (thoughts, split children, linked notes) the evidence captures became. */
+      items: z.number().int().nonnegative(),
+      /** The chooser context holds at least one of them. */
+      hit: z.boolean(),
+    })
+    .strict(),
+])
+export type EvidenceHit = z.infer<typeof evidenceHitSchema>
+
 /** One line of `answers.jsonl`: one row per (question, variant). Never carries embeddings. */
 export const answerRowSchema = z
   .object({
@@ -104,6 +130,8 @@ export const answerRowSchema = z
     askAnsweredWithoutMemory: z.boolean().optional(),
     /** Eigen rows: what just missed the relevance floor, to tell "nothing retrieved" from "below floor". */
     belowFloor: belowFloorSchema.optional(),
+    /** Eigen rows of full-history runs: did the chooser context hold any of the question's evidence. */
+    evidence: evidenceHitSchema.optional(),
     usd: z.number().nonnegative(),
     ms: z.number().nonnegative(),
   })

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
+import { withEvalRelevanceFloor } from '$lib/server/retrieval/relevance-floor'
 import { FAKE_SECRETS, guardWouldTrip, leaks } from '$lib/test/secret-fixtures'
 import {
   buildComposeSystemPrompt,
@@ -622,6 +623,67 @@ describe('composeAnswer', () => {
       onBelowFloor: expect.any(Function),
     })
     expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1)
+  })
+
+  describe('eval relevance floor override', () => {
+    const harnessUser = 'public-bench-personamem-v2-capture-gpt-4o-mini-p1'
+    const withLowCandidate = () =>
+      searchThoughtsMock.mockResolvedValue([
+        ...sampleRetrieval,
+        { ...sampleRetrieval[0]!, id: 't_low', score: 0.15 },
+      ])
+
+    it('lets a thought under the product floor into the context, and searches notes with the same floor', async () => {
+      withLowCandidate()
+      const result = await withEvalRelevanceFloor(0.1, () =>
+        composeAnswer({ userId: harnessUser, question: 'carbonara recipe' }),
+      )
+      expect(result.context.map((c) => c.id)).toContain('t_low')
+      expect(searchTextFilesMock).toHaveBeenCalledWith(
+        harnessUser,
+        expect.objectContaining({ minScore: 0.1 }),
+      )
+    })
+
+    it('a stricter override drops thoughts the product floor would keep', async () => {
+      llmChatCompletionMock.mockResolvedValue(
+        chatResponse('Answer: Carbonara.\nEvidence:\n- Carbonara [id=t_001]\nUnknown:\n- none'),
+      )
+      const result = await withEvalRelevanceFloor(0.75, () =>
+        composeAnswer({ userId: harnessUser, question: 'carbonara recipe' }),
+      )
+      expect(result.context.map((c) => c.id)).toEqual(['t_001'])
+      expect(searchTextFilesMock).toHaveBeenCalledWith(
+        harnessUser,
+        expect.objectContaining({ minScore: 0.75 }),
+      )
+    })
+
+    it('without an override the product floor applies, for a harness user too', async () => {
+      withLowCandidate()
+      const result = await composeAnswer({ userId: harnessUser, question: 'carbonara recipe' })
+      expect(result.context.map((c) => c.id)).not.toContain('t_low')
+      expect(searchTextFilesMock).toHaveBeenCalledWith(
+        harnessUser,
+        expect.objectContaining({ minScore: 0.22 }),
+      )
+    })
+
+    it('refuses to compose for a real user while an override is active', async () => {
+      await expect(
+        withEvalRelevanceFloor(0.1, () => composeAnswer({ userId: 'u1', question: 'carbonara' })),
+      ).rejects.toThrow(/harness billing users/)
+    })
+
+    it('reports below-floor scores relative to the overridden floor', async () => {
+      withLowCandidate()
+      const { belowFloor } = await withComposeObserver(harnessUser, () =>
+        withEvalRelevanceFloor(0.2, () =>
+          composeAnswer({ userId: harnessUser, question: 'carbonara recipe' }),
+        ),
+      )
+      expect(belowFloor).toEqual([{ thoughts: 0.15, notePassages: null }])
+    })
   })
 
   it('tells an eval observer the best thought and note-passage scores that fell under the floor', async () => {

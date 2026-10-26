@@ -22,12 +22,6 @@ export type DrainQueue = (
   options: { concurrency: number },
 ) => Promise<unknown>
 
-export type ListThoughtIds = (
-  tenantUserId: string,
-  billingUserId: string,
-  chatModel: string,
-) => Promise<string[]>
-
 export type IngestTenantInput = {
   tenantUserId: string
   billingUserId: string
@@ -35,10 +29,6 @@ export type IngestTenantInput = {
   chatModel: string
   items: IngestItem[]
   enrichConcurrency: number
-  /** true: wipe the tenant and ingest. false: assert it already holds exactly `items.length` thoughts and skip. */
-  reset: boolean
-  /** Existing thought ids of the tenant, oldest first (injectable for tests). */
-  listThoughtIds?: ListThoughtIds
   /** Injectable for tests. */
   queueItem?: QueueItem
   /** Injectable for tests. */
@@ -54,31 +44,15 @@ const queueTenantItem: QueueItem = async (tenantUserId, item) => {
   return queued.thoughtId
 }
 
-const listTenantThoughtIds: ListThoughtIds = (tenantUserId, billingUserId, chatModel) =>
-  withEvalDb(
-    tenantUserId,
-    async (db) => {
-      const { thought } = await import('$lib/server/db/schema')
-      const { asc, eq } = await import('drizzle-orm')
-      const rows = await db
-        .select({ id: thought.id })
-        .from(thought)
-        .where(eq(thought.userId, tenantUserId))
-        .orderBy(asc(thought.createdAt), asc(thought.id))
-      return rows.map((r) => r.id)
-    },
-    { billingUserId, chatModel },
-  )
-
 /**
- * Capture items into the tenant in waves of `enrichConcurrency`: queue a wave, drain it, wait
+ * Wipe the tenant and capture items into it in waves of `enrichConcurrency`: queue a wave, drain it, wait
  * until its thoughts are enriched, only then queue the next wave. Facts therefore arrive in
  * order (queueCapture already anchors graph links at queue time, so a later item must not exist
  * while an earlier one is still being enriched); `enrichConcurrency` 1 is strictly incremental.
  * Returns the thought ids in item order.
  */
 export async function ingestTenant(input: IngestTenantInput): Promise<string[]> {
-  const { tenantUserId, billingUserId, chatModel, items, enrichConcurrency, reset } = input
+  const { tenantUserId, billingUserId, chatModel, items, enrichConcurrency } = input
   if (!tenantUserId.trim()) throw new Error('[public-bench] tenantUserId must be non-empty')
   if (!billingUserId.trim()) throw new Error('[public-bench] billingUserId must be non-empty')
   if (!chatModel.trim()) throw new Error('[public-bench] chatModel must be non-empty')
@@ -94,21 +68,6 @@ export async function ingestTenant(input: IngestTenantInput): Promise<string[]> 
       `[public-bench] tenant ${tenantUserId} resolves to billing wallet ${resolvedBilling ?? '(none)'}, ` +
         `not ${billingUserId}; name harness tenants with a prefix registered in harness-billing.ts`,
     )
-  }
-
-  if (!reset) {
-    const existing = await (input.listThoughtIds ?? listTenantThoughtIds)(
-      tenantUserId,
-      billingUserId,
-      chatModel,
-    )
-    if (existing.length !== items.length) {
-      throw new Error(
-        `[public-bench] cannot reuse tenant ${tenantUserId}: it holds ${existing.length} thought(s), expected ${items.length}`,
-      )
-    }
-    logEval(`${tenantUserId}: reusing ${existing.length} existing thought(s)`)
-    return existing
   }
 
   await deleteEvalUserRow(tenantUserId)

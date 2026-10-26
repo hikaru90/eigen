@@ -42,6 +42,8 @@ describe('buildSummary', () => {
     answerMode: 'compose' as const,
     evidenceOnly: false,
     smoke: [],
+    relevanceFloor: 'product' as const,
+    reuseIngest: null,
     ingest: { usd: 0.5, captures: 5, personas: 1 },
     wallMsThisProcess: 3_600_000,
     gitSha: 'abc123',
@@ -75,6 +77,9 @@ describe('buildSummary', () => {
         noMemoryAccuracy: 0,
         lift: 1,
         evidenceRetrievedRate: 1,
+        meanContextSize: 1,
+        evidenceQuestions: null,
+        evidenceHitRate: null,
       },
     })
   })
@@ -90,8 +95,19 @@ describe('buildSummary', () => {
       'no-memory',
       'lift',
       'evidence retrieved',
+      'evidence hit',
+      'mean context items',
     ])
-    expect(byPref.table!.rows[0]).toEqual(['neutral', 1, '100.0%', '0.0%', '+100.0 pp', '100.0%'])
+    expect(byPref.table!.rows[0]).toEqual([
+      'neutral',
+      1,
+      '100.0%',
+      '0.0%',
+      '+100.0 pp',
+      '100.0%',
+      'n/a',
+      '1.0',
+    ])
   })
 
   it('says outside evidence-only that a non-empty context is not necessarily evidence', () => {
@@ -134,6 +150,100 @@ describe('buildSummary', () => {
   })
 })
 
+describe('buildSummary: relevance floor and history evidence', () => {
+  const evidenceRow = (evidence: AnswerRow['evidence']) => ({ ...row('eigen', true), evidence })
+  const build = (
+    rows: AnswerRow[],
+    over: { relevanceFloor?: 'product' | number; reuseIngest?: string | null } = {},
+  ) =>
+    buildSummary({
+      runId: 'r',
+      chatModel: 'deepseek/deepseek-v4.1-flash-1017',
+      startedAt: 'a',
+      finishedAt: 'b',
+      config: {},
+      split: 'val' as const,
+      score: scoreAnswers(rows, new Map([['q1', 100]])),
+      answerMode: 'ask',
+      evidenceOnly: false,
+      smoke: [],
+      relevanceFloor: over.relevanceFloor ?? 'product',
+      reuseIngest: over.reuseIngest ?? null,
+      ingest: { usd: 0, captures: 0, personas: 0 },
+      wallMsThisProcess: 1,
+      gitSha: 'x',
+      gitDirty: false,
+    })
+  const hitRows = [evidenceRow({ inHistory: true, items: 2, hit: true }), row('no-memory', false)]
+
+  it('records the floor in the title, config and metrics: product resolves to the constant', () => {
+    const product = build(hitRows)
+    expect(product.title).toContain('floor product (0.22)')
+    expect(product.config).toMatchObject({ relevanceFloor: 'product', relevanceFloorValue: 0.22 })
+    expect(product.metrics).toMatchObject({ relevanceFloor: 'product', relevanceFloorValue: 0.22 })
+    const lower = build(hitRows, { relevanceFloor: 0.15 })
+    expect(lower.title).toContain('floor 0.15 (eval-only override)')
+    expect(lower.config).toMatchObject({ relevanceFloor: 0.15, relevanceFloorValue: 0.15 })
+    expect(lower.metrics).toMatchObject({ relevanceFloor: 0.15, relevanceFloorValue: 0.15 })
+  })
+
+  it('records which run the ingest was reused from', () => {
+    expect(build(hitRows, { reuseIngest: 'run-a' }).config).toMatchObject({ reuseIngest: 'run-a' })
+    expect(build(hitRows).config).toMatchObject({ reuseIngest: null })
+  })
+
+  it('carries evidence hit and mean context size in the metrics, overall and per pref_type', () => {
+    const summary = build(hitRows)
+    expect(summary.metrics).toMatchObject({
+      evidenceQuestions: 1,
+      evidenceHit: 1,
+      evidenceHitRate: 1,
+      meanContextSize: 1,
+    })
+    expect(summary.metrics.byPrefType).toEqual({
+      neutral: expect.objectContaining({
+        evidenceQuestions: 1,
+        evidenceHitRate: 1,
+        meanContextSize: 1,
+      }),
+    })
+  })
+
+  it('shows evidence hit and context size in the overall and breakdown tables', () => {
+    const summary = build(hitRows)
+    const overall = summary.sections.find((s) => s.heading === 'Overall')!
+    expect(overall.table!.rows.map((r) => r[0])).toEqual(
+      expect.arrayContaining([
+        'evidence hit (history evidence in chooser context)',
+        'mean context items',
+      ]),
+    )
+    const byPref = summary.sections.find((s) => s.heading === 'By pref_type')!
+    expect(byPref.table!.rows[0]!.slice(-2)).toEqual(['100.0% (1/1)', '1.0'])
+  })
+
+  it('marks a pref_type with no history evidence as n/a and says how many questions that is', () => {
+    const summary = build([evidenceRow({ inHistory: false }), row('no-memory', false)])
+    const byPref = summary.sections.find((s) => s.heading === 'By pref_type')!
+    expect(byPref.table!.rows[0]!.slice(-2)).toEqual(['n/a (0 with history evidence)', '1.0'])
+    const overall = summary.sections.find((s) => s.heading === 'Overall')!
+    expect(overall.lines!.join(' ')).toMatch(/0 of 1 question\(s\) have evidence in the history/)
+  })
+
+  it('explains the evidence-hit definition in Decisions in effect', () => {
+    const decisions = build(hitRows).sections.find((s) => s.heading === 'Decisions in effect')!
+    expect(decisions.lines!.join(' ')).toMatch(/exact text.*split children.*notes linked/)
+    expect(decisions.lines!.join(' ')).toMatch(/Relevance floor: product \(0\.22\)/)
+  })
+
+  it('an eval-only floor is called out as not a product setting', () => {
+    const decisions = build(hitRows, { relevanceFloor: 0.1 }).sections.find(
+      (s) => s.heading === 'Decisions in effect',
+    )!
+    expect(decisions.lines!.join(' ')).toMatch(/Relevance floor 0\.1.*eval-only/)
+  })
+})
+
 describe('buildSummary --evidence-only', () => {
   const score = scoreAnswers([row('eigen', true), row('no-memory', false)], new Map([['q1', 100]]))
   const block: SmokeBlock = {
@@ -164,6 +274,8 @@ describe('buildSummary --evidence-only', () => {
       answerMode: 'ask',
       evidenceOnly: true,
       smoke,
+      relevanceFloor: 'product' as const,
+      reuseIngest: null,
       ingest: { usd: 0, captures: 1, personas: 1 },
       wallMsThisProcess: 1,
       gitSha: 'x',
@@ -257,6 +369,30 @@ describe('buildSummary --evidence-only', () => {
     )
   })
 
+  it('names the overridden floor in the retrieval line', () => {
+    const lowered = buildSummary({
+      runId: 'r',
+      chatModel: 'openai/gpt-4o-mini',
+      startedAt: 'a',
+      finishedAt: 'b',
+      config: {},
+      split: 'val' as const,
+      score,
+      answerMode: 'ask',
+      evidenceOnly: true,
+      smoke: [block],
+      relevanceFloor: 0.15,
+      reuseIngest: null,
+      ingest: { usd: 0, captures: 1, personas: 1 },
+      wallMsThisProcess: 1,
+      gitSha: 'x',
+      gitDirty: false,
+    })
+    expect(lowered.sections.find((s) => s.heading === 'Smoke: q1')!.lines!.join('\n')).toContain(
+      'best candidate under the 0.15 floor',
+    )
+  })
+
   it('requires smoke blocks', () => {
     expect(() => build([])).toThrow(/smoke blocks/)
   })
@@ -265,10 +401,25 @@ describe('buildSummary --evidence-only', () => {
 describe('formatScoreLines', () => {
   const score = scoreAnswers([row('eigen', true), row('no-memory', false)], new Map([['q1', 100]]))
 
-  it('prints both metrics overall and per pref_type, for the console at the end of a run', () => {
-    expect(formatScoreLines(score)).toEqual([
-      'eigen 100.0%, no-memory 0.0%, lift +100.0 pp; evidence retrieved 100.0% (1/1)',
-      '  neutral: n=1 eigen 100.0%, no-memory 0.0%, lift +100.0 pp, evidence retrieved 100.0%',
+  it('prints the floor and both metrics overall and per pref_type, for the console at the end of a run', () => {
+    expect(formatScoreLines(score, 'product')).toEqual([
+      'relevance floor: product (0.22)',
+      'eigen 100.0%, no-memory 0.0%, lift +100.0 pp; evidence retrieved 100.0% (1/1); mean context 1.0 item(s)',
+      '  neutral: n=1 eigen 100.0%, no-memory 0.0%, lift +100.0 pp, evidence retrieved 100.0%, mean context 1.0',
     ])
+  })
+
+  it('adds the evidence-hit rate on full-history runs', () => {
+    const withEvidence = scoreAnswers(
+      [
+        { ...row('eigen', true), evidence: { inHistory: true, items: 2, hit: true } },
+        row('no-memory', false),
+      ],
+      new Map([['q1', 100]]),
+    )
+    const lines = formatScoreLines(withEvidence, 0.15)
+    expect(lines[0]).toBe('relevance floor: 0.15 (eval-only override)')
+    expect(lines[1]).toContain('evidence hit 100.0% (1/1)')
+    expect(lines[2]).toContain('evidence hit 100.0% (1/1)')
   })
 })

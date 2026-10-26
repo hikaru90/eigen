@@ -14,7 +14,8 @@ Writes DIR/personamem.<split>.jsonl. Refuses (non-zero exit) on any row it canno
 nothing is skipped. The history files are required for `benchmark`; for `val` they are not
 (--evidence-only runs read none; full-history runs on val fail loud when they are missing).
 --print-history-urls prints the download URL of each distinct history file and exits (the
-files do not have to exist yet).
+files do not have to exist yet); with --persona-ids a,b it prints only those personas' files
+(a full-history run on val replays a few personas, so only theirs need downloading).
 """
 
 import argparse
@@ -166,7 +167,10 @@ def main():
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--split", required=True, choices=SPLITS)
     parser.add_argument("--print-history-urls", action="store_true")
+    parser.add_argument("--persona-ids", help="with --print-history-urls: only these personas (comma-separated)")
     args = parser.parse_args()
+    if args.persona_ids is not None and not args.print_history_urls:
+        fail("--persona-ids is only valid with --print-history-urls")
 
     data_dir = os.path.abspath(args.data_dir)
     rows = read_rows(data_dir, args.split)
@@ -180,6 +184,15 @@ def main():
     links = list(dict.fromkeys(row["link"] for row in rows))
 
     if args.print_history_urls:
+        if args.persona_ids is not None:
+            try:
+                wanted = [int(part) for part in args.persona_ids.split(",")]
+            except ValueError:
+                fail(f"--persona-ids must be comma-separated integers, got {args.persona_ids!r}")
+            for persona_id in wanted:
+                if persona_id not in link_by_persona:
+                    fail(f"persona {persona_id} is not in the {args.split} split")
+            links = list(dict.fromkeys(link_by_persona[persona_id] for persona_id in wanted))
         for link in links:
             print(HF_BASE + link)
         return

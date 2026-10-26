@@ -44,6 +44,38 @@ ordinary thought and forgets nothing.
   Affects production under load, not only the harness.
 - Done when: `--tenant-concurrency 5` completes; a test reproduces the old hang shape.
 
+### S1.5 — Relevance-floor test on full history (approved 2026-10-26)
+
+Dev-set baseline (deepseek, evidence-only, `…deepseek-v4.1-flash-1017-2026-10-25T22-34-41-694Z`):
+eigen 51.7%, no-memory 30.0%, evidence retrieved 83%. 11 of 29 misses had their best thought at
+0.209–0.219, just under `COMPOSE_ANSWER_RELEVANCE_MIN` = 0.22. Evidence-only can't judge a lower
+floor (everything stored is evidence), so the test runs on **full history**.
+
+Harness + one eval-only hook:
+1. **Val histories.** Select 20 `val` personas (seeded `val-full-1`, benchmark personas excluded,
+   all their questions) and download only their `chat_history_32k` files
+   (`prepare.py --split val --print-history-urls` for those personas). Full-history mode on `val`
+   then works for exactly those.
+2. **Eval-only floor override.** `withEvalRelevanceFloor(x, fn)` (AsyncLocalStorage, harness users
+   only, same guard as `eval-chat-model.ts`) read by `composeAnswer` (thought floor) and the note
+   search floor. No change for real users. CLI `--relevance-floor product|<0..1>` (required, shown
+   in summary + run.json; resume refuses a change).
+3. **Answer again without re-ingesting.** `--reuse-ingest <runId>`: answer against the tenants that
+   run ingested, verified against its `ingest.jsonl` (tenant ids, capture counts, thought ids) —
+   fail loud on any mismatch. Replaces the broken `--skip-ingest` count check (Phase A split
+   children make thought count ≠ capture count).
+4. **Full-history metrics.** Map each question's evidence turns to the history user turns they
+   came from (exact text match against the history — data alignment, not meaning) and to the
+   thoughts/notes those captures produced (incl. split children and linked notes). Report:
+   evidence-hit rate (chooser context contains ≥1 evidence item), mean context size, accuracy
+   eigen / no-memory / lift, per `pref_type`, per floor.
+
+Runs (operator): ingest + answer at `product`, then answer-only at 0.15 and 0.10 via
+`--reuse-ingest`, deepseek first. Decision rule: adopt a lower floor only if accuracy improves on
+full history **and** "Not in memory" behaviour for unanswerable questions doesn't regress (the
+product reason for the floor) — check with Eigen's own eval (`/eval` UI) before changing the
+constant.
+
 ### S2 — "Forget" requests (product feature, ~21% of questions)
 - A capture whose role is a request to forget something must remove (archive) the matching
   memories instead of being stored as a new thought. Jev decides the role (LLM, no keyword rules);

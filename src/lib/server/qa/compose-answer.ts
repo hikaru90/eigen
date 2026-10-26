@@ -38,16 +38,13 @@ import {
   mergeQuestionEntityHints,
   shouldUseDeterministicSolverAnswer,
 } from '$lib/server/retrieval/query-entity-hints'
+import { relevanceFloorFor } from '$lib/server/retrieval/relevance-floor'
 import {
   candidatesFromTemporalSeeds,
   resolveTemporalHintBindings,
 } from '$lib/server/retrieval/resolve-temporal-hint-bindings'
 import type { RetrieveEvidenceExtras } from '$lib/server/retrieval/retrieve-evidence'
-import {
-  bestScoreBelowFloor,
-  COMPOSE_ANSWER_RELEVANCE_MIN,
-  normalizeRetrievalScore,
-} from '$lib/server/retrieval/rrf-scoring'
+import { bestScoreBelowFloor, normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
 import { searchThoughts } from '$lib/server/retrieval/service'
 import {
   fetchTemporalEventSeeds,
@@ -587,6 +584,8 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     communityThemes: [],
     temporalSeeds: [],
   }
+  // the product floor, or (eval harness only) the floor of the run being measured
+  const relevanceFloor = relevanceFloorFor(input.userId)
   let notePassagesBelowFloor: number | null = null
   const [searchResults, textFileHits] = await Promise.all([
     searchThoughts({
@@ -603,7 +602,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
       query: retrievalQuery,
       topK: TEXT_FILE_COMPOSE_TOP_K,
       queryEmbedding,
-      minScore: COMPOSE_ANSWER_RELEVANCE_MIN,
+      minScore: relevanceFloor,
       onBelowFloor: (best) => {
         notePassagesBelowFloor = best
       },
@@ -612,14 +611,12 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
   observeBelowFloor(input.userId, {
     thoughts: bestScoreBelowFloor(
       searchResults.map((r) => normalizeRetrievalScore(r.score)),
-      COMPOSE_ANSWER_RELEVANCE_MIN,
+      relevanceFloor,
     ),
     notePassages: notePassagesBelowFloor,
   })
   const communityThemes = scope === 'global' ? retrievalExtras.communityThemes.slice(0, 6) : []
-  const retrieved = searchResults.filter(
-    (r) => normalizeRetrievalScore(r.score) >= COMPOSE_ANSWER_RELEVANCE_MIN,
-  )
+  const retrieved = searchResults.filter((r) => normalizeRetrievalScore(r.score) >= relevanceFloor)
   void tryRecordRetrievalQualityEvent({
     userId: input.userId,
     surface: 'compose_answer',

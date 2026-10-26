@@ -64,8 +64,8 @@ describe('ingestTenant', () => {
     m.waitForThoughtEnrichmentComplete.mockImplementation(async () => void m.events.push('wait'))
   })
 
-  it('reset: resets the tenant, queues in order, drains with the explicit concurrency, waits', async () => {
-    const ids = await ingestTenant({ ...base, enrichConcurrency: 3, reset: true })
+  it('resets the tenant, queues in order, drains with the explicit concurrency, waits', async () => {
+    const ids = await ingestTenant({ ...base, enrichConcurrency: 3 })
 
     expect(ids).toEqual(['t1', 't2', 't3'])
     expect(m.events).toEqual([
@@ -112,7 +112,7 @@ describe('ingestTenant', () => {
   })
 
   it('passes chatModel to every withEvalDb call, including the wait kick options', async () => {
-    await ingestTenant({ ...base, chatModel: 'deepseek/deepseek-v4.1-flash-1017', reset: true })
+    await ingestTenant({ ...base, chatModel: 'deepseek/deepseek-v4.1-flash-1017' })
 
     expect(m.withEvalDb.mock.calls.length).toBeGreaterThan(0)
     for (const call of m.withEvalDb.mock.calls) {
@@ -132,22 +132,20 @@ describe('ingestTenant', () => {
   })
 
   it('requires a non-blank chatModel before any DB work', async () => {
-    await expect(ingestTenant({ ...base, chatModel: ' ', reset: true })).rejects.toThrow(
-      /chatModel/,
-    )
+    await expect(ingestTenant({ ...base, chatModel: ' ' })).rejects.toThrow(/chatModel/)
     expect(m.deleteEvalUserRow).not.toHaveBeenCalled()
     expect(m.withEvalDb).not.toHaveBeenCalled()
   })
 
   it('does not swallow a failing tenant reset', async () => {
     m.deleteEvalUserRow.mockRejectedValue(new Error('db down'))
-    await expect(ingestTenant({ ...base, reset: true })).rejects.toThrow('db down')
+    await expect(ingestTenant({ ...base })).rejects.toThrow('db down')
     expect(m.queueCapture).not.toHaveBeenCalled()
   })
 
   it('propagates a queueCapture failure and never drains', async () => {
     m.queueCapture.mockRejectedValueOnce(new Error('402 no credits'))
-    await expect(ingestTenant({ ...base, reset: true })).rejects.toThrow('402 no credits')
+    await expect(ingestTenant({ ...base })).rejects.toThrow('402 no credits')
     expect(m.processCaptureEnrichQueue).not.toHaveBeenCalled()
   })
 
@@ -170,7 +168,6 @@ describe('ingestTenant', () => {
       ...base,
       items: five,
       enrichConcurrency: 2,
-      reset: true,
       queueItem,
       drainQueue,
     })
@@ -211,7 +208,6 @@ describe('ingestTenant', () => {
     await ingestTenant({
       ...base,
       enrichConcurrency: 1,
-      reset: true,
       queueItem: async () => {
         events.push('queue')
         return `x${events.length}`
@@ -222,12 +218,12 @@ describe('ingestTenant', () => {
   })
 
   it('rejects a tenant whose harness billing wallet is not the given billing user', async () => {
-    await expect(
-      ingestTenant({ ...base, billingUserId: 'longmemeval-runner', reset: true }),
-    ).rejects.toThrow(/public-bench-test-t1.*public-bench-runner.*longmemeval-runner/s)
-    await expect(
-      ingestTenant({ ...base, tenantUserId: 'not-a-harness-tenant', reset: true }),
-    ).rejects.toThrow(/not-a-harness-tenant/)
+    await expect(ingestTenant({ ...base, billingUserId: 'longmemeval-runner' })).rejects.toThrow(
+      /public-bench-test-t1.*public-bench-runner.*longmemeval-runner/s,
+    )
+    await expect(ingestTenant({ ...base, tenantUserId: 'not-a-harness-tenant' })).rejects.toThrow(
+      /not-a-harness-tenant/,
+    )
     expect(m.deleteEvalUserRow).not.toHaveBeenCalled()
     expect(m.withEvalDb).not.toHaveBeenCalled()
   })
@@ -238,39 +234,13 @@ describe('ingestTenant', () => {
         ...base,
         tenantUserId: 'longmemeval-corpus-q1',
         billingUserId: 'longmemeval-runner',
-        reset: true,
       }),
     ).resolves.toHaveLength(3)
   })
 
-  it('reset:false with a matching count skips ingest and returns the existing ids', async () => {
-    const listThoughtIds = vi.fn().mockResolvedValue(['a', 'b', 'c'])
-    const ids = await ingestTenant({ ...base, reset: false, listThoughtIds })
-
-    expect(ids).toEqual(['a', 'b', 'c'])
-    expect(listThoughtIds).toHaveBeenCalledWith(
-      'public-bench-test-t1',
-      'public-bench-runner',
-      'openai/gpt-4o-mini',
-    )
-    expect(m.deleteEvalUserRow).not.toHaveBeenCalled()
-    expect(m.queueCapture).not.toHaveBeenCalled()
-    expect(m.processCaptureEnrichQueue).not.toHaveBeenCalled()
-    expect(m.waitForThoughtEnrichmentComplete).not.toHaveBeenCalled()
-  })
-
-  it('reset:false with a count mismatch throws and ingests nothing', async () => {
-    const listThoughtIds = vi.fn().mockResolvedValue(['a', 'b'])
-    await expect(ingestTenant({ ...base, reset: false, listThoughtIds })).rejects.toThrow(
-      /public-bench-test-t1.*2.*3/s,
-    )
-    expect(m.queueCapture).not.toHaveBeenCalled()
-    expect(m.deleteEvalUserRow).not.toHaveBeenCalled()
-  })
-
   it('rejects an invalid enrichConcurrency before any DB work', async () => {
     for (const bad of [0, -1, 1.5, Number.NaN]) {
-      await expect(ingestTenant({ ...base, enrichConcurrency: bad, reset: true })).rejects.toThrow(
+      await expect(ingestTenant({ ...base, enrichConcurrency: bad })).rejects.toThrow(
         /enrichConcurrency/,
       )
     }
@@ -279,12 +249,8 @@ describe('ingestTenant', () => {
   })
 
   it('rejects empty items and blank ids', async () => {
-    await expect(ingestTenant({ ...base, items: [], reset: true })).rejects.toThrow(/items/)
-    await expect(ingestTenant({ ...base, tenantUserId: ' ', reset: true })).rejects.toThrow(
-      /tenantUserId/,
-    )
-    await expect(ingestTenant({ ...base, billingUserId: '', reset: true })).rejects.toThrow(
-      /billingUserId/,
-    )
+    await expect(ingestTenant({ ...base, items: [] })).rejects.toThrow(/items/)
+    await expect(ingestTenant({ ...base, tenantUserId: ' ' })).rejects.toThrow(/tenantUserId/)
+    await expect(ingestTenant({ ...base, billingUserId: '' })).rejects.toThrow(/billingUserId/)
   })
 })

@@ -22,6 +22,16 @@ export type GroupStats = {
   /** Eigen rows whose chooser context is non-empty. In evidence-only runs that is a retrieval hit. */
   evidenceRetrieved: number
   evidenceRetrievedRate: number
+  /** Mean number of items in the chooser context of the eigen rows. */
+  meanContextSize: number
+  /**
+   * Full-history runs: questions whose evidence is in the history; of these, the ones whose chooser
+   * context holds at least one evidence item, and the share. null: the run carries no history
+   * evidence (evidence-only), or (rate) the group has no question with history evidence.
+   */
+  evidenceQuestions: number | null
+  evidenceHit: number | null
+  evidenceHitRate: number | null
 }
 
 export type Score = {
@@ -44,6 +54,25 @@ function retrievedItems(eigen: AnswerRow): number {
   return eigen.retrieved.length
 }
 
+function evidenceStats(
+  pairs: readonly Pair[],
+): Pick<GroupStats, 'evidenceQuestions' | 'evidenceHit' | 'evidenceHitRate'> {
+  const withEvidence = pairs.filter((p) => p.eigen.evidence !== undefined)
+  if (withEvidence.length === 0) {
+    return { evidenceQuestions: null, evidenceHit: null, evidenceHitRate: null }
+  }
+  const inHistory = withEvidence.filter((p) => p.eigen.evidence!.inHistory)
+  const hit = inHistory.filter((p) => {
+    const evidence = p.eigen.evidence!
+    return evidence.inHistory && evidence.hit
+  }).length
+  return {
+    evidenceQuestions: inHistory.length,
+    evidenceHit: hit,
+    evidenceHitRate: inHistory.length === 0 ? null : hit / inHistory.length,
+  }
+}
+
 function statsFor(pairs: readonly Pair[]): GroupStats {
   const n = pairs.length
   const eigenCorrect = pairs.filter((p) => p.eigen.correct).length
@@ -60,6 +89,8 @@ function statsFor(pairs: readonly Pair[]): GroupStats {
     lift: eigenAccuracy - noMemoryAccuracy,
     evidenceRetrieved,
     evidenceRetrievedRate: evidenceRetrieved / n,
+    meanContextSize: pairs.reduce((sum, p) => sum + retrievedItems(p.eigen), 0) / n,
+    ...evidenceStats(pairs),
   }
 }
 
@@ -77,6 +108,24 @@ function groupStats<K extends string>(
   }
   const keys = order ? order.filter((k) => groups.has(k)) : [...groups.keys()].sort()
   return Object.fromEntries(keys.map((k) => [k, statsFor(groups.get(k)!)])) as Record<K, GroupStats>
+}
+
+/** Either every eigen row carries the history-evidence field (full history) or none does. */
+function assertEvidenceConsistent(pairs: readonly Pair[]): void {
+  const without = pairs.filter((p) => p.eigen.evidence === undefined)
+  if (without.length > 0 && without.length < pairs.length) {
+    throw new Error(
+      `[personamem] eigen row for ${without[0]!.eigen.questionId} has no evidence field although other rows do; run is damaged`,
+    )
+  }
+  for (const p of pairs) {
+    const evidence = p.eigen.evidence
+    if (evidence?.inHistory && evidence.hit && evidence.items === 0) {
+      throw new Error(
+        `[personamem] eigen row for ${p.eigen.questionId} claims an evidence hit with 0 evidence items; run is damaged`,
+      )
+    }
+  }
 }
 
 /**
@@ -110,6 +159,8 @@ export function scoreAnswers(
     }
     pairs.push({ eigen: entry.eigen, noMemory: entry['no-memory'] })
   }
+
+  assertEvidenceConsistent(pairs)
 
   const distance = (p: Pair) => distanceBucket(distanceByQuestionId.get(p.eigen.questionId)!)
   const eigenUsd = rows.filter((r) => r.variant === 'eigen').reduce((sum, r) => sum + r.usd, 0)

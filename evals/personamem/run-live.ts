@@ -24,22 +24,17 @@ import { answerViaAsk } from './ask-answer'
 import { chooseOption, llmComplete } from './choose-option'
 import { answerViaCompose } from './compose-direct'
 import { chooseFromComposed, storedContextItems } from './eigen-answer'
+import { evidenceHitFor, captureFamilies } from './evidence-items'
+import { loadTenantStructure } from './evidence-items-db'
+import { captureDigest, ingestRecordSchema, type IngestRecord } from './ingest-record'
 import { buildChooserMessages } from './mcq'
 import { buildPlan, type Plan, type PlannedPersona, type PlannedQuestion } from './plan'
+import { loadIngestSource, verifyIngestRecords, verifyLiveTenant } from './reuse-ingest'
+import { withRunRelevanceFloor } from './run-floor'
 import { openRun, type RunIdentity, type RunPaths } from './run-meta'
 import { scoreAnswers } from './score'
 import { buildSummary, formatScoreLines, type SmokeBlock } from './summary'
 import { answerRowSchema, type AnswerRow, type BelowFloor } from './types'
-
-const ingestRecordSchema = z.object({
-  personaId: z.number().int(),
-  tenantUserId: z.string(),
-  /** Captures made: one per user turn queued. */
-  captures: z.number().int().nonnegative(),
-  usd: z.number().nonnegative(),
-  ms: z.number().nonnegative(),
-})
-type IngestRecord = z.infer<typeof ingestRecordSchema>
 
 /** One line of smoke.jsonl (--evidence-only): the tenant's thoughts after ingest. */
 const smokeRecordSchema = z.object({
@@ -89,7 +84,10 @@ type RunContext = {
   cli: PersonaMemCli
   paths: RunPaths
   done: Set<string>
-  ingestedTenantIds: Set<string>
+  /** Verified ingest record of every tenant already ingested (by this run, or by the --reuse-ingest run). */
+  ingested: Map<string, IngestRecord>
+  /** Per tenant: the stored items (thought, split children, linked notes) each capture thought became. */
+  families: Map<string, Map<string, Set<string>>>
 }
 
 /** normalizedText of every thought in the tenant (what Eigen stored from the ingested turns). */
@@ -126,27 +124,30 @@ async function eigenAnswerFor(
   query: string,
 ): Promise<EigenAnswer> {
   const billing = { billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID, chatModel: ctx.cli.chatModel }
-  if (ctx.cli.answer === 'ask') {
-    const asked = await answerViaAsk({
+  // the run's relevance floor covers everything the answer retrieves (composeAnswer, note search)
+  return withRunRelevanceFloor(ctx.cli.relevanceFloor, async (): Promise<EigenAnswer> => {
+    if (ctx.cli.answer === 'ask') {
+      const asked = await answerViaAsk({
+        tenantUserId: tenant,
+        query,
+        referenceTime: persona.referenceTime,
+        billing,
+      })
+      return {
+        answerText: asked.answer,
+        context: asked.context,
+        citedIds: [],
+        belowFloor: asked.belowFloor,
+        askTools: asked.toolNames,
+        askAnsweredWithoutMemory: asked.askAnsweredWithoutMemory,
+      }
+    }
+    return answerViaCompose({
       tenantUserId: tenant,
       query,
       referenceTime: persona.referenceTime,
       billing,
     })
-    return {
-      answerText: asked.answer,
-      context: asked.context,
-      citedIds: [],
-      belowFloor: asked.belowFloor,
-      askTools: asked.toolNames,
-      askAnsweredWithoutMemory: asked.askAnsweredWithoutMemory,
-    }
-  }
-  return answerViaCompose({
-    tenantUserId: tenant,
-    query,
-    referenceTime: persona.referenceTime,
-    billing,
   })
 }
 
@@ -154,6 +155,7 @@ async function answerQuestion(
   ctx: RunContext,
   persona: PlannedPersona,
   question: PlannedQuestion,
+  record: IngestRecord,
   usdBefore: number,
 ): Promise<number> {
   const { row, options, correctLetter } = question
@@ -198,6 +200,9 @@ async function answerQuestion(
     who: row.who,
     correctLetter,
   }
+  const families = ctx.families.get(tenant)
+  if (!families) throw new Error(`[personamem] no capture families loaded for tenant ${tenant}`)
+  const evidence = evidenceHitFor(question.evidence, record.thoughtIds, families, eigen.context)
   const eigenRow = answerRowSchema.parse({
     ...common,
     variant: 'eigen',
@@ -207,6 +212,7 @@ async function answerQuestion(
     retrieved: storedContextItems(eigen),
     citedIds: eigen.citedIds,
     belowFloor: eigen.belowFloor,
+    ...(evidence ? { evidence } : {}),
     ...(eigen.askTools ? { askTools: eigen.askTools } : {}),
     ...(eigen.askAnsweredWithoutMemory !== undefined
       ? { askAnsweredWithoutMemory: eigen.askAnsweredWithoutMemory }
@@ -240,29 +246,37 @@ async function runPersona(ctx: RunContext, persona: PlannedPersona): Promise<voi
   }
 
   const tenant = persona.tenantUserId
-  const reset = !ctx.cli.skipIngest && !ctx.ingestedTenantIds.has(tenant)
-  const ingestStart = Date.now()
-  await ingestTenant({
-    tenantUserId: tenant,
-    billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID,
-    chatModel: ctx.cli.chatModel,
-    items: persona.captures,
-    enrichConcurrency: ctx.cli.enrichConcurrency,
-    reset,
-  })
-  const ingestedCaptures = persona.captures.length
-
-  let usd = await tenantTotalUsd(tenant)
-  if (reset) {
-    const record: IngestRecord = {
+  const billing = { billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID, chatModel: ctx.cli.chatModel }
+  let record = ctx.ingested.get(tenant)
+  if (record === undefined) {
+    if (ctx.cli.reuseIngest !== null) {
+      throw new Error(`[personamem] tenant ${tenant} has no verified ingest record to reuse`)
+    }
+    const ingestStart = Date.now()
+    const thoughtIds = await ingestTenant({
+      tenantUserId: tenant,
+      billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID,
+      chatModel: ctx.cli.chatModel,
+      items: persona.captures,
+      enrichConcurrency: ctx.cli.enrichConcurrency,
+    })
+    const structure = await loadTenantStructure(tenant, billing)
+    record = {
       personaId: persona.personaId,
       tenantUserId: tenant,
-      captures: ingestedCaptures,
-      usd: round6(usd),
+      captures: persona.captures.length,
+      captureDigest: captureDigest(persona.captures),
+      thoughtIds,
+      thoughtCount: structure.thoughts.length,
+      usd: round6(await tenantTotalUsd(tenant)),
       ms: Date.now() - ingestStart,
     }
-    appendJsonl(ctx.paths.ingest, record)
+    appendJsonl(ctx.paths.ingest, ingestRecordSchema.parse(record))
+    ctx.ingested.set(tenant, record)
+    ctx.families.set(tenant, captureFamilies(thoughtIds, structure.thoughts, structure.links))
   }
+
+  let usd = await tenantTotalUsd(tenant)
 
   if (ctx.cli.evidenceOnly) {
     // Evidence-only: one question per tenant. Record what Eigen stored from the evidence turns.
@@ -276,7 +290,7 @@ async function runPersona(ctx: RunContext, persona: PlannedPersona): Promise<voi
     }
   }
 
-  for (const question of pending) usd = await answerQuestion(ctx, persona, question, usd)
+  for (const question of pending) usd = await answerQuestion(ctx, persona, question, record, usd)
 }
 
 function smokeBlocks(
@@ -319,6 +333,52 @@ function smokeBlocks(
   })
 }
 
+type VerifiedIngest = {
+  records: Map<string, IngestRecord>
+  families: Map<string, Map<string, Set<string>>>
+}
+
+const emptyIngest = (): VerifiedIngest => ({ records: new Map(), families: new Map() })
+
+/**
+ * The ingest records of `sourceRunId` that match this plan, each checked against the tenant in
+ * the database (every recorded thought exists, the thought count is unchanged). Throws on any
+ * mismatch, before anything is answered.
+ */
+async function verifiedIngest(
+  cli: PersonaMemCli,
+  sourceRunId: string,
+  plan: Plan,
+  requireAll: boolean,
+): Promise<VerifiedIngest> {
+  const records = verifyIngestRecords({
+    sourceRunId,
+    source: loadIngestSource(sourceRunId),
+    current: cli,
+    planned: plan.personas,
+    requireAll,
+  })
+  const billing = { billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID, chatModel: cli.chatModel }
+  const families = new Map<string, Map<string, Set<string>>>()
+  await mapWithConcurrency([...records.values()], cli.tenantConcurrency, async (record) => {
+    const structure = await loadTenantStructure(record.tenantUserId, billing)
+    verifyLiveTenant({
+      sourceRunId,
+      record,
+      live: {
+        thoughtIds: new Set(structure.thoughts.map((t) => t.id)),
+        thoughtCount: structure.thoughts.length,
+      },
+    })
+    families.set(
+      record.tenantUserId,
+      captureFamilies(record.thoughtIds, structure.thoughts, structure.links),
+    )
+  })
+  logEval(`ingest of run ${sourceRunId} verified against the database: ${records.size} tenant(s)`)
+  return { records, families }
+}
+
 async function run(cli: PersonaMemCli): Promise<void> {
   const startedMs = Date.now()
   const plan = buildPlan(cli)
@@ -344,20 +404,28 @@ async function run(cli: PersonaMemCli): Promise<void> {
     questionIds: plan.personas.flatMap((p) => p.questions.map((q) => q.row.questionId)),
     limitQueries: cli.limitQueries,
     enrichConcurrency: cli.enrichConcurrency,
+    relevanceFloor: cli.relevanceFloor,
+    reuseIngest: cli.reuseIngest,
   }
+  // --reuse-ingest is checked before this run's directory exists: a mismatch must leave nothing behind
+  const reused =
+    cli.reuseIngest === null ? null : await verifiedIngest(cli, cli.reuseIngest, plan, true)
   const { paths, meta } = openRun({ runId, identity, resume: cli.resume })
+  // --resume: tenants this run already ingested are verified like reused ones
+  const ingested =
+    reused ?? (cli.resume ? await verifiedIngest(cli, runId, plan, false) : emptyIngest())
   const existing = parseRows('answers.jsonl', readJsonl(paths.answers), answerRowSchema)
   const ctx: RunContext = {
     cli,
     paths,
     done: completedQuestionIds(existing),
-    ingestedTenantIds: new Set(
-      parseRows('ingest.jsonl', readJsonl(paths.ingest), ingestRecordSchema).map(
-        (r) => r.tenantUserId,
-      ),
-    ),
+    ingested: ingested.records,
+    families: ingested.families,
   }
-  logEval(`run ${runId}: ${paths.dir} (${ctx.done.size} question(s) already answered)`)
+  logEval(
+    `run ${runId}: ${paths.dir} (${ctx.done.size} question(s) already answered; relevance floor ${cli.relevanceFloor}` +
+      `${cli.reuseIngest === null ? '' : `; ingest reused from run ${cli.reuseIngest}`}, ${ctx.ingested.size} tenant(s) already ingested)`,
+  )
 
   await mapWithConcurrency(plan.personas, cli.tenantConcurrency, (persona) =>
     runPersona(ctx, persona),
@@ -404,7 +472,8 @@ async function run(cli: PersonaMemCli): Promise<void> {
         limitQueries: cli.limitQueries,
         tenantConcurrency: cli.tenantConcurrency,
         enrichConcurrency: cli.enrichConcurrency,
-        skipIngest: cli.skipIngest,
+        relevanceFloor: cli.relevanceFloor,
+        reuseIngest: cli.reuseIngest,
         resumed: cli.resume,
         operator: PUBLIC_BENCH_OPERATOR_USER_ID,
         modelChat: models.modelChat,
@@ -414,6 +483,8 @@ async function run(cli: PersonaMemCli): Promise<void> {
       answerMode: cli.answer,
       evidenceOnly: cli.evidenceOnly,
       smoke,
+      relevanceFloor: cli.relevanceFloor,
+      reuseIngest: cli.reuseIngest,
       ingest: {
         usd: ingestRecords.reduce((sum, r) => sum + r.usd, 0),
         captures: ingestRecords.reduce((sum, r) => sum + r.captures, 0),
@@ -425,7 +496,7 @@ async function run(cli: PersonaMemCli): Promise<void> {
     }),
   )
   logEval(`done (${cli.split} split): summary in ${paths.dir}`)
-  for (const line of formatScoreLines(score)) logEval(line)
+  for (const line of formatScoreLines(score, cli.relevanceFloor)) logEval(line)
 }
 
 export async function runLive(cli: PersonaMemCli): Promise<void> {

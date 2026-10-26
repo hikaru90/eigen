@@ -111,6 +111,8 @@ describe('dry-run isolation', () => {
           '1',
           '--answer',
           'ask',
+          '--relevance-floor',
+          'product',
           '--all',
           '--dry-run',
         ],

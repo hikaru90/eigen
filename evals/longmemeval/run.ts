@@ -35,7 +35,6 @@ async function runInstance(
     chatModel: PLATFORM_CHAT_MODEL,
     items: captureItems,
     enrichConcurrency,
-    reset: true,
   })
 
   logEval(`${instance.question_id}: answering via composeAnswer`)

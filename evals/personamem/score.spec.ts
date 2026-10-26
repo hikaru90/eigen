@@ -177,3 +177,73 @@ describe('scoreAnswers', () => {
     expect(() => scoreAnswers([], distance)).toThrow(/no answer rows/)
   })
 })
+
+describe('scoreAnswers: context size and history evidence', () => {
+  const withEvidence = (evidence: Record<string, AnswerRow['evidence']>) =>
+    rows.map((r) => (r.variant === 'eigen' ? { ...r, evidence: evidence[r.questionId] } : r))
+  const full = withEvidence({
+    q1: { inHistory: true, items: 2, hit: true },
+    q2: { inHistory: true, items: 1, hit: false },
+    q3: { inHistory: false },
+  })
+
+  it('reports the mean number of items in the chooser context, overall and per group', () => {
+    const score = scoreAnswers(rows, distance)
+    expect(score.overall.meanContextSize).toBeCloseTo((1 + 2 + 0) / 3, 10)
+    expect(score.byPrefType.pref_a!.meanContextSize).toBeCloseTo(1.5, 10)
+    expect(score.byPrefType.pref_b!.meanContextSize).toBe(0)
+  })
+
+  it('has no evidence-hit numbers when the rows carry no history evidence (evidence-only runs)', () => {
+    const score = scoreAnswers(rows, distance)
+    expect(score.overall).toMatchObject({
+      evidenceQuestions: null,
+      evidenceHit: null,
+      evidenceHitRate: null,
+    })
+  })
+
+  it('counts the questions that have history evidence and those whose chooser context holds some of it', () => {
+    const score = scoreAnswers(full, distance)
+    expect(score.overall).toMatchObject({
+      evidenceQuestions: 2,
+      evidenceHit: 1,
+      evidenceHitRate: 0.5,
+    })
+    expect(score.byPrefType.pref_a).toMatchObject({
+      evidenceQuestions: 2,
+      evidenceHit: 1,
+      evidenceHitRate: 0.5,
+    })
+  })
+
+  it('leaves questions without history evidence out of the evidence-hit rate (null when none remain)', () => {
+    const score = scoreAnswers(full, distance)
+    expect(score.byPrefType.pref_b).toMatchObject({
+      n: 1,
+      evidenceQuestions: 0,
+      evidenceHit: 0,
+      evidenceHitRate: null,
+    })
+  })
+
+  it('still scores accuracy for a question without history evidence', () => {
+    const score = scoreAnswers(full, distance)
+    expect(score.overall.n).toBe(3)
+    expect(score.byPrefType.pref_b!.eigenAccuracy).toBe(0)
+  })
+
+  it('throws when only some eigen rows carry the evidence field (damaged run)', () => {
+    const mixed = withEvidence({ q1: { inHistory: true, items: 2, hit: true } })
+    expect(() => scoreAnswers(mixed, distance)).toThrow(/q2.*evidence/)
+  })
+
+  it('throws when a hit claims more than there is to hit', () => {
+    const bad = withEvidence({
+      q1: { inHistory: true, items: 0, hit: true },
+      q2: { inHistory: true, items: 1, hit: false },
+      q3: { inHistory: false },
+    })
+    expect(() => scoreAnswers(bad, distance)).toThrow(/q1/)
+  })
+})

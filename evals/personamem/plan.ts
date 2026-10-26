@@ -5,6 +5,11 @@ import { modelSlug } from '../public-bench/model-slug'
 import { seededSample } from '../public-bench/seeded'
 import { loadDevSet } from './dev-set'
 import {
+  alignEvidenceToCaptures,
+  EvidenceNotInHistoryError,
+  PREF_TYPES_WITHOUT_HISTORY_EVIDENCE,
+} from './evidence-alignment'
+import {
   DAY_MS,
   evidenceToCaptures,
   historyToCaptures,
@@ -12,11 +17,23 @@ import {
 } from './history-to-captures'
 import { groupByPersona, loadHistory, loadPreparedRows, type PersonaQueries } from './load-dataset'
 import { buildOptions, type McqOptions } from './mcq'
+import { selectValPersonas } from './val-personas'
 
 const USD_PER_CAPTURE = 0.0015
 const USD_PER_QUERY = 0.008
 
-export type PlannedQuestion = McqOptions & { row: PreparedRow }
+/**
+ * Which stored items are this question's evidence. `aligned`: the history captures (indexes into
+ * the persona's `captures`) its evidence turns are quoted from. `not-in-history`: a pref_type
+ * whose evidence the dataset does not put in the history. `evidence-only`: the tenant holds
+ * nothing but the evidence, so every stored item is evidence.
+ */
+export type QuestionEvidence =
+  | { kind: 'aligned'; captureIndexes: number[] }
+  | { kind: 'not-in-history' }
+  | { kind: 'evidence-only' }
+
+export type PlannedQuestion = McqOptions & { row: PreparedRow; evidence: QuestionEvidence }
 
 export type PlannedPersona = {
   personaId: number
@@ -31,6 +48,14 @@ export type PlannedPersona = {
 export type Plan = {
   personas: PlannedPersona[]
   totals: { personas: number; captures: number; queries: number; estimatedUsd: number }
+  /** Full-history runs: how the questions' evidence maps onto the history. null for --evidence-only. */
+  alignment: {
+    questions: number
+    aligned: number
+    notInHistory: number
+    /** Distinct history captures that are evidence of at least one question. */
+    evidenceCaptures: number
+  } | null
 }
 
 /**
@@ -69,11 +94,16 @@ function selectPersonas(all: PersonaQueries[], cli: PersonaMemCli): PersonaQueri
   if (selection.kind === 'questions' || selection.kind === 'devSet') {
     throw new Error('[personamem] --question-ids and --dev-set select questions, not personas')
   }
+  if (cli.split === 'val') {
+    // tuning never replays a reported persona: a val sample excludes the benchmark personas
+    const benchmark = new Set(loadPreparedRows(cli.dataDir, 'benchmark').map((r) => r.personaId))
+    return selectValPersonas(all, benchmark, selection.count, selection.seed)
+  }
   return seededSample(all, selection.count, selection.seed)
 }
 
-function plannedQuestion(row: PreparedRow): PlannedQuestion {
-  return { row, ...buildOptions(row) }
+function plannedQuestion(row: PreparedRow, evidence: QuestionEvidence): PlannedQuestion {
+  return { row, ...buildOptions(row), evidence }
 }
 
 function limitedQueries(persona: PersonaQueries, cli: PersonaMemCli): PreparedRow[] {
@@ -95,13 +125,14 @@ function questionIdsOf(
 }
 
 /** Full-history mode needs the history files; `val` ships without them until downloaded. */
-function assertHistoriesPresent(personas: PersonaQueries[], split: Split): void {
-  if (split !== 'val') return
+function assertHistoriesPresent(personas: PersonaQueries[], cli: PersonaMemCli): void {
+  if (cli.split !== 'val') return
   const missing = personas.filter((p) => !existsSync(p.historyPath))
   if (missing.length === 0) return
+  const ids = missing.map((p) => p.personaId).join(',')
   throw new Error(
     `[personamem] val histories not downloaded: ${missing.length} of ${personas.length} history file(s) are missing, e.g. ${missing[0]!.historyPath}. ` +
-      'Full-history runs on val need them (python3 -I evals/personamem/prepare.py --split val --print-history-urls lists the URLs); --evidence-only runs do not.',
+      `Full-history runs on val need them: python3 -I evals/personamem/prepare.py --data-dir ${cli.dataDir} --split val --print-history-urls --persona-ids ${ids} lists the URLs of just these personas; --evidence-only runs do not need them.`,
   )
 }
 
@@ -126,7 +157,7 @@ function planEvidenceOnly(rows: PreparedRow[], cli: PersonaMemCli): PlannedPerso
       tenantUserId: tenantUserIdFor(cli.chatModel, cli.split, row.personaId, row.questionId),
       captures,
       referenceTime: new Date(captures[captures.length - 1]!.capturedAt.getTime() + DAY_MS),
-      questions: [plannedQuestion(row)],
+      questions: [plannedQuestion(row, { kind: 'evidence-only' })],
     }
   })
 }
@@ -134,17 +165,68 @@ function planEvidenceOnly(rows: PreparedRow[], cli: PersonaMemCli): PlannedPerso
 /** One tenant per persona holding the whole history, then every (limited) query of that persona. */
 function planFullHistory(rows: PreparedRow[], cli: PersonaMemCli): PlannedPersona[] {
   const selected = selectPersonas(groupByPersona(rows), cli)
-  assertHistoriesPresent(selected, cli.split)
-  return selected.map((persona): PlannedPersona => {
+  assertHistoriesPresent(selected, cli)
+  const unaligned: string[] = []
+  const personas = selected.map((persona): PlannedPersona => {
     const captures = historyToCaptures(loadHistory(persona.historyPath))
+    const questions = limitedQueries(persona, cli).flatMap((row) => {
+      try {
+        const captureIndexes = alignEvidenceToCaptures(captures, row.evidenceTurns, row)
+        return [
+          plannedQuestion(
+            row,
+            captureIndexes === null
+              ? { kind: 'not-in-history' }
+              : { kind: 'aligned', captureIndexes },
+          ),
+        ]
+      } catch (err) {
+        if (!(err instanceof EvidenceNotInHistoryError)) throw err
+        unaligned.push(err.message)
+        return []
+      }
+    })
     return {
       personaId: persona.personaId,
       tenantUserId: tenantUserIdFor(cli.chatModel, cli.split, persona.personaId),
       captures,
       referenceTime: new Date(captures[captures.length - 1]!.capturedAt.getTime() + DAY_MS),
-      questions: limitedQueries(persona, cli).map(plannedQuestion),
+      questions,
     }
   })
+  if (unaligned.length > 0) {
+    const shown = unaligned.slice(0, 10)
+    throw new Error(
+      `[personamem] ${unaligned.length} question(s) have evidence that is not in their history:\n  ${shown.join('\n  ')}` +
+        (unaligned.length > shown.length
+          ? `\n  ... and ${unaligned.length - shown.length} more`
+          : ''),
+    )
+  }
+  return personas
+}
+
+function alignmentTotals(personas: readonly PlannedPersona[]): Plan['alignment'] {
+  let questions = 0
+  let notInHistory = 0
+  const evidenceCaptures = new Set<string>()
+  for (const persona of personas) {
+    for (const question of persona.questions) {
+      questions++
+      if (question.evidence.kind === 'not-in-history') notInHistory++
+      if (question.evidence.kind === 'aligned') {
+        for (const i of question.evidence.captureIndexes) {
+          evidenceCaptures.add(`${persona.tenantUserId}#${i}`)
+        }
+      }
+    }
+  }
+  return {
+    questions,
+    aligned: questions - notInHistory,
+    notInHistory,
+    evidenceCaptures: evidenceCaptures.size,
+  }
 }
 
 /** Pure and offline: loads prepared data and histories, builds captures and options. */
@@ -161,6 +243,7 @@ export function buildPlan(cli: PersonaMemCli): Plan {
       queries,
       estimatedUsd: estimateUsd(captures, queries),
     },
+    alignment: cli.evidenceOnly ? null : alignmentTotals(personas),
   }
 }
 
@@ -186,11 +269,21 @@ export function formatPlan(plan: Plan, cli: PersonaMemCli): string[] {
     `answer: ${cli.answer}`,
     `selection: ${describeSelection(cli)}`,
     `tenant concurrency: ${cli.tenantConcurrency}, enrich concurrency: ${cli.enrichConcurrency}`,
+    `relevance floor: ${cli.relevanceFloor === 'product' ? 'product (the constant real users get)' : `${cli.relevanceFloor} (eval-only override of the product floor)`}`,
+    `ingest source: ${cli.reuseIngest === null ? 'this run ingests the tenants' : `run ${cli.reuseIngest} (--reuse-ingest; nothing is ingested)`}`,
     `limit queries per persona: ${cli.limitQueries ?? 'none'}`,
     '',
     `${evidence ? 'tenants' : 'personas'}: ${totals.personas}`,
     `${evidence ? 'evidence turns' : 'captures'}: ${totals.captures} (user turns only; ${evidence ? 'assistant turns and the rest of the history excluded' : 'system persona dump and assistant turns excluded'})`,
     `queries: ${totals.queries} (each answered twice: eigen, no-memory)`,
+    ...(plan.alignment === null
+      ? []
+      : [
+          `evidence alignment: ${plan.alignment.aligned} of ${plan.alignment.questions} question(s) aligned to ${plan.alignment.evidenceCaptures} history capture(s) by exact text` +
+            (plan.alignment.notInHistory > 0
+              ? `; ${plan.alignment.notInHistory} question(s) without history evidence (${PREF_TYPES_WITHOUT_HISTORY_EVIDENCE.join(', ')}), scored for accuracy and left out of evidence-hit - the dataset keeps that evidence out of the history`
+              : ''),
+        ]),
     `estimated USD: $${totals.estimatedUsd.toFixed(3)} (captures x $${USD_PER_CAPTURE} + queries x $${USD_PER_QUERY}${cli.answer === 'ask' ? '; the Ask agent loop answering each query is not included' : ''})`,
     '',
     'tenants:',

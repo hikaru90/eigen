@@ -49,6 +49,8 @@ describe('personamem CLI launch', () => {
         '1',
         '--answer',
         'compose',
+        '--relevance-floor',
+        'product',
       ],
       {
         cwd: REPO_ROOT,

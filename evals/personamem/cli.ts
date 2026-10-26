@@ -1,6 +1,12 @@
 import { resolve } from 'node:path'
 import { assertEvalChatModel } from '$lib/server/llm/eval-chat-model'
-import { ANSWER_MODES, SPLITS, type AnswerMode, type Split } from './types'
+import {
+  ANSWER_MODES,
+  SPLITS,
+  type AnswerMode,
+  type RelevanceFloorSetting,
+  type Split,
+} from './types'
 
 export const PERSONAMEM_USAGE = `Usage: npm run eval:personamem -- [options]
 
@@ -15,6 +21,9 @@ Required:
                               compose composeAnswer directly on the bare query
   --tenant-concurrency N    Personas processed side by side
   --enrich-concurrency N    Enrich workers within one persona (1 = strictly incremental, D6)
+  --relevance-floor product|X
+                            Q&A relevance floor for thoughts and note passages: product = the constant real users
+                            get (0.22), or an eval-only override X in [0, 1], e.g. 0.15 (harness tenants only)
   exactly one of:
     --personas N --seed S   Seeded sample of N personas
     --persona-ids a,b,c     Explicit persona ids
@@ -26,7 +35,9 @@ Required:
 Optional:
   --run-id NAME             Run directory name (evals/reports/public/personamem-v2/NAME); required with --resume
   --resume                  Continue an existing run directory (same --answer required); answered questions are skipped
-  --skip-ingest             Reuse existing tenants (fails if a tenant does not hold exactly the planned captures)
+  --reuse-ingest RUNID      Answer against the tenants an earlier run ingested (no ingest). Verified against that run's
+                            ingest.jsonl and run.json (tenant ids, capture counts and digest, thought ids, thought
+                            count); any mismatch fails. Answer again at another --relevance-floor without re-ingesting
   --limit-queries N         At most N queries per persona
   --evidence-only           SMOKE, not a benchmark score: per question, ingest ONLY that question's evidence user turns
                             (Capture) into its own tenant, then answer it. Prepare data with a current prepare.py
@@ -58,7 +69,9 @@ export type PersonaMemCli = {
   selection: PersonaSelection
   runId: string | null
   resume: boolean
-  skipIngest: boolean
+  relevanceFloor: RelevanceFloorSetting
+  /** Run id whose ingest this run answers against (no ingest in this run); null = ingest here. */
+  reuseIngest: string | null
   limitQueries: number | null
   dryRun: boolean
 }
@@ -77,14 +90,20 @@ const VALUE_FLAGS = new Set([
   '--persona-ids',
   '--run-id',
   '--limit-queries',
+  '--relevance-floor',
+  '--reuse-ingest',
 ])
-const BOOLEAN_FLAGS = new Set([
-  '--all',
-  '--resume',
-  '--skip-ingest',
-  '--dry-run',
-  '--evidence-only',
-])
+const BOOLEAN_FLAGS = new Set(['--all', '--resume', '--dry-run', '--evidence-only'])
+
+function isPathSegment(value: string): boolean {
+  return (
+    value.trim().length > 0 &&
+    value !== '.' &&
+    value !== '..' &&
+    !value.includes('/') &&
+    !value.includes('\\')
+  )
+}
 
 function positiveInt(flag: string, raw: string): number {
   if (!/^\d+$/.test(raw.trim()) || Number(raw) < 1) {
@@ -93,6 +112,20 @@ function positiveInt(flag: string, raw: string): number {
     )
   }
   return Number(raw)
+}
+
+const RELEVANCE_FLOOR_NUMBER = /^\d+(\.\d+)?$/
+
+function parseRelevanceFloor(raw: string): RelevanceFloorSetting {
+  const text = raw.trim()
+  if (text === 'product') return 'product'
+  const value = RELEVANCE_FLOOR_NUMBER.test(text) ? Number(text) : Number.NaN
+  if (!(value >= 0 && value <= 1)) {
+    throw new PersonaMemUsageError(
+      `--relevance-floor must be product or a number from 0 to 1, got: ${JSON.stringify(raw)}`,
+    )
+  }
+  return value
 }
 
 function requireValue(values: Map<string, string>, flag: string): string {
@@ -175,6 +208,8 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
     requireValue(values, '--enrich-concurrency'),
   )
 
+  const relevanceFloor = parseRelevanceFloor(requireValue(values, '--relevance-floor'))
+
   const answerRaw = requireValue(values, '--answer')
   const answer = ANSWER_MODES.find((mode) => mode === answerRaw)
   if (answer === undefined) {
@@ -236,6 +271,19 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
 
   const runId = values.get('--run-id') ?? null
   if (runId !== null && !runId.trim()) throw new PersonaMemUsageError('--run-id must not be blank')
+  const reuseIngest = values.get('--reuse-ingest') ?? null
+  if (reuseIngest !== null) {
+    if (!isPathSegment(reuseIngest)) {
+      throw new PersonaMemUsageError(
+        `--reuse-ingest must be the run id of an earlier run (a single path segment), got: ${JSON.stringify(reuseIngest)}`,
+      )
+    }
+    if (reuseIngest === runId) {
+      throw new PersonaMemUsageError(
+        '--reuse-ingest must name an earlier run, not the run being created (--run-id)',
+      )
+    }
+  }
   const resume = flags.has('--resume')
   if (resume && runId === null) {
     throw new PersonaMemUsageError('--resume requires --run-id of the run to continue')
@@ -259,7 +307,8 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
     selection,
     runId,
     resume,
-    skipIngest: flags.has('--skip-ingest'),
+    relevanceFloor,
+    reuseIngest,
     limitQueries: values.has('--limit-queries')
       ? positiveInt('--limit-queries', values.get('--limit-queries')!)
       : null,

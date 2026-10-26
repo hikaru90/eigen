@@ -1,9 +1,25 @@
 import type { RunSummary, SummarySection } from '../public-bench/run-output'
 import type { GroupStats, Score } from './score'
-import type { AnswerMode, BelowFloor, OptionLetter, Split } from './types'
+import type { AnswerMode, BelowFloor, OptionLetter, RelevanceFloorSetting, Split } from './types'
 import { COMPOSE_ANSWER_RELEVANCE_MIN } from '$lib/server/retrieval/rrf-scoring'
 
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`
+
+/** The numeric floor a run applied: the product constant, or the eval-only override. */
+export const floorValue = (setting: RelevanceFloorSetting): number =>
+  setting === 'product' ? COMPOSE_ANSWER_RELEVANCE_MIN : setting
+
+const describeFloor = (setting: RelevanceFloorSetting): string =>
+  setting === 'product'
+    ? `product (${COMPOSE_ANSWER_RELEVANCE_MIN})`
+    : `${setting} (eval-only override)`
+
+/** `evidence hit` cell: rate and counts; n/a when no question of the group has history evidence. */
+function evidenceHitCell(g: GroupStats): string {
+  if (g.evidenceQuestions === null) return 'n/a'
+  if (g.evidenceHitRate === null) return `n/a (${g.evidenceQuestions} with history evidence)`
+  return `${pct(g.evidenceHitRate)} (${g.evidenceHit}/${g.evidenceQuestions})`
+}
 const signedPct = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(1)} pp`
 
 function breakdown(
@@ -14,7 +30,16 @@ function breakdown(
   return {
     heading,
     table: {
-      columns: [firstColumn, 'n', 'eigen', 'no-memory', 'lift', 'evidence retrieved'],
+      columns: [
+        firstColumn,
+        'n',
+        'eigen',
+        'no-memory',
+        'lift',
+        'evidence retrieved',
+        'evidence hit',
+        'mean context items',
+      ],
       rows: Object.entries(groups).map(([key, g]) => [
         key,
         g.n,
@@ -22,6 +47,8 @@ function breakdown(
         pct(g.noMemoryAccuracy),
         signedPct(g.lift),
         pct(g.evidenceRetrievedRate),
+        evidenceHitCell(g),
+        g.meanContextSize.toFixed(1),
       ]),
     },
   }
@@ -31,8 +58,15 @@ const round6 = (x: number) => Math.round(x * 1e6) / 1e6
 
 export const SMOKE_BANNER = 'SMOKE (evidence-only) - not a benchmark score'
 
-export function decisionsInEffect(answer: AnswerMode, evidenceOnly: boolean): string[] {
+export function decisionsInEffect(
+  answer: AnswerMode,
+  evidenceOnly: boolean,
+  relevanceFloor: RelevanceFloorSetting,
+): string[] {
   return [
+    relevanceFloor === 'product'
+      ? `Relevance floor: product (${COMPOSE_ANSWER_RELEVANCE_MIN}) for thoughts and note passages, as real users get it`
+      : `Relevance floor ${relevanceFloor} for thoughts and note passages: an eval-only override of the product floor (${COMPOSE_ANSWER_RELEVANCE_MIN}), set by the harness for harness tenants only; not a product setting`,
     'D1: one chat model (--chat-model) drives enrich, Ask / composeAnswer and the chooser; embeddings stay the pinned platform model',
     evidenceOnly
       ? 'D2/D3 (evidence-only): per question, one capture per evidence user turn (related_conversation_snippet), capturedAt = 2025-01-01T00:00Z + n days in snippet order (query asked one day after the last turn); one tenant per question; the rest of the history is not replayed'
@@ -42,6 +76,11 @@ export function decisionsInEffect(answer: AnswerMode, evidenceOnly: boolean): st
       ? 'Answer (ask): a new Ask session per question receives the bare query only; the chooser sees the full context of every answer_question call Ask made (dated), not the cited subset; without such a call it sees none and the row is flagged askAnsweredWithoutMemory. Ask never stores anything'
       : 'Answer (compose): composeAnswer runs on the bare query; the chooser sees every item Eigen gave its answer model (context), dated, not only the cited ones',
     'Options never reach Eigen; variants eigen (chooser gets that context) and no-memory (chooser gets none) share the same options and chooser',
+    ...(evidenceOnly
+      ? []
+      : [
+          'Evidence hit (full history): a question evidence user turns are matched to the history user turns they are quoted from by exact text (data alignment, no similarity); a hit means the chooser context holds at least one item those captures became - the thought, its split children, and notes linked to them. pref_types whose evidence the dataset keeps out of the history have nothing to hit and are left out of the rate (accuracy still counts them)',
+        ]),
   ]
 }
 
@@ -77,8 +116,7 @@ export type SmokeBlock = {
 const score3 = (x: number | null) => (x === null ? 'none' : x.toFixed(3))
 
 /** Tells "nothing retrieved" from "something just under the floor" from "no candidate at all". */
-function retrievalLine(block: SmokeBlock): string {
-  const floor = COMPOSE_ANSWER_RELEVANCE_MIN
+function retrievalLine(block: SmokeBlock, floor: number): string {
   const { thoughts, notePassages } = block.belowFloor
   if (block.askAnsweredWithoutMemory) {
     return 'retrieval: not searched (Ask made no answer_question call)'
@@ -119,7 +157,7 @@ function missesSection(blocks: readonly SmokeBlock[]): SummarySection[] {
   ]
 }
 
-function smokeSection(block: SmokeBlock): SummarySection {
+function smokeSection(block: SmokeBlock, floor: number): SummarySection {
   const verdict = (letter: OptionLetter) =>
     `${letter} (${letter === block.correctLetter ? 'correct' : 'wrong'})`
   const numbered = (items: string[]) =>
@@ -138,7 +176,7 @@ function smokeSection(block: SmokeBlock): SummarySection {
         : [
             `Ask answered with tools: ${block.askTools.length === 0 ? '(none)' : block.askTools.join(', ')}${block.askAnsweredWithoutMemory ? ' - NO answer_question call, chooser got no memory' : ''}`,
           ]),
-      retrievalLine(block),
+      retrievalLine(block, floor),
       `context the chooser saw (${block.context.length}):`,
       ...numbered(block.context.map((t) => `[${t.storedAt.slice(0, 10)}] ${clip(t.text)}`)),
       `correct answer: ${block.correctLetter} - ${clip(block.correctAnswer)}`,
@@ -166,6 +204,10 @@ export function buildSummary(input: {
   evidenceOnly: boolean
   /** One block per question; required (non-empty) with evidenceOnly, ignored otherwise. */
   smoke: readonly SmokeBlock[]
+  /** The Q&A relevance floor the run applied (`product` or the eval-only override). */
+  relevanceFloor: RelevanceFloorSetting
+  /** Run id whose ingest this run answered against; null = this run ingested. */
+  reuseIngest: string | null
   /** Ingest spend recorded by this run (ingest.jsonl); 0 captures when ingest was skipped. */
   ingest: { usd: number; captures: number; personas: number }
   wallMsThisProcess: number
@@ -180,7 +222,7 @@ export function buildSummary(input: {
   return {
     bench: 'personamem-v2',
     runId: input.runId,
-    title: `${input.evidenceOnly ? `${SMOKE_BANNER} - ` : ''}PersonaMem-v2 x Eigen (text, 32k, ${input.split} split) - ${input.chatModel} (ingest capture, answer ${input.answerMode})`,
+    title: `${input.evidenceOnly ? `${SMOKE_BANNER} - ` : ''}PersonaMem-v2 x Eigen (text, 32k, ${input.split} split) - ${input.chatModel} (ingest capture, answer ${input.answerMode}, floor ${describeFloor(input.relevanceFloor)})`,
     startedAt: input.startedAt,
     finishedAt: input.finishedAt,
     config: {
@@ -189,6 +231,9 @@ export function buildSummary(input: {
       ingest: 'capture',
       answer: input.answerMode,
       evidenceOnly: input.evidenceOnly,
+      relevanceFloor: input.relevanceFloor,
+      relevanceFloorValue: floorValue(input.relevanceFloor),
+      reuseIngest: input.reuseIngest,
       chatModel: input.chatModel,
       gitSha: input.gitSha,
       gitDirty: input.gitDirty,
@@ -200,6 +245,12 @@ export function buildSummary(input: {
       lift: score.overall.lift,
       evidenceRetrieved: score.overall.evidenceRetrieved,
       evidenceRetrievedRate: score.overall.evidenceRetrievedRate,
+      relevanceFloor: input.relevanceFloor,
+      relevanceFloorValue: floorValue(input.relevanceFloor),
+      meanContextSize: score.overall.meanContextSize,
+      evidenceQuestions: score.overall.evidenceQuestions,
+      evidenceHit: score.overall.evidenceHit,
+      evidenceHitRate: score.overall.evidenceHitRate,
       byPrefType: Object.fromEntries(
         Object.entries(score.byPrefType).map(([prefType, g]) => [
           prefType,
@@ -209,6 +260,9 @@ export function buildSummary(input: {
             noMemoryAccuracy: g.noMemoryAccuracy,
             lift: g.lift,
             evidenceRetrievedRate: g.evidenceRetrievedRate,
+            meanContextSize: g.meanContextSize,
+            evidenceQuestions: g.evidenceQuestions,
+            evidenceHitRate: g.evidenceHitRate,
           },
         ]),
       ),
@@ -228,7 +282,7 @@ export function buildSummary(input: {
               ],
             },
             ...missesSection(input.smoke),
-            ...input.smoke.map(smokeSection),
+            ...input.smoke.map((block) => smokeSection(block, floorValue(input.relevanceFloor))),
           ]
         : []),
       {
@@ -255,16 +309,34 @@ export function buildSummary(input: {
               score.overall.evidenceRetrieved,
               pct(score.overall.evidenceRetrievedRate),
             ],
+            ...(score.overall.evidenceQuestions === null
+              ? []
+              : [
+                  [
+                    'evidence hit (history evidence in chooser context)',
+                    score.overall.evidenceQuestions,
+                    score.overall.evidenceHit!,
+                    score.overall.evidenceHitRate === null
+                      ? 'n/a'
+                      : pct(score.overall.evidenceHitRate),
+                  ],
+                ]),
+            ['mean context items', score.overall.n, '', score.overall.meanContextSize.toFixed(1)],
           ],
         },
         lines: [
+          ...(score.overall.evidenceQuestions === null
+            ? []
+            : [
+                `evidence hit: ${score.overall.evidenceQuestions} of ${score.overall.n} question(s) have evidence in the history; the rest are scored for accuracy but have nothing to hit`,
+              ]),
           input.evidenceOnly
             ? 'evidence retrieved: every thought in a question tenant is evidence, so a non-empty chooser context is a retrieval hit'
             : 'evidence retrieved: the share of eigen rows with a non-empty chooser context; with the whole history in the tenant that is not necessarily evidence',
           `captures ingested in this run: ${input.ingest.captures} across ${input.ingest.personas} tenant(s); USD ingest ${round6(input.ingest.usd)} + answer ${round6(answerUsd)}`,
           'invalid letters: 0 (a response outside A-D fails the call; none are stored)',
           input.ingest.personas === 0
-            ? 'ingest cost is not included: this run reused existing tenants (--skip-ingest or --resume)'
+            ? `ingest cost is not included: this run reused existing tenants (${input.reuseIngest === null ? '--resume' : `--reuse-ingest ${input.reuseIngest}`})`
             : 'ingest cost covers the personas ingested in this run directory',
         ],
       },
@@ -280,7 +352,7 @@ export function buildSummary(input: {
                 'val split: tuning data (personas disjoint from the benchmark split apart from persona 78); never a reported score',
               ]
             : []),
-          ...decisionsInEffect(input.answerMode, input.evidenceOnly),
+          ...decisionsInEffect(input.answerMode, input.evidenceOnly, input.relevanceFloor),
         ],
       },
       { heading: 'Reference numbers (from the PersonaMem-v2 paper)', lines: PAPER_REFERENCES },
@@ -288,15 +360,22 @@ export function buildSummary(input: {
   }
 }
 
-/** The two dev-loop metrics, overall and per pref_type, as console lines at the end of a run. */
-export function formatScoreLines(score: Score): string[] {
+/** The floor and the two dev-loop metrics, overall and per pref_type, as console lines at the end of a run. */
+export function formatScoreLines(score: Score, relevanceFloor: RelevanceFloorSetting): string[] {
   const { overall } = score
+  const hit = (g: GroupStats) =>
+    g.evidenceQuestions === null
+      ? ''
+      : g.evidenceHitRate === null
+        ? ', evidence hit n/a'
+        : `, evidence hit ${pct(g.evidenceHitRate)} (${g.evidenceHit}/${g.evidenceQuestions})`
   return [
+    `relevance floor: ${describeFloor(relevanceFloor)}`,
     `eigen ${pct(overall.eigenAccuracy)}, no-memory ${pct(overall.noMemoryAccuracy)}, lift ${signedPct(overall.lift)}; ` +
-      `evidence retrieved ${pct(overall.evidenceRetrievedRate)} (${overall.evidenceRetrieved}/${overall.n})`,
+      `evidence retrieved ${pct(overall.evidenceRetrievedRate)} (${overall.evidenceRetrieved}/${overall.n})${hit(overall)}; mean context ${overall.meanContextSize.toFixed(1)} item(s)`,
     ...Object.entries(score.byPrefType).map(
       ([prefType, g]) =>
-        `  ${prefType}: n=${g.n} eigen ${pct(g.eigenAccuracy)}, no-memory ${pct(g.noMemoryAccuracy)}, lift ${signedPct(g.lift)}, evidence retrieved ${pct(g.evidenceRetrievedRate)}`,
+        `  ${prefType}: n=${g.n} eigen ${pct(g.eigenAccuracy)}, no-memory ${pct(g.noMemoryAccuracy)}, lift ${signedPct(g.lift)}, evidence retrieved ${pct(g.evidenceRetrievedRate)}${hit(g)}, mean context ${g.meanContextSize.toFixed(1)}`,
     ),
   ]
 }

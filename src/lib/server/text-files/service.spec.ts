@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { withEvalRelevanceFloor } from '$lib/server/retrieval/relevance-floor'
 import {
   BARE_SECRET_PLACEHOLDER_ERROR,
   unknownSecretPlaceholderError,
@@ -597,7 +598,9 @@ describe('text-files service', () => {
         from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [existing]) })) })),
       })),
       update: vi.fn(() => ({
-        set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => [updatedRow]) })) })),
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({ returning: vi.fn(async () => [updatedRow]) })),
+        })),
       })),
     }
     getDbMock.mockReturnValue(db)
@@ -655,6 +658,61 @@ describe('text-files service', () => {
     })
     expect(hits).toHaveLength(1)
     expect(hits[0]).toMatchObject({ id: 'f1', title: 'Trip', excerpt: 'early morning surfing' })
+  })
+
+  describe('relevance floor', () => {
+    // one passage with cosine similarity 0.15: under the product floor (0.22), over 0.1
+    const lowSources = () => ({
+      passageCandidates: vi.fn(async () => [
+        { passageId: 'p1', textFileId: 'f1', ordinal: 0, vectorDistance: 0.85 },
+      ]),
+      noteLexical: vi.fn(async () => []),
+      loadNotes: vi.fn(async () => [
+        {
+          id: 'f1',
+          title: 'Trip',
+          createdAt: new Date('2026-03-01T00:00:00.000Z'),
+          updatedAt: new Date('2026-03-02T00:00:00.000Z'),
+          author: 'user' as const,
+          authorLabel: null,
+          authorKeyId: null,
+        },
+      ]),
+      loadPassages: vi.fn(async () => [
+        { textFileId: 'f1', ordinal: 0, startChar: 0, endChar: 22, text: 'early morning surfing' },
+      ]),
+    })
+    const harnessUser = 'public-bench-personamem-v2-capture-gpt-4o-mini-p1'
+
+    it('defaults to the product floor', async () => {
+      createDbNoteSearchSourcesMock.mockReturnValue(lowSources())
+      expect(await searchTextFiles(harnessUser, { query: 'q', queryEmbedding: [1] })).toEqual([])
+    })
+
+    it('uses the eval override when no explicit minScore is given', async () => {
+      createDbNoteSearchSourcesMock.mockReturnValue(lowSources())
+      const hits = await withEvalRelevanceFloor(0.1, () =>
+        searchTextFiles(harnessUser, { query: 'q', queryEmbedding: [1] }),
+      )
+      expect(hits.map((h) => h.id)).toEqual(['f1'])
+    })
+
+    it('an explicit minScore wins over the override', async () => {
+      createDbNoteSearchSourcesMock.mockReturnValue(lowSources())
+      const hits = await withEvalRelevanceFloor(0.1, () =>
+        searchTextFiles(harnessUser, { query: 'q', queryEmbedding: [1], minScore: 0.5 }),
+      )
+      expect(hits).toEqual([])
+    })
+
+    it('throws for a real user while an override is active', async () => {
+      createDbNoteSearchSourcesMock.mockReturnValue(lowSources())
+      await expect(
+        withEvalRelevanceFloor(0.1, () =>
+          searchTextFiles('u1', { query: 'q', queryEmbedding: [1] }),
+        ),
+      ).rejects.toThrow(/harness billing users/)
+    })
   })
 
   it('searchTextFiles reuses a caller-supplied query embedding (no second embedding call)', async () => {
@@ -732,10 +790,14 @@ describe('text-files service secret hygiene (docs/planning/secret-hygiene.md)', 
   })
 
   it('update: new passages and lexical text come from the redacted body, the saved body is verbatim', async () => {
-    const set = vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => [existingRow(BODY)]) })) }))
+    const set = vi.fn(() => ({
+      where: vi.fn(() => ({ returning: vi.fn(async () => [existingRow(BODY)]) })),
+    }))
     getDbMock.mockReturnValue({
       select: vi.fn(() => ({
-        from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [existingRow('old')]) })) })),
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: vi.fn(async () => [existingRow('old')]) })),
+        })),
       })),
       update: vi.fn(() => ({ set })),
     })
@@ -749,10 +811,14 @@ describe('text-files service secret hygiene (docs/planning/secret-hygiene.md)', 
   })
 
   it('append: the appended tail is redacted for passages (tail-only diff against redacted stored passages)', async () => {
-    const set = vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => [existingRow('eggs')]) })) }))
+    const set = vi.fn(() => ({
+      where: vi.fn(() => ({ returning: vi.fn(async () => [existingRow('eggs')]) })),
+    }))
     getDbMock.mockReturnValue({
       select: vi.fn(() => ({
-        from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [existingRow('eggs')]) })) })),
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({ limit: vi.fn(async () => [existingRow('eggs')]) })),
+        })),
       })),
       update: vi.fn(() => ({ set })),
     })
@@ -764,14 +830,22 @@ describe('text-files service secret hygiene (docs/planning/secret-hygiene.md)', 
     )
     // the user's saved note keeps the appended words
     expect(encryptTenantValueMock).toHaveBeenCalledWith(
-      expect.objectContaining({ column: 'body_text', plaintext: `eggs\nLLM_API_KEY=${FAKE_SECRETS.openai}` }),
+      expect.objectContaining({
+        column: 'body_text',
+        plaintext: `eggs\nLLM_API_KEY=${FAKE_SECRETS.openai}`,
+      }),
     )
     const written = (set.mock.calls[0] as unknown as [{ lexicalText: string }])[0]
     expect(leaks(written.lexicalText)).toBe(false)
   })
 
   it('search: a query holding a secret is embedded and keyword-matched redacted', async () => {
-    const sources = { passageCandidates: vi.fn(async () => []), noteLexical: vi.fn(async () => []), loadNotes: vi.fn(async () => []), loadPassages: vi.fn(async () => []) }
+    const sources = {
+      passageCandidates: vi.fn(async () => []),
+      noteLexical: vi.fn(async () => []),
+      loadNotes: vi.fn(async () => []),
+      loadPassages: vi.fn(async () => []),
+    }
     createDbNoteSearchSourcesMock.mockReturnValue(sources)
     createThoughtEmbeddingMock.mockResolvedValue([0.1])
 
