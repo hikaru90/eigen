@@ -129,11 +129,11 @@ Advice questions ("what should I eat / try / do") don't resemble the implicit ev
 never looked at? S3 was measured on `val-full-1` (Eigen 40.6% → 50.7%, no-memory 29.0%,
 evidence hit 42% → 50%, fixed 10 / broke 3) — the same personas used to diagnose it.
 
-**Set `val-full-2`:** 20 val personas, seed `val-full-2` (sha256 order over val personas not in
-the benchmark split and not in `val-full-1`): 24, 77, 112, 152, 227, 373, 380, 381, 400, 475,
-503, 552, 567, 703, 830, 833, 852, 915, 922, 999 — 73 questions (ask_to_forget 14, neutral 13,
-stereotypical 13, anti-stereotypical 13, health 10, therapy 7, sensitive 3), 2,274 captures;
-70/73 aligned to history evidence. Histories downloaded, `prepare.py --split val` re-run.
+**Set `val-full-2`:** 10 val personas — the first 10 of seed `val-full-2` (sha256 order over val
+personas not in the benchmark split and not in `val-full-1`; reduced from 20 on 2026-10-26 to fit
+the OpenRouter budget for both models): 77, 112, 152, 373, 381, 400, 475, 830, 833, 915 —
+40 questions (neutral 9, ask_to_forget 8, stereotypical 7, health 6, anti-stereotypical 6,
+sensitive 3, therapy 1). Histories downloaded, `prepare.py --split val` re-run.
 
 **Config:** `.env` `DECISION_ENFORCE_KINDS` now includes `capture_intent` (S2 active at ingest).
 S3 is always on in `composeAnswer`.
@@ -145,8 +145,7 @@ S3 is always on in `composeAnswer`.
 **Budget:** measured cost of a 2.3k-capture full-history run on deepseek was **$8.98**
 (`val-full-1-product`); the dry-run estimate ($4.00) uses $0.0015/capture and is ~2× too low, so
 preflight under-budgets — runs stay safe (resumable) but can stop on the OpenRouter limit.
-Key limit $20/week with ~$12.7 left → run 1 fits now; run 2 after the weekly reset or a higher
-limit. Time ≈ 3 h each (5 tenants in parallel); runs 1 and 2 can run concurrently when budget
+With 10 personas each run is ≈ $4.5, so both fit the ~$12.7 left on the $20/week key. Time ≈ 3 h each (5 tenants in parallel); runs 1 and 2 can run concurrently when budget
 allows.
 
 **Read-out (per model):** Eigen accuracy, no-memory, lift, evidence-hit, per pref_type, with
