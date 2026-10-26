@@ -1,6 +1,6 @@
 # "What Eigen knows about you": user facts + community profiles
 
-Status: **draft for operator review** (2026-10-26). Nothing is built. Risk: **critical**
+Status: **decisions Q1–Q4 answered by the operator 2026-10-26**; ready to build F1. Nothing is built yet. Risk: **critical**
 (ingestion, retrieval and consolidation are critical-path domains). Every change must improve Eigen
 for real users; PersonaMem is the measuring stick, not the target.
 
@@ -43,13 +43,24 @@ A **fact** is a short statement about one person, derived by an LLM from a captu
   the user or a person in their life. A pasted recipe yields nothing (unless the user writes "I'm
   baking this for Mom's 70th, she can't have nuts"); an email the user wrote ("an early morning out
   on the waves before the keynote") yields a fact about the user. Document topics never become
-  facts. → **Decision Q1.**
+  facts, and neither does trivia: only **personally relevant** facts (what would change how Eigen
+  should treat or advise this person). (Q1: approved.)
 - **Inferred facts.** Implicit evidence is the norm (PersonaMem, and real life). The extractor may
   infer ("out on the waves" → "surfs"), marked `inferred: true` with a confidence; facts below a
-  confidence gate (0.7) are not stored. → **Decision Q2.**
-- **No identifiers.** Contact details, account/ID/plate numbers, addresses, credentials are never
-  facts (secrets are already redacted before any LLM sees text). The user's raw capture still holds
-  what they wrote. → **Decision Q3.**
+  confidence gate (0.7) are not stored. (Q2: approved.)
+- **Identifiers go to secure storage (Q3).** Personal identifiers (email, phone, postal address,
+  licence plate, account/ID/policy numbers, dates of birth) are stored as facts whose **value lives
+  in a secure store**: new table `user_secure_value` (tenant-encrypted value, `kind`, `label`, RLS,
+  never embedded, never lexical-indexed, never in logs/activity/tool results). The fact statement
+  holds only a reference — "licence plate: [secure value]" — linked by `secure_value_id`; that is
+  what retrieval indexes and what any LLM sees. When the user asks for the value ("what's my
+  licence plate?"), the answer model emits the reference token and the server substitutes the
+  value in the user-facing response only (Ask, MCP), after generation — the LLM never sees it.
+  Advice answers never include identifiers unless asked. Credentials (API keys, passwords,
+  tokens) keep the existing rule from `secret-hygiene.md`: never memory, original only in
+  `raw_text`.
+  The extractor detects identifiers by meaning (LLM), not patterns; the existing secret redaction
+  still runs first.
 - **Reconciliation (updates).** Extraction sees the existing active facts about the same subjects
   (retrieved by meaning) and returns operations per fact: `add` · `update` (supersedes an existing
   fact: "no longer drinks coffee") · `confirm` · `none`. Superseded facts are kept with
@@ -89,8 +100,10 @@ A **fact** is a short statement about one person, derived by an LLM from a captu
 - The answer prompt gets a "Known facts" section (subject, statement, as-of, inferred marker,
   citable `[id=…]`) and two rules: facts about other people are not the user's; never put personal
   identifiers into an answer unless the user asks for them (the 2 sensitive-info misses).
-- MCP tool results expose facts like thoughts (never embeddings). A "what Eigen knows about you"
-  page to view/correct/forget facts is a follow-up phase → **Decision Q4**.
+- MCP tool results expose facts like thoughts (never embeddings; secure values only as references).
+- **No facts page (Q4).** "What do you know about me?" (Ask or MCP) is answered from the active
+  facts and community profiles, grouped by theme and person, with citations; corrections go
+  through normal capture/edit and "forget …". No dedicated UI.
 
 ### Benchmark harness
 
@@ -115,7 +128,12 @@ Out of scope: facts UI (Q4), grounding-profile merge, LongMemEval/LoCoMo changes
   fact is superseded and the new one is active.
 - Given "please forget that I drink coffee", then matching facts become forgotten and no answer
   uses them; affected community profiles are regenerated immediately.
-- Given a capture containing a licence plate or email address, then no fact contains it.
+- Given a capture containing a licence plate or email address, then a fact references a
+  `user_secure_value` holding it; no fact statement, embedding, index, log or LLM payload contains
+  the value; "what's my licence plate?" returns it (server-side substitution); an advice answer
+  never includes it.
+- Given "what do you know about me?", then the answer lists active facts by theme/person with
+  citations (identifier values only as references unless asked).
 - Given an advice question ("tips against eye strain"), when the user has the fact "mild myopia",
   then that fact is in the answer context.
 - Given a fact question unrelated to facts, then retrieval and answer behave as today (no extra
@@ -135,10 +153,12 @@ full-history ingest of `val-full-2` (10 personas, deepseek ≈ $4.5, gpt-4o-mini
 against `val-full-2-deepseek-s2b` and `val-full-2-4omini`. Extraction adds one call per capture
 (estimate +15–25% ingest cost; measured in the dev run).
 
-## Decisions for the operator
+## Decisions (operator, 2026-10-26)
 
-- **Q1** Facts may come from reference material too, but only facts about people — never
-  document topics. OK?
-- **Q2** Inferred facts allowed (marked inferred, confidence ≥ 0.7)?
-- **Q3** Personal identifiers (contact data, ID/plate/account numbers, addresses) are never facts?
-- **Q4** Facts UI (see / correct / forget) now, or a follow-up after F1–F4?
+- **Q1** Facts may come from reference material too — only personally relevant facts about people,
+  never document topics or trivia. **Approved.**
+- **Q2** Inferred facts allowed (marked inferred, confidence ≥ 0.7). **Approved.**
+- **Q3** Personal identifiers are stored securely (`user_secure_value`) and facts link to them;
+  values never reach an LLM, an index or a log, and are substituted server-side only when the user
+  asks. **Approved (changed from "never facts").**
+- **Q4** No facts page; "what do you know about me?" is answered in Ask/MCP. **Approved.**
