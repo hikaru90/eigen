@@ -26,13 +26,13 @@ export type ForgetHitDecision =
 export type JudgedForgetHit = { hit: ForgetHit } & ForgetHitDecision
 
 export const JUDGE_FORGET_HITS_PROMPT = [
-  'The user asked their memory to forget something. You get that request and the stored items a search found for it: thoughts, and excerpts of notes (a note excerpt is the matched passage with its neighbours, shown with the note title; you do not see the rest of the note). Every item is shown in full.',
+  'The user asked their memory to forget something. You get that request and the stored items a search found for it: thoughts, excerpts of notes (a note excerpt is the matched passage with its neighbours, shown with the note title; you do not see the rest of the note) and facts (short statements Eigen derived from captures, each about the user or about another person, shown with who it is about). Every item is shown in full.',
   'Decide for EVERY item what forgetting means for it. Return JSON only — no markdown fences.',
   '',
   'Return exactly: {"decisions":[{"hit":"<ref>","action":"remove_all"|"remove_detail"|"keep","detail":"<only for remove_detail>","confidence":<number 0 to 1>}, ...]}',
   'with one decision per item, using each item\'s ref (h1, h2, ...) exactly once.',
   '',
-  '- "remove_all": the item is only about the thing to forget: nothing in it would still be worth remembering once that is gone. For a note, use it only when the note as a whole is about the forgotten thing (its title and excerpt make that clear); a note that is about more than that is "remove_detail".',
+  '- "remove_all": the item is only about the thing to forget: nothing in it would still be worth remembering once that is gone. For a note, use it only when the note as a whole is about the forgotten thing (its title and excerpt make that clear); a note that is about more than that is "remove_detail". A fact that states the forgotten thing is "remove_all": it is one claim.',
   '- "remove_detail": the item also holds other facts the user did not ask to forget. Then only the forgotten part must come out and everything else stays. "detail" names just that part, in the item\'s own language (a short noun phrase or clause), never the whole item.',
   '- "keep": the item does not state or imply the thing to forget. A search returns near matches; those stay. An earlier request to forget something is an instruction, not a fact to remove: keep it.',
   '',
@@ -42,6 +42,10 @@ export const JUDGE_FORGET_HITS_PROMPT = [
 
 function describeHit(hit: ForgetHit, ref: string): string {
   const stored = hit.createdAt.toISOString().slice(0, 10)
+  if (hit.kind === 'fact') {
+    const parts = [hit.factKind, ...(hit.inferred ? ['inferred'] : []), `as of ${stored}`]
+    return `[${ref}] fact about ${hit.subject} (${parts.join(', ')}):\n${hit.text}`
+  }
   if (hit.kind === 'thought') {
     return `[${ref}] thought (stored ${stored}):\n${hit.text}`
   }

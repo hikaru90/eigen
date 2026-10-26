@@ -3,6 +3,7 @@ import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { temporalEvent, thought, type LifecycleStatus } from '$lib/server/db/schema'
+import { retireFactsForArchivedThought } from '$lib/server/facts/user-fact-lifecycle'
 import { removeThoughtGraphArtifacts, upsertThoughtNode } from '$lib/server/graph/age'
 import { graphAuthorProperty } from '$lib/server/memory/authorship'
 import {
@@ -250,6 +251,12 @@ export async function setThoughtLifecycleStatus(
 
   if (status === 'completed') {
     await clearNextActionIfCompleted(userId, thoughtId)
+  }
+
+  if (status === 'archived') {
+    // A fact lives while one of its sources does (docs/planning/user-facts-layer.md): the facts
+    // this thought was the last live source of are retired with it. Fails loud, never half-removes.
+    await retireFactsForArchivedThought(userId, thoughtId)
   }
 
   return {

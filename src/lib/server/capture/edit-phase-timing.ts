@@ -15,6 +15,7 @@ export type EditPhase =
   | 'encrypt_columns'
   | 'persist_text_change'
   | 'reenrich'
+  | 'rederive_facts'
   | 'lifecycle_status'
 
 export type EditPhaseEntry = { phase: EditPhase; ms: number }

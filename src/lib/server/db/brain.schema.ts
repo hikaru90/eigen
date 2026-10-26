@@ -1,3 +1,9 @@
+import type {
+  FactKind,
+  FactStatus,
+  FactSubjectKind,
+  SecureValueKind,
+} from '../facts/fact-vocabulary'
 import { type InferSelectModel } from 'drizzle-orm'
 import { sql } from 'drizzle-orm'
 import {
@@ -1003,6 +1009,115 @@ export const entityResolutionLog = pgTable(
   (t) => [
     index('entity_resolution_log_user_idx').on(t.userId),
     index('entity_resolution_log_thought_idx').on(t.thoughtId),
+  ],
+)
+
+/**
+ * Personal identifiers a fact refers to (email, phone, address, licence plate, account / ID /
+ * policy numbers, date of birth; docs/planning/user-facts-layer.md, Q3). The VALUE is tenant-
+ * encrypted and lives only here: no embedding, no lexical surface, never selected into logs, tool
+ * results or LLM payloads. A fact holds a `[secure:<id>]` reference; the server substitutes the
+ * value into a user-facing response only when the user asked for it.
+ */
+export const userSecureValue = pgTable(
+  'user_secure_value',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    kind: text('kind').$type<SecureValueKind>().notNull(),
+    /** What it is in the user's words, e.g. "licence plate" — never the value. */
+    label: text('label').notNull(),
+    valueEncrypted: text('value_encrypted').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('user_secure_value_user_idx').on(t.userId)],
+)
+
+/**
+ * One short statement about ONE person — the user (`subject_kind` user) or someone in the user's
+ * life (`person`, with the label as written, e.g. "Mia (friend)") — derived by the enrich LLM from
+ * captures (docs/planning/user-facts-layer.md). The statement is stored encrypted only; the folded
+ * keyword surface and the embedding are built from its display form (secure references collapsed to
+ * a placeholder). Embeddings are DB-only: never selected into tool results, logs or prompts.
+ */
+export const userFact = pgTable(
+  'user_fact',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    subjectKind: text('subject_kind').$type<FactSubjectKind>().notNull().default('user'),
+    /** The person as the capture names them; null for the user. */
+    subjectLabel: text('subject_label'),
+    /** The graph entity of that person, when the extractor could tell which one it is. */
+    subjectEntityId: uuid('subject_entity_id').references(() => canonicalEntity.id, {
+      onDelete: 'set null',
+    }),
+    statementEncrypted: text('statement_encrypted').notNull(),
+    lexicalText: text('lexical_text').notNull().default(''),
+    lexicalTsv: tsvector('lexical_tsv')
+      .notNull()
+      .generatedAlwaysAs(sql`to_tsvector('simple', coalesce(lexical_text, ''))`),
+    embedding: vector('embedding', { dimensions: 1536 }).notNull(),
+    kind: text('kind').$type<FactKind>().notNull(),
+    confidence: real('confidence').notNull(),
+    /** Implied by the text rather than stated. */
+    inferred: boolean('inferred').notNull().default(false),
+    status: text('status').$type<FactStatus>().notNull().default('active'),
+    /** The newer fact that replaced this one (status superseded). */
+    supersededBy: uuid('superseded_by').references((): AnyPgColumn => userFact.id, {
+      onDelete: 'set null',
+    }),
+    /** When the fact was last known true: the source capture's time (a confirm moves it forward). */
+    asOf: timestamp('as_of').notNull(),
+    /** Identifier facts: the secure value the statement's `[secure:<id>]` reference points at. */
+    secureValueId: uuid('secure_value_id').references(() => userSecureValue.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (t) => [
+    index('user_fact_user_status_idx').on(t.userId, t.status),
+    index('user_fact_subject_entity_idx').on(t.subjectEntityId),
+    index('user_fact_secure_value_idx').on(t.secureValueId),
+    index('user_fact_superseded_by_idx').on(t.supersededBy),
+    index('user_fact_lexical_tsv_idx').using('gin', t.lexicalTsv),
+    index('user_fact_embedding_hnsw_idx').using('hnsw', t.embedding.op('vector_cosine_ops')),
+  ],
+)
+
+/**
+ * Provenance of a fact: the capture thought it was derived from and, when the extractor was given
+ * a reference note's text, that note. A source is live while its thought is not archived or its
+ * note is not archived; a fact with no live source is retired.
+ */
+export const userFactSource = pgTable(
+  'user_fact_source',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    factId: uuid('fact_id')
+      .notNull()
+      .references(() => userFact.id, { onDelete: 'cascade' }),
+    thoughtId: uuid('thought_id').references(() => thought.id, { onDelete: 'cascade' }),
+    textFileId: uuid('text_file_id').references(() => textFile.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('user_fact_source_user_idx').on(t.userId),
+    index('user_fact_source_fact_idx').on(t.factId),
+    index('user_fact_source_thought_idx').on(t.thoughtId),
+    index('user_fact_source_text_file_idx').on(t.textFileId),
+    uniqueIndex('user_fact_source_fact_thought_uidx').on(t.factId, t.thoughtId),
   ],
 )
 

@@ -12,7 +12,9 @@ import {
   ontologyProposal,
   retrievalQualityEvent,
   thought,
+  userFact,
   userOntology,
+  userSecureValue,
 } from '$lib/server/db/schema'
 import { deleteAllUserGraphVertices } from '$lib/server/graph/age'
 
@@ -30,7 +32,8 @@ export function assertDeleteAllMemoriesConfirmation(confirmation: string): void 
 }
 
 /**
- * Removes all semantic memory rows for the tenant and wipes their AGE graph.
+ * Removes all semantic memory rows for the tenant (thoughts, entities, the facts derived from
+ * them and their secure values) and wipes their AGE graph.
  * Does not delete auth, preferences, LLM config, API keys, or chat history.
  */
 export async function deleteAllMemoriesForUser(userId: string): Promise<DeleteAllMemoriesResult> {
@@ -48,6 +51,9 @@ export async function deleteAllMemoriesForUser(userId: string): Promise<DeleteAl
 
     await tx.delete(graphSyncJob).where(eq(graphSyncJob.userId, userId))
     await tx.delete(graphCommunity).where(eq(graphCommunity.userId, userId))
+    // facts derived from the memories (their source links cascade) and the identifiers they referenced
+    await tx.delete(userFact).where(eq(userFact.userId, userId))
+    await tx.delete(userSecureValue).where(eq(userSecureValue.userId, userId))
     await tx.delete(thought).where(eq(thought.userId, userId))
     await tx.delete(canonicalEntity).where(eq(canonicalEntity.userId, userId))
     await tx.delete(captureSession).where(eq(captureSession.userId, userId))

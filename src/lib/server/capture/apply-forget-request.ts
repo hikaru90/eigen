@@ -17,6 +17,9 @@
  *      note remove_detail    -> removeDetailFromNote (matched passages rewritten, note saved as an
  *                               agent write: passages rebuild, secret placeholders restored)
  *      note remove_all       -> archiveTextFile (`text_file.archived_at`; never a hard delete)
+ *      fact remove_all       -> forgetUserFacts (status `forgotten`: out of every search at once,
+ *                               its secure value deleted with it)
+ *      fact remove_detail    -> removeDetailFromFact (statement rewritten without the detail)
  * 4. Keep the instruction until everything is removed: the forget capture is archived only when at
  *    least one hit was removed and nothing is unresolved. Otherwise it stays an active thought
  *    (the caller records `metadata.forgetInstruction` and lets it through the normal pipeline), so
@@ -36,6 +39,8 @@ import { FORGET_CONFIDENCE_MIN, judgeForgetHits } from '$lib/server/capture/judg
 import { removeDetailFromNote } from '$lib/server/capture/remove-note-detail'
 import { editStoredThought } from '$lib/server/capture/service'
 import { getDb } from '$lib/server/db'
+import { removeDetailFromFact } from '$lib/server/facts/remove-fact-detail'
+import { forgetUserFacts } from '$lib/server/facts/user-fact-lifecycle'
 import { archiveThoughtForUser } from '$lib/server/memory/lifecycle'
 import { archiveTextFile } from '$lib/server/text-files/service'
 
@@ -54,6 +59,10 @@ export type ForgetOutcome = {
   notesArchived: string[]
   /** Note ids edited (only the forgotten detail removed). */
   notesEdited: string[]
+  /** Fact ids forgotten (the whole fact, or nothing was left of it). */
+  factsForgotten: string[]
+  /** Fact ids whose statement was rewritten without the forgotten detail. */
+  factsEdited: string[]
   /** Hits left untouched because the judge was not confident enough. */
   unresolved: UnresolvedForgetHit[]
   /** archived = everything was removed · kept = the forget capture stays an active thought. */
@@ -109,6 +118,8 @@ export async function applyForgetRequest(input: {
   const edited: string[] = []
   const notesArchived: string[] = []
   const notesEdited: string[] = []
+  const factsForgotten: string[] = []
+  const factsEdited: string[] = []
   const unresolved: UnresolvedForgetHit[] = []
 
   for (const j of judged) {
@@ -146,6 +157,26 @@ export async function applyForgetRequest(input: {
       continue
     }
 
+    if (hit.kind === 'fact') {
+      if (j.action === 'remove_all') {
+        // empty: the fact is gone already (retired with its source, or forgotten since retrieval)
+        if ((await forgetUserFacts(userId, [hit.id])).length === 0) continue
+        factsForgotten.push(hit.id)
+        await audit(userId, `${auditPrefix} fact_forgotten=${hit.id}`)
+        continue
+      }
+      const result = await removeDetailFromFact({ userId, factId: hit.id, detail: j.detail })
+      if (result === 'gone') continue
+      if (result === 'forgotten') {
+        factsForgotten.push(hit.id)
+        await audit(userId, `${auditPrefix} fact_forgotten=${hit.id}`)
+      } else {
+        factsEdited.push(hit.id)
+        await audit(userId, `${auditPrefix} fact_edited=${hit.id}`)
+      }
+      continue
+    }
+
     if (j.action === 'remove_all') {
       // false: no active note with that id any more (archived or deleted since retrieval)
       if (!(await archiveTextFile(userId, hit.id))) continue
@@ -170,7 +201,13 @@ export async function applyForgetRequest(input: {
     }
   }
 
-  const removed = archived.length + edited.length + notesArchived.length + notesEdited.length
+  const removed =
+    archived.length +
+    edited.length +
+    notesArchived.length +
+    notesEdited.length +
+    factsForgotten.length +
+    factsEdited.length
   const status: ForgetOutcome['status'] =
     hits.length === 0
       ? 'nothing_found'
@@ -192,7 +229,17 @@ export async function applyForgetRequest(input: {
 
   await audit(
     userId,
-    `${auditPrefix} status=${status} archived=${archived.length} edited=${edited.length} notes_archived=${notesArchived.length} notes_edited=${notesEdited.length} unresolved=${unresolved.length} instruction=${instruction}`,
+    `${auditPrefix} status=${status} archived=${archived.length} edited=${edited.length} notes_archived=${notesArchived.length} notes_edited=${notesEdited.length} facts_forgotten=${factsForgotten.length} facts_edited=${factsEdited.length} unresolved=${unresolved.length} instruction=${instruction}`,
   )
-  return { status, archived, edited, notesArchived, notesEdited, unresolved, instruction }
+  return {
+    status,
+    archived,
+    edited,
+    notesArchived,
+    notesEdited,
+    factsForgotten,
+    factsEdited,
+    unresolved,
+    instruction,
+  }
 }

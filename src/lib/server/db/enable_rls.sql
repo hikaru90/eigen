@@ -382,6 +382,30 @@ CREATE POLICY note_passage_isolation ON note_passage
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
+ALTER TABLE user_secure_value ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_secure_value FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_secure_value_isolation ON user_secure_value;
+CREATE POLICY user_secure_value_isolation ON user_secure_value
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE user_fact ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_fact FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_fact_isolation ON user_fact;
+CREATE POLICY user_fact_isolation ON user_fact
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
+ALTER TABLE user_fact_source ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_fact_source FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS user_fact_source_isolation ON user_fact_source;
+CREATE POLICY user_fact_source_isolation ON user_fact_source
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
 ALTER TABLE thought_text_file ENABLE ROW LEVEL SECURITY;
 ALTER TABLE thought_text_file FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS thought_text_file_isolation ON thought_text_file;

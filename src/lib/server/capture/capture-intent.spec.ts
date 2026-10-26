@@ -55,6 +55,14 @@ describe('forgetInstruction marker (S2b)', () => {
     })
   })
 
+  it('an unresolved hit may be a fact (ids only, never text)', () => {
+    const marker = {
+      status: 'partial',
+      unresolved: [{ kind: 'fact', id: 'f1' }],
+    }
+    expect(readForgetInstruction({ forgetInstruction: marker })).toEqual(marker)
+  })
+
   it('only the states that keep the instruction exist', () => {
     expect([...FORGET_INSTRUCTION_STATUSES]).toEqual([
       'nothing_found',

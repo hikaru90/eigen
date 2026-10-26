@@ -55,6 +55,10 @@ Notes (`text_file`) are not thoughts and are not in `retrieveEvidence`; their **
 - **`retrieve_thoughts` / `search_text_files`:** same hits (`textFiles` / `results`); the agent-loop compaction keeps `id`, `title`, `createdAt`, `excerpt` of note hits.
 - **Embeddings stay DB-only:** every select in the note path lists its columns explicitly and never includes `embedding`; the query vector is used only inside the SQL distance expression.
 
+## User facts (search only, not yet in answers)
+
+[`searchUserFacts`](../../src/lib/server/facts/search-user-facts.ts) is the hybrid search over `user_fact` (see [ingestion.md](./ingestion.md) § User facts): pgvector ANN + FTS on the folded keyword surface, scored like note passages (best of cosine similarity and the normalised keyword rank) under the same relevance floor, **active facts only** (`forgotten` never matches; `includeSuperseded` adds history). A hit carries the subject, statement (identifier facts: the `[secure:<id>]` reference, never the value), kind, as-of, inferred flag and source ids; selects list their columns and never include `embedding`. The forget flow already searches it; `retrieveAnswerEvidence` / `composeAnswer` do not yet (F2).
+
 ## CompetingSystems
 
 - None: one merge path in `retrieveEvidence`.
