@@ -101,6 +101,61 @@ forgotten, so the forgotten preference keeps being retrieved.
 - Measure: evidence-only dev set (ask_to_forget slice), then full history (needs re-ingest).
 
 
+### S2b — Forget, rebuilt: find XYZ first, then decide per hit (approved 2026-10-26)
+
+**Evidence** (`val-full-2-deepseek`, 10 unseen personas, S2 enforced): ask_to_forget 1/8
+(no-memory 3/8; `val-full-1-s3` without S2: 5/9). Audit over 167 forget captures: 8 applied (5%),
+102 nothing matched (61%), 57 ambiguous (34%). The forget instruction was archived in every case,
+so the chooser lost the only signal (context contained the forget request 9/9 without S2, 0/8 with).
+Causes, from code:
+1. The search covers thoughts only (`searchThoughts` in
+   `src/lib/server/retrieval/retrieve-for-delete.ts:41`), not note passages — the plan wrongly
+   scoped notes out. Ask's retrieval (`composeAnswer`) does search note passages.
+2. The Jev delete gate sees only a snippet and is all-or-nothing: one candidate judged `delete`
+   below 0.8 aborts the whole request (`resolve-delete-target.ts:188-197`).
+3. The instruction is archived even when nothing was removed.
+
+**Design**
+1. **Find XYZ with Ask's retrieval.** Extract the retrieval half of `composeAnswer` into a shared
+   function (thoughts via hybrid search + rerank, note passages via note search, S3 expansion when
+   the intent asks for it) used by both `composeAnswer` and forget — one search path, no fork.
+   Forget runs it for the LLM-derived target phrases (`deriveDeleteSearchQueries`), restricted to
+   items created before the forget capture, with a wider pool (top 20 per phrase).
+2. **Decide per hit with the full text.** One LLM judge call (json_object, evict-on-reject) over the
+   hits, each shown in full (thought text; note passage ± neighbours with the note title), returns
+   per hit `remove_all | remove_detail{detail} | keep` + confidence. Act on removals with
+   confidence ≥ 0.8; anything below is an **unresolved** hit — left untouched and recorded. No
+   all-or-nothing abort.
+3. **Apply.** Thoughts: `remove_all` → archive; `remove_detail` → the existing edit service; the
+   stored edit metadata must not keep the forgotten detail (generic edit label). Notes:
+   `remove_detail` → edit the note body through the text-file service (passages rebuild; secret
+   placeholders restored as for agent writes); `remove_all` → **archive the note** (new
+   `text_file.archived_at`, migration `0084` + journal, excluded from retrieval, Notes lists and
+   tools by default, restorable) — never a hard delete.
+4. **Keep the instruction until everything is removed.** Archive the forget capture only when at
+   least one hit was removed and nothing is unresolved. Otherwise (nothing found, or unresolved
+   hits) it stays an active thought with `metadata.forgetInstruction {status, unresolved}`; the
+   `composeAnswer` prompt gains one rule: a retrieved request from the user to forget something
+   means do not use that information in the answer.
+5. **Unchanged:** the explicit MCP/Ask `delete_thoughts_by_request` tool keeps its own Jev gate.
+6. Audit rows as today plus one row per hit decision (ids, action, confidence — never text).
+
+**Tests first:** note passage hit is found and edited/archived; mixed confident + uncertain hits →
+confident applied, uncertain recorded, instruction kept; nothing found → instruction kept and
+visible to composeAnswer; all removed → instruction archived; archived notes excluded from
+retrieval/listing; edit metadata carries no forgotten detail; "I forgot my keys" still store;
+migration journal entry present.
+
+**Measure:** new ingest of `val-full-2` (10 personas, deepseek, ≈ $3.5): ask_to_forget slice vs
+`val-full-2-deepseek` (1/8) and the overall lift.
+
+### S2c — Multi-task fan-out contract without a redundant flag (approved 2026-10-26)
+gpt-4o-mini returned `{"multiple": true, "tasks": [one]}` repeatedly →
+`fanOutMultipleTasks: multiple:true needs at least two tasks, got 1` failed 4 of 10 personas in
+`val-full-2-4omini`. The contract states the same fact twice. Drop `multiple`: the judge returns
+`{"tasks": [...]}` in the capture's own words; ≥ 2 tasks → fan out, 0–1 → no fan-out
+(`src/lib/server/memory/split-multi-task.ts`). Then resume `val-full-2-4omini`.
+
 ### S3 — Retrieval for advice questions (approved 2026-10-26)
 
 Evidence: `val-full-1-product`: evidence reached the chooser for only 42% of questions; 28 of 38
