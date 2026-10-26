@@ -10,7 +10,8 @@ export function buildRunCommand(argv: readonly string[]): string {
 
 /**
  * The exact command that continues a run: the same arguments with `--resume` (and without
- * `--fresh` / `--dry-run`), under `caffeinate` so the machine does not sleep. The crash-hook
+ * `--fresh` / `--dry-run`: a run created with `--fresh` remembers that in run.json, and the two
+ * flags are mutually exclusive), under `caffeinate` so the machine does not sleep. The crash-hook
  * variable is not part of it.
  */
 export function buildResumeCommand(argv: readonly string[]): string {

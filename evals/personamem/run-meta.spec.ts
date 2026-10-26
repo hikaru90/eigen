@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { openRun, type RunIdentity } from './run-meta'
+import { loadRunMeta, openRun, type RunIdentity } from './run-meta'
 
 let root: string
 beforeEach(() => {
@@ -23,8 +23,8 @@ const identity: RunIdentity = {
   reuseIngest: null,
   maxHistoryTurns: null,
 }
-const open = (id: RunIdentity, resume: boolean) =>
-  openRun({ runId: 'r1', identity: id, resume, reportsRoot: root })
+const open = (id: RunIdentity, resume: boolean, fresh = false) =>
+  openRun({ runId: 'r1', identity: id, resume, fresh, reportsRoot: root })
 
 describe('openRun', () => {
   it('creates the run directory and refuses to reuse it without --resume', () => {
@@ -113,6 +113,56 @@ describe('openRun', () => {
     delete legacy.identity.maxHistoryTurns
     writeFileSync(first.paths.meta, JSON.stringify(legacy))
     expect(open(identity, true).meta.identity.maxHistoryTurns).toBeNull()
+  })
+
+  describe('fresh (whether the run was created with --fresh)', () => {
+    it('is recorded in run.json at creation, true and false', () => {
+      const fresh = open(identity, false, true)
+      expect(JSON.parse(readFileSync(fresh.paths.meta, 'utf8')).fresh).toBe(true)
+      expect(fresh.meta.fresh).toBe(true)
+
+      const other = openRun({
+        runId: 'r2',
+        identity,
+        resume: false,
+        fresh: false,
+        reportsRoot: root,
+      })
+      expect(JSON.parse(readFileSync(other.paths.meta, 'utf8')).fresh).toBe(false)
+      expect(other.meta.fresh).toBe(false)
+    })
+
+    it('a resume (which cannot say --fresh) gets the recorded value back, not its own', () => {
+      open(identity, false, true)
+      expect(open(identity, true).meta.fresh).toBe(true)
+    })
+
+    it('a run created without --fresh stays fresh=false on resume', () => {
+      open(identity, false, false)
+      expect(open(identity, true).meta.fresh).toBe(false)
+    })
+
+    it('is not part of what a resume compares: a fresh run resumes with the identical invocation', () => {
+      const first = open(identity, false, true)
+      expect(open(identity, true).meta.startedAt).toBe(first.meta.startedAt)
+    })
+
+    it('a run.json written before the field existed was not created with --fresh (fresh=false)', () => {
+      // Those files predate the field, so nothing recorded whether they were started with
+      // --fresh. They are read as fresh=false and never guessed otherwise (e.g. from
+      // processes.jsonl): a resume of such a run keeps refusing a tenant that holds thoughts.
+      const first = open(identity, false, true)
+      const legacy = JSON.parse(readFileSync(first.paths.meta, 'utf8'))
+      delete legacy.fresh
+      writeFileSync(first.paths.meta, JSON.stringify(legacy))
+      expect(open(identity, true).meta.fresh).toBe(false)
+      expect(loadRunMeta('r1', root).meta.fresh).toBe(false)
+    })
+
+    it('openRun refuses --fresh together with resume (the CLI already does; a silent ignore would hide it)', () => {
+      open(identity, false, true)
+      expect(() => open(identity, true, true)).toThrow(/--fresh.*--resume/s)
+    })
   })
 
   it('writes run.json atomically (no temp file is left next to it)', () => {

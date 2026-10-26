@@ -46,8 +46,10 @@ no question answered twice in `answers.jsonl`, and no tenant reset. Proven by th
   split children}` (written after the wave's drain + wait).
 - Resume: queued-but-not-enriched → drain/wait (re-enrich) that thought, never re-queue; not queued
   → queue; enriched → verify the thoughts exist and are enriched in the DB, else fail loud.
-- A tenant is reset only with an explicit `--fresh` (and only before its first capture is
-  recorded); `--resume` never deletes anything.
+- A tenant is reset only under an explicit `--fresh`: at run creation, or — for a run created
+  with `--fresh` (recorded as `fresh` in run.json) — on `--resume` for a tenant that has no
+  recorded capture yet. A tenant with any recorded progress is never reset; a run created without
+  `--fresh` never deletes anything.
 
 ### 3. Staged answers
 - `answer-stages.jsonl`: stage `eigen` {questionId, Ask answer, tools, full context, belowFloor,

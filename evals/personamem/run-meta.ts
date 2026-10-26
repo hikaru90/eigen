@@ -23,7 +23,24 @@ const runIdentitySchema = z.object({
 })
 export type RunIdentity = z.infer<typeof runIdentitySchema>
 
-export const runMetaSchema = z.object({ startedAt: z.string(), identity: runIdentitySchema })
+export const runMetaSchema = z.object({
+  startedAt: z.string(),
+  /**
+   * Whether the run was created with `--fresh` (each tenant is reset before its first capture).
+   * The run's fresh intent, fixed at creation: `--resume` cannot repeat `--fresh`, yet a resume
+   * that reaches a tenant the earlier process never started (it was paused or stopped before
+   * that tenant recorded a capture) must reset it exactly as the first start would have. It sits
+   * beside `identity` rather than in it because a resume re-states the identity and is compared
+   * against it, and a resume cannot re-state this; it is what the run was created as.
+   *
+   * run.json files written before this field existed did not record it, so nothing says whether
+   * they were started with `--fresh`: they are read as `false` (not fresh) and never guessed
+   * otherwise (not from processes.jsonl, not from anything else). Such a run keeps refusing a
+   * tenant that holds thoughts, which is the safe direction.
+   */
+  fresh: z.boolean().default(false),
+  identity: runIdentitySchema,
+})
 export type RunMeta = z.infer<typeof runMetaSchema>
 
 export type RunPaths = {
@@ -73,14 +90,20 @@ function runPaths(dir: string): RunPaths {
  * different `--split`, `--answer`, `--relevance-floor` or `--reuse-ingest` is named explicitly:
  * rows of two splits (tuning vs reported), two answer paths or two floors are not comparable
  * within one run.
+ *
+ * `fresh` (the invocation's `--fresh`) is recorded in run.json when the run is created. A resume
+ * cannot pass it (`--fresh` and `--resume` are mutually exclusive) and gets the recorded value
+ * back in `meta.fresh`.
  */
 export function openRun(input: {
   runId: string
   identity: RunIdentity
   resume: boolean
+  /** The invocation's `--fresh`; always false on a resume. */
+  fresh: boolean
   reportsRoot?: string
 }): { paths: RunPaths; meta: RunMeta } {
-  const { runId, identity, resume } = input
+  const { runId, identity, resume, fresh } = input
   const dir = resolveRunDir({
     bench: BENCH,
     runId,
@@ -89,6 +112,11 @@ export function openRun(input: {
   const paths = runPaths(dir)
 
   if (resume) {
+    if (fresh) {
+      throw new Error(
+        '[personamem] --fresh cannot be combined with --resume: whether a run is fresh is fixed when it is created (run.json) and a resume never changes it',
+      )
+    }
     if (!existsSync(paths.meta))
       throw new Error(`[personamem] cannot resume: ${paths.meta} not found`)
     const saved = runMetaSchema.parse(JSON.parse(readFileSync(paths.meta, 'utf8')))
@@ -131,7 +159,7 @@ export function openRun(input: {
       `[personamem] run directory ${dir} already exists; use --resume or another --run-id`,
     )
   }
-  const meta: RunMeta = { startedAt: new Date().toISOString(), identity }
+  const meta: RunMeta = { startedAt: new Date().toISOString(), fresh, identity }
   writeFileAtomic(paths.meta, `${JSON.stringify(meta, null, 2)}\n`)
   return { paths, meta }
 }

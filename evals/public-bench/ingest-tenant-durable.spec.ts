@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({
   withEvalDb: vi.fn(),
   waitForThoughtEnrichmentComplete: vi.fn(),
   loadThoughtEnrichmentTargets: vi.fn(),
+  logEval: vi.fn(),
   events: [] as string[],
 }))
 
@@ -22,7 +23,7 @@ vi.mock('$lib/server/capture/queue-capture', () => ({ queueCapture: m.queueCaptu
 vi.mock('$lib/server/capture/enrich-queued-thought', () => ({
   processCaptureEnrichQueue: m.processCaptureEnrichQueue,
 }))
-vi.mock('../harness/eval-context', () => ({ withEvalDb: m.withEvalDb, logEval: vi.fn() }))
+vi.mock('../harness/eval-context', () => ({ withEvalDb: m.withEvalDb, logEval: m.logEval }))
 vi.mock('../harness/wait-enrichment', () => ({
   waitForThoughtEnrichmentComplete: m.waitForThoughtEnrichmentComplete,
   loadThoughtEnrichmentTargets: m.loadThoughtEnrichmentTargets,
@@ -57,7 +58,10 @@ function fakeStore(overrides: Partial<IngestStore> = {}): IngestStore {
   }
 }
 
-function durable(store: IngestStore, extra: { fresh?: boolean; stop?: () => boolean } = {}) {
+function durable(
+  store: IngestStore,
+  extra: { fresh?: boolean; resuming?: boolean; stop?: () => boolean } = {},
+) {
   const progress = loadIngestProgress(progressPath).get(TENANT) ?? {
     queued: [],
     enriched: new Map(),
@@ -66,6 +70,7 @@ function durable(store: IngestStore, extra: { fresh?: boolean; stop?: () => bool
     progressPath,
     progress,
     fresh: extra.fresh ?? false,
+    resuming: extra.resuming ?? false,
     store,
     counters: { skipped: 0, reenriched: 0, queued: 0 },
     ...(extra.stop ? { shouldStop: extra.stop } : {}),
@@ -217,13 +222,107 @@ describe('ingestTenant (durable)', () => {
     expect(m.events[0]).toBe('reset')
   })
 
-  it('--fresh after a capture was recorded is refused', async () => {
-    appendQueued(progressPath, { tenant: TENANT, index: 0, thoughtId: 'a' })
-    const store = fakeStore()
-    await expect(
-      ingestTenant({ ...base, durable: durable(store, { fresh: true }) }),
-    ).rejects.toThrow(/--fresh.*before.*first capture/s)
-    expect(store.resetTenant).not.toHaveBeenCalled()
+  describe('a run created with --fresh, resumed (run.json fresh=true, this process --resume)', () => {
+    const held = (n: number) => fakeStore({ thoughtCount: vi.fn(async () => n) })
+    const logged = () => m.logEval.mock.calls.map((c) => String(c[0]))
+
+    it('resets a tenant with no recorded progress, even though it holds thoughts from an older run, and ingests it from zero', async () => {
+      const store = held(143)
+
+      const ids = await ingestTenant({
+        ...base,
+        durable: durable(store, { fresh: true, resuming: true }),
+      })
+
+      expect(store.resetTenant).toHaveBeenCalledTimes(1)
+      expect(store.resetTenant).toHaveBeenCalledWith(TENANT)
+      expect(store.ensureTenant).not.toHaveBeenCalled()
+      expect(m.events[0]).toBe('reset')
+      expect(m.events.indexOf('reset')).toBeLessThan(m.events.indexOf('queue:capture 0'))
+      expect(ids).toEqual(['t1', 't2', 't3', 't4'])
+      expect(readJsonl(progressPath).filter((r) => r.type === 'enriched')).toHaveLength(4)
+    })
+
+    it('says so clearly: the tenant, that it had no recorded capture, that this is a resume of a --fresh run', async () => {
+      await ingestTenant({ ...base, durable: durable(held(143), { fresh: true, resuming: true }) })
+
+      const line = logged().find((l) => /reset/i.test(l))
+      expect(line).toBeDefined()
+      expect(line).toContain(TENANT)
+      expect(line).toMatch(/resum/i)
+      expect(line).toMatch(/--fresh/)
+      expect(line).toMatch(/no (recorded )?capture/i)
+    })
+
+    it('a tenant that already has recorded captures is never reset (progress kept, nothing re-queued)', async () => {
+      appendQueued(progressPath, { tenant: TENANT, index: 0, thoughtId: 'a' })
+      appendQueued(progressPath, { tenant: TENANT, index: 1, thoughtId: 'b' })
+      appendEnriched(progressPath, { tenant: TENANT, index: 0, thoughtIds: ['a'] })
+      appendEnriched(progressPath, { tenant: TENANT, index: 1, thoughtIds: ['b'] })
+      const store = fakeStore({ rootCount: vi.fn(async () => 2) })
+      const d = durable(store, { fresh: true, resuming: true })
+
+      const ids = await ingestTenant({ ...base, durable: d })
+
+      expect(store.resetTenant).not.toHaveBeenCalled()
+      expect(store.ensureTenant).not.toHaveBeenCalled()
+      expect(ids).toEqual(['a', 'b', 't1', 't2'])
+      expect(m.events).toEqual(['queue:capture 2', 'queue:capture 3', 'drain', 'wait'])
+      expect(d.counters).toEqual({ skipped: 2, reenriched: 0, queued: 2 })
+      expect(logged().some((l) => /reset/i.test(l))).toBe(false)
+    })
+
+    it('a tenant with a single queued-but-not-enriched capture counts as started: never reset', async () => {
+      appendQueued(progressPath, { tenant: TENANT, index: 0, thoughtId: 'a' })
+      const store = fakeStore({ rootCount: vi.fn(async () => 1) })
+
+      await ingestTenant({
+        ...base,
+        items: items.slice(0, 2),
+        durable: durable(store, { fresh: true, resuming: true }),
+      })
+
+      expect(store.resetTenant).not.toHaveBeenCalled()
+      expect(m.events).toEqual(['queue:capture 1', 'drain', 'wait'])
+    })
+
+    it('a started tenant still goes through every resume check (orphan root thoughts fail loud, no reset)', async () => {
+      appendQueued(progressPath, { tenant: TENANT, index: 0, thoughtId: 'a' })
+      const store = fakeStore({ rootCount: vi.fn(async () => 2) })
+      await expect(
+        ingestTenant({ ...base, durable: durable(store, { fresh: true, resuming: true }) }),
+      ).rejects.toThrow(/2 root thought.*1 queued/s)
+      expect(store.resetTenant).not.toHaveBeenCalled()
+      expect(m.queueCapture).not.toHaveBeenCalled()
+    })
+
+    it('the first start of a --fresh run resets as before and does not claim to be a resume', async () => {
+      const store = held(0)
+      await ingestTenant({ ...base, durable: durable(store, { fresh: true, resuming: false }) })
+      expect(store.resetTenant).toHaveBeenCalledWith(TENANT)
+      expect(logged().some((l) => /resum/i.test(l) && /reset/i.test(l))).toBe(false)
+    })
+  })
+
+  describe('a run created without --fresh, resumed (run.json fresh=false or absent)', () => {
+    it('a tenant with no recorded progress that holds thoughts still fails loud: no reset, nothing queued', async () => {
+      const store = fakeStore({ thoughtCount: vi.fn(async () => 143) })
+      await expect(
+        ingestTenant({ ...base, durable: durable(store, { fresh: false, resuming: true }) }),
+      ).rejects.toThrow(/already holds 143 thought.*--fresh/s)
+      expect(store.resetTenant).not.toHaveBeenCalled()
+      expect(m.queueCapture).not.toHaveBeenCalled()
+      expect(m.logEval.mock.calls.map((c) => String(c[0])).some((l) => /reset/i.test(l))).toBe(
+        false,
+      )
+    })
+
+    it('an empty tenant is simply used on resume (created if needed)', async () => {
+      const store = fakeStore()
+      await ingestTenant({ ...base, durable: durable(store, { fresh: false, resuming: true }) })
+      expect(store.ensureTenant).toHaveBeenCalledWith(TENANT)
+      expect(store.resetTenant).not.toHaveBeenCalled()
+    })
   })
 
   it('fails loud when an enriched thought is missing in the database', async () => {

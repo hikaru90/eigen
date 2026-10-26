@@ -194,7 +194,9 @@ describe('--max-history-turns (rehearsal)', () => {
     expect(text([])).toContain('run id: (none - a real run requires --run-id)')
     expect(text(['--run-id', 'r1'])).toContain('run id: r1 (new run, tenants holding thoughts are refused)')
     expect(text(['--run-id', 'r1', '--fresh'])).toContain('run id: r1 (new run, --fresh: each tenant is reset before its first capture)')
-    expect(text(['--run-id', 'r1', '--resume'])).toContain('run id: r1 (resume: nothing is re-done, nothing is deleted)')
+    expect(text(['--run-id', 'r1', '--resume'])).toContain(
+      'run id: r1 (resume: nothing recorded is re-done or deleted; a run created with --fresh also resets tenants that have no recorded capture yet)',
+    )
   })
 
   it('a plan without the cap carries no rehearsal label', () => {

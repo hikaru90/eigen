@@ -264,7 +264,9 @@ function describeSelection(cli: PersonaMemCli): string {
 
 function runIdLine(cli: PersonaMemCli): string {
   if (cli.runId === null) return '(none - a real run requires --run-id)'
-  if (cli.resume) return `${cli.runId} (resume: nothing is re-done, nothing is deleted)`
+  if (cli.resume) {
+    return `${cli.runId} (resume: nothing recorded is re-done or deleted; a run created with --fresh also resets tenants that have no recorded capture yet)`
+  }
   if (cli.fresh) return `${cli.runId} (new run, --fresh: each tenant is reset before its first capture)`
   return `${cli.runId} (new run, tenants holding thoughts are refused)`
 }

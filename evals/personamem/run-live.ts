@@ -129,6 +129,8 @@ function completedQuestionIds(rows: AnswerRow[]): Set<string> {
 
 type RunContext = {
   cli: PersonaMemCli
+  /** The run was created with --fresh (run.json), also on a resume; the invocation's own flag is false there. */
+  fresh: boolean
   paths: RunPaths
   billing: { billingUserId: string; chatModel: string }
   done: Set<string>
@@ -322,7 +324,8 @@ async function ingestPersona(ctx: RunContext, persona: PlannedPersona): Promise<
       durable: {
         progressPath: ctx.paths.ingestProgress,
         progress: ctx.ingestProgress.get(tenant) ?? emptyTenantProgress(),
-        fresh: ctx.cli.fresh,
+        fresh: ctx.fresh,
+        resuming: ctx.cli.resume,
         store: createIngestStore(billing),
         counters: ctx.counters.ingest,
         shouldStop: () => ctx.stop.stopRequested(),
@@ -579,7 +582,7 @@ async function run(cli: PersonaMemCli): Promise<number> {
   // --reuse-ingest is checked before this run's directory exists: a mismatch must leave nothing behind
   const reused =
     cli.reuseIngest === null ? null : await verifiedIngest(cli, cli.reuseIngest, plan, true)
-  const { paths, meta } = openRun({ runId, identity, resume: cli.resume })
+  const { paths, meta } = openRun({ runId, identity, resume: cli.resume, fresh: cli.fresh })
 
   // --resume: tenants this run already finished ingesting are verified like reused ones
   const ingested =
@@ -618,6 +621,7 @@ async function run(cli: PersonaMemCli): Promise<number> {
 
   const ctx: RunContext = {
     cli,
+    fresh: meta.fresh,
     paths,
     billing: { billingUserId: PUBLIC_BENCH_OPERATOR_USER_ID, chatModel: cli.chatModel },
     done: completedQuestionIds(existing),
@@ -637,6 +641,11 @@ async function run(cli: PersonaMemCli): Promise<number> {
     `run ${runId}: ${paths.dir} (${ctx.done.size} question(s) already answered; relevance floor ${cli.relevanceFloor}` +
       `${cli.reuseIngest === null ? '' : `; ingest reused from run ${cli.reuseIngest}`}, ${ctx.ingested.size} tenant(s) already ingested)`,
   )
+  if (cli.resume && meta.fresh) {
+    logEval(
+      'this run was created with --fresh: a tenant with no recorded capture yet is reset before its first capture; a tenant with recorded captures is never reset',
+    )
+  }
   if (crash !== null) {
     logEval(
       `EVAL_CRASH_AT armed: SIGKILL after the ${crash.n}-th paid call of phase ${crash.phase}`,

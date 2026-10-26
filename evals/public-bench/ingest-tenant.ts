@@ -26,7 +26,7 @@ export type DrainQueue = (
 
 /** The database reads and writes a durable ingest needs (injectable; the live one is in the bench's own module). */
 export type IngestStore = {
-  /** Wipe and recreate the tenant (explicit `--fresh` only). */
+  /** Wipe and recreate the tenant (only for a run created with `--fresh`). */
   resetTenant(tenantUserId: string): Promise<void>
   /** Create the tenant if it does not exist yet; never deletes. */
   ensureTenant(tenantUserId: string): Promise<void>
@@ -61,8 +61,15 @@ export type DurableIngest = {
   progressPath: string
   /** This tenant's state from earlier processes (empty for a new tenant). */
   progress: TenantIngestProgress
-  /** Explicit `--fresh`: reset the tenant, but only before its first capture is recorded. */
+  /**
+   * The run was created with `--fresh` (recorded in the run, so a resume knows it too). A tenant
+   * with no recorded capture in this run is reset before its first capture: on the first start,
+   * and equally when a resume reaches a tenant the earlier process never started. A tenant with
+   * any recorded capture is never reset, whatever this says.
+   */
   fresh: boolean
+  /** This process continues an earlier one (`--resume`); changes only what is logged on a reset. */
+  resuming: boolean
   store: IngestStore
   counters: IngestCounters
   /** Checked before each wave; true throws `RunStopped` (a clean stop, not a failure). */
@@ -83,7 +90,7 @@ export type IngestTenantInput = {
   /**
    * Without it (LongMemEval) the tenant is wiped and ingested from zero. With it the ingest
    * records every capture durably and continues from those records; nothing is deleted unless
-   * `durable.fresh`.
+   * `durable.fresh` and the tenant has no recorded capture yet.
    */
   durable?: DurableIngest
 }
@@ -104,10 +111,10 @@ const queueTenantItem: QueueItem = async (tenantUserId, item) => {
  * while an earlier one is still being enriched); `enrichConcurrency` 1 is strictly incremental.
  * Returns the thought ids in item order.
  *
- * Plain mode wipes the tenant first. Durable mode (`input.durable`) never deletes without an
- * explicit `fresh` and continues from the progress file: enriched captures are verified in the
- * database and skipped, queued-but-not-enriched captures are re-enriched (never queued again),
- * the rest are queued.
+ * Plain mode wipes the tenant first. Durable mode (`input.durable`) never deletes a tenant that
+ * has a recorded capture, nor any tenant of a run created without `fresh`, and continues from the
+ * progress file: enriched captures are verified in the database and skipped,
+ * queued-but-not-enriched captures are re-enriched (never queued again), the rest are queued.
  */
 export async function ingestTenant(input: IngestTenantInput): Promise<string[]> {
   const { tenantUserId, billingUserId, chatModel, items, enrichConcurrency, durable } = input
@@ -217,9 +224,10 @@ export async function ingestTenant(input: IngestTenantInput): Promise<string[]> 
 }
 
 /**
- * Durable mode, before any capture: a new tenant is reset only with `--fresh` (and a tenant that
- * already holds thoughts is refused without it); a tenant with recorded captures is checked
- * against the database and never touched.
+ * Durable mode, before any capture. A tenant with no recorded capture in this run is reset if the
+ * run was created with `--fresh` (also when a resume is the first process to reach it), and
+ * otherwise refused when it already holds thoughts (a run created without `--fresh` never
+ * deletes). A tenant with recorded captures is checked against the database and never touched.
  */
 async function prepareDurableTenant(
   tenantUserId: string,
@@ -229,6 +237,11 @@ async function prepareDurableTenant(
   const { progress, store } = durable
   if (progress.queued.length === 0) {
     if (durable.fresh) {
+      logEval(
+        durable.resuming
+          ? `${tenantUserId}: resuming a run created with --fresh; this tenant has no recorded capture yet, so it is reset now (everything it holds from an earlier run is deleted), as --fresh did for the tenants started before it`
+          : `${tenantUserId}: --fresh - resetting the tenant before its first capture`,
+      )
       await store.resetTenant(tenantUserId)
       return
     }
@@ -237,17 +250,12 @@ async function prepareDurableTenant(
     if (held > 0) {
       throw new Error(
         `[public-bench] tenant ${tenantUserId} already holds ${held} thought(s) from an earlier run; ingesting into it would double them. ` +
-          'Start a new run with --fresh to reset it (--resume never deletes anything)',
+          'Start a new run with --fresh to reset it (a run created without --fresh never resets a tenant)',
       )
     }
     return
   }
 
-  if (durable.fresh) {
-    throw new Error(
-      `[public-bench] tenant ${tenantUserId}: --fresh is only allowed before the tenant's first capture is recorded, but ${progress.queued.length} capture(s) are already recorded; continue with --resume or start a new --run-id`,
-    )
-  }
   if (progress.queued.length > captures) {
     throw new Error(
       `[public-bench] tenant ${tenantUserId}: ${progress.queued.length} capture(s) are recorded but this run plans ${captures}`,

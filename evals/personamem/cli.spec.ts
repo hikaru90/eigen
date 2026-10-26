@@ -297,7 +297,7 @@ describe('parsePersonaMemCli', () => {
       expect(parseStrict([...live, '--fresh']).fresh).toBe(true)
     })
 
-    it('cannot be combined with --resume (resume never deletes anything)', () => {
+    it('cannot be combined with --resume (a run is fresh or not from its creation, recorded in run.json)', () => {
       expect(() => parseStrict([...live, '--fresh', '--resume'])).toThrow(/--fresh.*--resume/)
     })
 

@@ -36,11 +36,15 @@ Required:
                             (not for --dry-run), so a resume is always one known command
 
 Optional:
-  --resume                  Continue an existing run directory (same flags required). Nothing is re-done and nothing is
-                            deleted: enriched captures are verified and skipped, queued-but-not-enriched ones are
-                            re-enriched, stored answer stages are reused. Failed and unfinished items are retried
-  --fresh                   Reset each tenant before its first capture. Without it a tenant that already holds thoughts is
-                            refused (it would be doubled). Not with --resume or --reuse-ingest
+  --resume                  Continue an existing run directory (same flags required). Nothing recorded is re-done or deleted:
+                            enriched captures are verified and skipped, queued-but-not-enriched ones are re-enriched, stored
+                            answer stages are reused. Failed and unfinished items are retried. A run created with --fresh
+                            (recorded in its run.json) also resets, on resume, each tenant that has no recorded capture yet,
+                            exactly as --fresh would have at the first start; a tenant with any recorded capture is never
+                            reset, and a run created without --fresh never resets a tenant
+  --fresh                   Reset each tenant before its first capture, and remember that in run.json so a --resume resets the
+                            tenants the first process never reached. Without it a tenant that already holds thoughts is
+                            refused (it would be doubled). Not with --resume (a resume takes it from the run) or --reuse-ingest
   --max-history-turns N     REHEARSAL, not a score: ingest only each persona's first N user turns (questions whose evidence
                             is cut off are asked but count as without history evidence). Not with --evidence-only
   --reuse-ingest RUNID      Answer against the tenants an earlier run ingested (no ingest). Verified against that run's
@@ -313,7 +317,9 @@ export function parsePersonaMemCli(argv: readonly string[]): PersonaMemCli {
   }
   const fresh = flags.has('--fresh')
   if (fresh && resume) {
-    throw new PersonaMemUsageError('--fresh cannot be combined with --resume (resume never deletes anything)')
+    throw new PersonaMemUsageError(
+      '--fresh cannot be combined with --resume (whether a run is fresh is fixed when it is created and recorded in its run.json; a resume takes it from there)',
+    )
   }
   if (fresh && reuseIngest !== null) {
     throw new PersonaMemUsageError('--fresh cannot be combined with --reuse-ingest (nothing is ingested)')
