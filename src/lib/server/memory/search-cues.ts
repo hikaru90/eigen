@@ -10,6 +10,7 @@ import {
  * This module owns the cue parsing contract plus the one recall LLM call for paths that
  * re-enrich an edited thought without a fresh bundle (reenrichThought).
  */
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { ASK_QUESTION_RULE, parseAskQuestion } from '$lib/server/memory/ask-question'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
@@ -67,18 +68,20 @@ export async function extractRecallCues(input: {
     logContext: 'search_cues',
   })
 
-  const choices = (response as { choices?: unknown }).choices
-  if (!Array.isArray(choices) || choices.length === 0) {
-    throw new Error('extractRecallCues: no choices in response')
-  }
-  const content = (choices[0] as { message?: { content?: unknown } }).message?.content
-  if (typeof content !== 'string') {
-    throw new Error('extractRecallCues: content is not a string')
-  }
-  const parsed = JSON.parse(stripMarkdownJsonFences(content)) as unknown
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('extractRecallCues: output must be a JSON object')
-  }
-  const obj = parsed as Record<string, unknown>
-  return { cues: parseSearchCues(obj.cues), askQuestion: parseAskQuestion(obj) }
+  return evictOnReject(response, () => {
+    const choices = (response as { choices?: unknown }).choices
+    if (!Array.isArray(choices) || choices.length === 0) {
+      throw new Error('extractRecallCues: no choices in response')
+    }
+    const content = (choices[0] as { message?: { content?: unknown } }).message?.content
+    if (typeof content !== 'string') {
+      throw new Error('extractRecallCues: content is not a string')
+    }
+    const parsed = JSON.parse(stripMarkdownJsonFences(content)) as unknown
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('extractRecallCues: output must be a JSON object')
+    }
+    const obj = parsed as Record<string, unknown>
+    return { cues: parseSearchCues(obj.cues), askQuestion: parseAskQuestion(obj) }
+  })
 }

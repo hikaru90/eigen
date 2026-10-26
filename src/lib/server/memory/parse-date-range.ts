@@ -1,3 +1,4 @@
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
@@ -76,13 +77,14 @@ export async function parseDateRangePhrase(input: {
     logContext: 'timeline_parse_date_range',
   })
 
-  const content = extractChatContent(response)
-  try {
-    return parseDateRangePayload(parseLlmJsonPayload(content))
-  } catch (err) {
-    throw new Error(
-      `Invalid date range LLM response: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err },
-    )
-  }
+  return evictOnReject(response, () => {
+    try {
+      return parseDateRangePayload(parseLlmJsonPayload(extractChatContent(response)))
+    } catch (err) {
+      throw new Error(
+        `Invalid date range LLM response: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      )
+    }
+  })
 }

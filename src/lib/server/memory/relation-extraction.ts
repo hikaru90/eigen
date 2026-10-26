@@ -4,6 +4,7 @@ import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
 import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
 import { runEnforcedPerItemDecisions } from '$lib/server/llm/decision-plane'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { searchThoughts } from '$lib/server/retrieval/service'
 
@@ -242,7 +243,7 @@ export async function extractRelations(input: {
     responseFormat: 'json_object',
   })
 
-  const parsed = parseRelations(extractChatContent(response))
+  const parsed = evictOnReject(response, () => parseRelations(extractChatContent(response)))
   // XXX REMOVED — post-LLM topic-cluster/sentiment contradicts injection and related_to token overlap filter.
   // Relation types are LLM-judged only. See .cursor/rules/no-string-heuristics.mdc
   return parsed

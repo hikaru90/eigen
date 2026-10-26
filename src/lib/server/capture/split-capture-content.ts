@@ -1,5 +1,6 @@
 import { isContentRole, SPLIT_FANOUT_MAX, type ContentRole } from '$lib/server/capture/content-role'
 import { normalizeThoughtText } from '$lib/server/capture/service'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
@@ -269,12 +270,14 @@ async function resolveCaptureContentSplitOnce(
     responseFormat: 'json_object',
   })
 
-  const content = stripMarkdownJsonFences(extractChatContent(response))
-  const parsed = JSON.parse(content) as unknown
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('resolveCaptureContentSplit: output must be a JSON object')
-  }
-  return parseSplitFields(parsed as Record<string, unknown>, input.rawText, decidedRole)
+  return evictOnReject(response, () => {
+    const content = stripMarkdownJsonFences(extractChatContent(response))
+    const parsed = JSON.parse(content) as unknown
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('resolveCaptureContentSplit: output must be a JSON object')
+    }
+    return parseSplitFields(parsed as Record<string, unknown>, input.rawText, decidedRole)
+  })
 }
 
 /**

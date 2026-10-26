@@ -5,6 +5,7 @@
 import { STRONG_RETRIEVE_MATCH_MIN } from '$lib/server/llm/agent-tool-result-compact'
 import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
 import { runEnforcedPerItemDecisions } from '$lib/server/llm/decision-plane'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
@@ -222,13 +223,15 @@ export async function resolveDeleteTargets(params: {
     logContext: 'delete_target_resolver',
   })
 
-  const content =
-    (
-      raw as { choices?: Array<{ message?: { content?: string } }> }
-    )?.choices?.[0]?.message?.content?.trim() ?? ''
-  if (!content) {
-    throw new Error('delete target resolver: empty LLM response')
-  }
+  return evictOnReject(raw, () => {
+    const content =
+      (
+        raw as { choices?: Array<{ message?: { content?: string } }> }
+      )?.choices?.[0]?.message?.content?.trim() ?? ''
+    if (!content) {
+      throw new Error('delete target resolver: empty LLM response')
+    }
 
-  return parseDeleteTargetsResponse(content, params.candidates)
+    return parseDeleteTargetsResponse(content, params.candidates)
+  })
 }

@@ -8,6 +8,7 @@ import {
   runEnforcedBoundedDecisions,
   type BoundedDecisionSpec,
 } from '$lib/server/llm/decision-plane'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import {
@@ -250,8 +251,12 @@ async function runChatHubJudge(
     responseFormat: 'json_object',
   })
 
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  return parseGtdProjectJudgmentPayload(parsed, context.label)
+  return evictOnReject(response, () =>
+    parseGtdProjectJudgmentPayload(
+      JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown,
+      context.label,
+    ),
+  )
 }
 
 export async function judgeGtdProjectHub(
@@ -436,8 +441,12 @@ export async function auditGtdProjectProfiles(userId: string): Promise<{ demoted
       responseFormat: 'json_object',
     })
 
-    const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-    results = parseGtdProjectAuditBatchPayload(parsed, allowedEntityIds)
+    results = evictOnReject(response, () =>
+      parseGtdProjectAuditBatchPayload(
+        JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown,
+        allowedEntityIds,
+      ),
+    )
   }
 
   let demoted = 0

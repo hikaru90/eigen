@@ -7,6 +7,7 @@ import {
   type BoardStatus,
 } from '$lib/feedback/board-types'
 import { isInsufficientCreditsError } from '$lib/server/billing/insufficient-credits'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
@@ -126,7 +127,7 @@ export async function judgeBoardIdea(input: {
         logContext: BOARD_JUDGE_LOG_CONTEXT,
         responseFormat: 'json_object',
       })
-      return parseBoardJudgeOutput(extractChatContent(response), ids)
+      return evictOnReject(response, () => parseBoardJudgeOutput(extractChatContent(response), ids))
     } catch (err) {
       if (isInsufficientCreditsError(err)) throw err
       lastError = err instanceof Error ? err.message : String(err)

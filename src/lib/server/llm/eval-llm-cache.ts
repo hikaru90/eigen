@@ -265,6 +265,25 @@ export function evictEvalLlmCacheEntry(response: unknown): boolean {
   return origin.cache.evict(origin.request)
 }
 
+/**
+ * Runs `use` (the parse / contract check of a chat response, sync or async) and, when it throws,
+ * evicts that response's cache entry before rethrowing, so a retry or resume asks the model
+ * again instead of replaying the rejected reply. The error itself is unchanged; no-op outside
+ * evals.
+ */
+export function evictOnReject<T>(response: unknown, use: () => T): T {
+  const reject = (err: unknown): never => {
+    evictEvalLlmCacheEntry(response)
+    throw err
+  }
+  try {
+    const result = use()
+    return result instanceof Promise ? (result.catch(reject) as T) : result
+  } catch (err) {
+    return reject(err)
+  }
+}
+
 /** Message content of a chat response when it is a string, else undefined. */
 function chatMessageContent(response: unknown): string | undefined {
   const choices = (response as { choices?: unknown } | null)?.choices

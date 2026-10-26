@@ -1,4 +1,5 @@
 import type { PatternsLlmInput } from './patterns-input'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import {
@@ -73,5 +74,5 @@ export async function runPatternsJudge(userId: string, input: PatternsLlmInput):
     temperature: 0,
     responseFormat: 'json_object',
   })
-  return parseLlmJsonPayload(extractChatContent(response))
+  return evictOnReject(response, () => parseLlmJsonPayload(extractChatContent(response)))
 }

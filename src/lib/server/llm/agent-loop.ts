@@ -12,6 +12,7 @@ import {
 } from '$lib/server/llm/agent-tool-result-compact'
 import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
 import { runEnforcedBoundedDecisions } from '$lib/server/llm/decision-plane'
+import { evictEvalLlmCacheEntry } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import {
   buildChatAgentToolDescriptionBlock,
@@ -537,7 +538,13 @@ export async function agentChat(input: {
       input.onEvent?.({ type: 'thinking', content: parsed.thinking })
     }
 
+    // Every `continue` below re-asks after rejecting this reply. The eval response cache must not
+    // replay a rejected reply (and the re-asks built on it) on a resume, so drop it before the
+    // bounded re-ask or the final throw. No-op outside evals.
+    const rejectReply = () => void evictEvalLlmCacheEntry(raw)
+
     if (parsed.type === 'parse_error') {
+      rejectReply()
       parseFailureCount += 1
       if (parseFailureCount >= MAX_PARSE_RETRIES) {
         throw new AgentParseError(parsed.reason)
@@ -554,6 +561,7 @@ export async function agentChat(input: {
       const handler = MCP_TOOL_MAP.get(parsed.tool)
       if (!handler || !isChatAgentTool(parsed.tool)) {
         console.error('[agent-loop] unknown tool requested', { tool: parsed.tool })
+        rejectReply()
         messages.push({ role: 'assistant', content })
         messages.push({
           role: 'user',
@@ -593,6 +601,7 @@ export async function agentChat(input: {
     }
 
     if (!toolRanInTurn) {
+      rejectReply()
       parseFailureCount += 1
       if (parseFailureCount >= MAX_PARSE_RETRIES) {
         throw new AgentParseError('The assistant tried to answer without calling a tool.')
@@ -607,6 +616,7 @@ export async function agentChat(input: {
     }
 
     if (retrieveSearchRan && !answerQuestionRan && !writeToolRan) {
+      rejectReply()
       parseFailureCount += 1
       if (parseFailureCount >= MAX_PARSE_RETRIES) {
         throw new AgentParseError(
@@ -623,6 +633,7 @@ export async function agentChat(input: {
     }
 
     if (isUnpresentableFinalAnswer(parsed.content)) {
+      rejectReply()
       parseFailureCount += 1
       if (parseFailureCount >= MAX_PARSE_RETRIES) {
         throw new AgentParseError(

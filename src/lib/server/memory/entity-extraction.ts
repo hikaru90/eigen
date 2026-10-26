@@ -4,6 +4,7 @@ import {
   groundingSupplementaryPromptBlock,
 } from '$lib/server/capture/enrichment-prompt-sections'
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import {
   formatCommunityExcerptsForEntityPrompt,
@@ -249,17 +250,19 @@ export async function extractEntityTriples(input: {
     responseFormat: 'json_object',
   })
 
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  const triples =
-    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as { triples?: unknown }).triples
-      : undefined
-  if (!Array.isArray(triples)) {
-    throw new Error(
-      'Entity relation extraction output must be a JSON object with a "triples" array',
-    )
-  }
-  return parseEntityTriples(JSON.stringify(triples), allowed)
+  return evictOnReject(response, () => {
+    const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
+    const triples =
+      parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as { triples?: unknown }).triples
+        : undefined
+    if (!Array.isArray(triples)) {
+      throw new Error(
+        'Entity relation extraction output must be a JSON object with a "triples" array',
+      )
+    }
+    return parseEntityTriples(JSON.stringify(triples), allowed)
+  })
 }
 
 /** Single LLM call: entity mentions + typed triples. An empty `mentions` array is a valid answer. */
@@ -343,21 +346,23 @@ export async function extractEntityGraphBundle(input: {
     temperature: 0,
     responseFormat: 'json_object',
   })
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Entity graph bundle output must be a JSON object')
-  }
-  const obj = parsed as { mentions?: unknown; triples?: unknown }
-  const mentions = parseEntityMentions(
-    JSON.stringify(Array.isArray(obj.mentions) ? obj.mentions : []),
-    allowed,
-  )
-  const allowedMentionSurfaces = new Set(mentions.map((m) => m.surface))
-  const allowedGraphLabels = graphEntityLabelsFromContext(ctx?.graphEntities ?? [])
-  const triples = parseEntityTriples(
-    JSON.stringify(Array.isArray(obj.triples) ? obj.triples : []),
-    allowedMentionSurfaces,
-    allowedGraphLabels.size > 0 ? allowedGraphLabels : undefined,
-  )
-  return { mentions, triples }
+  return evictOnReject(response, () => {
+    const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Entity graph bundle output must be a JSON object')
+    }
+    const obj = parsed as { mentions?: unknown; triples?: unknown }
+    const mentions = parseEntityMentions(
+      JSON.stringify(Array.isArray(obj.mentions) ? obj.mentions : []),
+      allowed,
+    )
+    const allowedMentionSurfaces = new Set(mentions.map((m) => m.surface))
+    const allowedGraphLabels = graphEntityLabelsFromContext(ctx?.graphEntities ?? [])
+    const triples = parseEntityTriples(
+      JSON.stringify(Array.isArray(obj.triples) ? obj.triples : []),
+      allowedMentionSurfaces,
+      allowedGraphLabels.size > 0 ? allowedGraphLabels : undefined,
+    )
+    return { mentions, triples }
+  })
 }

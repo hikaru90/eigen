@@ -1,5 +1,6 @@
 import { truncateEditPreview } from '$lib/server/capture/edit-phase-timing'
 import { lifecycleStatusEnum, type LifecycleStatus } from '$lib/server/db/brain.schema'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
 
@@ -184,24 +185,26 @@ export async function applyThoughtEditRequest(input: {
     logContext: 'apply_thought_edit',
   })
 
-  const content = extractChatContent(response)
-  try {
-    const parsed = parseAppliedEditJson(content, input.existingRawText)
-    console.info('[capture.edit.llm] parsed', {
-      userId: input.userId,
-      status: parsed.status ?? null,
-      summary: parsed.summary,
-      rawTextLen: parsed.rawText.length,
-      textUnchanged: parsed.rawText === input.existingRawText,
-    })
-    return parsed
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.error('[capture.edit.llm] parse failed', {
-      userId: input.userId,
-      message,
-      responsePreview: truncateEditPreview(content, 400),
-    })
-    throw new Error(`Failed to parse thought edit LLM response: ${message}`, { cause: err })
-  }
+  return evictOnReject(response, () => {
+    const content = extractChatContent(response)
+    try {
+      const parsed = parseAppliedEditJson(content, input.existingRawText)
+      console.info('[capture.edit.llm] parsed', {
+        userId: input.userId,
+        status: parsed.status ?? null,
+        summary: parsed.summary,
+        rawTextLen: parsed.rawText.length,
+        textUnchanged: parsed.rawText === input.existingRawText,
+      })
+      return parsed
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      console.error('[capture.edit.llm] parse failed', {
+        userId: input.userId,
+        message,
+        responsePreview: truncateEditPreview(content, 400),
+      })
+      throw new Error(`Failed to parse thought edit LLM response: ${message}`, { cause: err })
+    }
+  })
 }

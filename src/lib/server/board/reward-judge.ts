@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isInsufficientCreditsError } from '$lib/server/billing/insufficient-credits'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
@@ -71,7 +72,7 @@ export async function judgeIdeaReward(input: {
         logContext: REWARD_JUDGE_LOG_CONTEXT,
         responseFormat: 'json_object',
       })
-      return parseRewardJudgeOutput(extractChatContent(response))
+      return evictOnReject(response, () => parseRewardJudgeOutput(extractChatContent(response)))
     } catch (err) {
       if (isInsufficientCreditsError(err)) throw err
       lastError = err instanceof Error ? err.message : String(err)

@@ -3,6 +3,7 @@ import {
   temporalEventKindEnum,
   type LifecycleStatus,
 } from '$lib/server/db/brain.schema'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
 
@@ -176,15 +177,16 @@ export async function applyTemporalEventActionRequest(input: {
     logContext: 'apply_temporal_event_action',
   })
 
-  const content = extractChatContent(response)
-  try {
-    return parseAppliedTemporalActionJson(content)
-  } catch (err) {
-    throw new Error(
-      `Failed to parse temporal event action LLM response: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err },
-    )
-  }
+  return evictOnReject(response, () => {
+    try {
+      return parseAppliedTemporalActionJson(extractChatContent(response))
+    } catch (err) {
+      throw new Error(
+        `Failed to parse temporal event action LLM response: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
+      )
+    }
+  })
 }
 
 export function normalizeTemporalEventQuickAction(

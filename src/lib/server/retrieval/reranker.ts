@@ -8,6 +8,7 @@
  * Falls back to fusion order when the LLM returns no usable IDs.
  */
 
+import { evictEvalLlmCacheEntry, evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 
@@ -108,20 +109,24 @@ export async function rerankCandidates<T extends RerankCandidate>(
     )
   }
 
-  const choices = (response as { choices?: unknown }).choices
-  if (!Array.isArray(choices) || choices.length === 0) {
-    throw new RerankError('Rerank LLM returned no choices')
-  }
+  const content = evictOnReject(response, () => {
+    const choices = (response as { choices?: unknown }).choices
+    if (!Array.isArray(choices) || choices.length === 0) {
+      throw new RerankError('Rerank LLM returned no choices')
+    }
 
-  const content = (choices[0] as { message?: { content?: unknown } }).message?.content
-  if (typeof content !== 'string' || !content.trim()) {
-    throw new RerankError('Rerank LLM returned empty content')
-  }
+    const content = (choices[0] as { message?: { content?: unknown } }).message?.content
+    if (typeof content !== 'string' || !content.trim()) {
+      throw new RerankError('Rerank LLM returned empty content')
+    }
+    return content
+  })
 
   let rankedIds: string[]
   try {
     rankedIds = parseRankedIdsFromRerankResponse(content, candidates)
     if (rankedIds.length === 0) {
+      evictEvalLlmCacheEntry(response)
       console.warn('[rerank] LLM returned no resolvable candidate IDs; keeping fusion order', {
         query,
         response: content.trim().slice(0, 200),
@@ -129,6 +134,7 @@ export async function rerankCandidates<T extends RerankCandidate>(
       return candidates
     }
   } catch (err) {
+    evictEvalLlmCacheEntry(response)
     if (err instanceof RerankError) throw err
     throw new RerankError(
       `Failed to parse rerank response: ${err instanceof Error ? err.message : String(err)}`,

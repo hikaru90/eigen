@@ -5,6 +5,7 @@
  * in any language — no string rules here or in the caller.
  */
 
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
@@ -60,9 +61,11 @@ export async function judgeForgetTarget(params: {
     responseFormat: 'json_object',
     logContext: 'forget_target_judge',
   })
-  const content = extractChatContent(raw).trim()
-  if (!content) {
-    throw new Error('forget target judge: empty LLM response')
-  }
-  return parseForgetTargetJudgement(content)
+  return evictOnReject(raw, () => {
+    const content = extractChatContent(raw).trim()
+    if (!content) {
+      throw new Error('forget target judge: empty LLM response')
+    }
+    return parseForgetTargetJudgement(content)
+  })
 }

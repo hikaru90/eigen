@@ -6,6 +6,7 @@
  */
 
 import type { TemporalEventKind } from '$lib/server/db/brain.schema'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import type { TemporalQuestionKind } from '$lib/server/retrieval/classify-query-intent'
@@ -234,15 +235,17 @@ async function callBindingLlm(params: {
     logContext: 'temporal_hint_bindings',
   })
 
-  const content =
-    (
-      raw as { choices?: Array<{ message?: { content?: string } }> }
-    )?.choices?.[0]?.message?.content?.trim() ?? ''
-  if (!content) {
-    throw new Error('temporal hint bindings: empty LLM response')
-  }
+  return evictOnReject(raw, () => {
+    const content =
+      (
+        raw as { choices?: Array<{ message?: { content?: string } }> }
+      )?.choices?.[0]?.message?.content?.trim() ?? ''
+    if (!content) {
+      throw new Error('temporal hint bindings: empty LLM response')
+    }
 
-  return parseTemporalHintBindingsResponse(content, params.hints, params.candidates)
+    return parseTemporalHintBindingsResponse(content, params.hints, params.candidates)
+  })
 }
 
 async function resolvePerHintBindings(params: {

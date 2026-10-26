@@ -1,6 +1,7 @@
 import { desc, eq, sql } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { thought, userOntology } from '$lib/server/db/schema'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { loadOntologyForUser } from '$lib/server/ontology-db'
 import { ONTOLOGY_RECENT_THOUGHT_WINDOW } from './constants'
@@ -113,7 +114,9 @@ async function refreshUserOntologyProfileFromRecentThoughts(input: {
     responseFormat: 'json_object',
   })
 
-  const profile = parseOntologyEvalOutput(extractChatContent(response), activeKeys)
+  const profile = evictOnReject(response, () =>
+    parseOntologyEvalOutput(extractChatContent(response), activeKeys),
+  )
 
   await getDb()
     .insert(userOntology)

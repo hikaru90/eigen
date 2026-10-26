@@ -17,6 +17,7 @@ import {
   thoughtEntity,
 } from '$lib/server/db/schema'
 import { createThoughtEmbeddings } from '$lib/server/llm/embedding'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { loadCommunityThoughtIds } from './community-bundles'
 import { COMMUNITY_MID_LEVEL } from './community-levels'
@@ -406,16 +407,18 @@ async function generateSummaryBatch(
     logContext: 'community_summary_batch',
   })
 
-  const choices = (response as { choices?: unknown }).choices
-  if (!Array.isArray(choices) || choices.length === 0) {
-    throw new CommunitySummaryBatchError('community summary batch returned no choices')
-  }
-  const content = (choices[0] as { message?: { content?: unknown } }).message?.content
-  if (typeof content !== 'string' || !content.trim()) {
-    throw new CommunitySummaryBatchError('community summary batch returned empty content')
-  }
+  const reports = evictOnReject(response, () => {
+    const choices = (response as { choices?: unknown }).choices
+    if (!Array.isArray(choices) || choices.length === 0) {
+      throw new CommunitySummaryBatchError('community summary batch returned no choices')
+    }
+    const content = (choices[0] as { message?: { content?: unknown } }).message?.content
+    if (typeof content !== 'string' || !content.trim()) {
+      throw new CommunitySummaryBatchError('community summary batch returned empty content')
+    }
 
-  const reports = parseBatchCommunityReports(content, communityIds)
+    return parseBatchCommunityReports(content, communityIds)
+  })
   const embeddingSources = reports.map((r) =>
     `${r.title.slice(0, 500)}. ${r.summary}`.slice(0, 2000),
   )

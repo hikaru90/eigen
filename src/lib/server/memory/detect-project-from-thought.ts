@@ -3,6 +3,7 @@
  */
 
 import { m } from '$lib/paraglide/messages.js'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { promoteEntityToProject } from '$lib/server/memory/maybe-promote-gtd-project'
@@ -90,8 +91,10 @@ export async function detectProjectFromThought(
     responseFormat: 'json_object',
   })
 
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  return parseProjectDetectionPayload(parsed)
+  return evictOnReject(response, () => {
+    const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
+    return parseProjectDetectionPayload(parsed)
+  })
 }
 
 /**

@@ -1,4 +1,5 @@
 import { m } from '$lib/paraglide/messages.js'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
@@ -98,8 +99,12 @@ export async function extractProjectOrder(input: {
     responseFormat: 'json_object',
   })
 
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  const ordered = parseProjectOrderPayload(parsed, allowed)
+  const ordered = evictOnReject(response, () =>
+    parseProjectOrderPayload(
+      JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown,
+      allowed,
+    ),
+  )
   // Append any allowed ids the model omitted so ranks stay complete.
   for (const id of allowed) {
     if (!ordered.includes(id)) ordered.push(id)

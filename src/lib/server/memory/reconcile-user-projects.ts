@@ -1,6 +1,7 @@
 import { and, eq, isNotNull } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { canonicalEntity } from '$lib/server/db/schema'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { loadHubJudgmentContext } from '$lib/server/memory/judge-gtd-project'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
@@ -226,11 +227,12 @@ export async function reconcileUserProjects(userId: string): Promise<ReconcileUs
     responseFormat: 'json_object',
   })
 
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  const { mergeGroups, demoteEntityIds } = parseReconcilePayload(
-    parsed,
-    allowedEntityIds,
-    manualEntityIds,
+  const { mergeGroups, demoteEntityIds } = evictOnReject(response, () =>
+    parseReconcilePayload(
+      JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown,
+      allowedEntityIds,
+      manualEntityIds,
+    ),
   )
 
   for (const group of mergeGroups) {

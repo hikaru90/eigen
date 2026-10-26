@@ -3,6 +3,7 @@ import { m } from '$lib/paraglide/messages.js'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { type ProjectStatus, thought } from '$lib/server/db/schema'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { listEligibleProjectsForAssignment } from '$lib/server/memory/project-list'
@@ -119,9 +120,11 @@ export async function extractGtdAssignment(input: {
     responseFormat: 'json_object',
   })
 
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  const allowed = new Set(input.projects.map((p) => p.entityId))
-  return parseGtdAssignmentPayload(parsed, allowed)
+  return evictOnReject(response, () => {
+    const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
+    const allowed = new Set(input.projects.map((p) => p.entityId))
+    return parseGtdAssignmentPayload(parsed, allowed)
+  })
 }
 
 /**

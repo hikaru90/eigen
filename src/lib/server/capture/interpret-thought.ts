@@ -8,6 +8,7 @@
 import { getDb } from '$lib/server/db'
 import { resolveDecisionEnforceKinds } from '$lib/server/llm/decision-client'
 import { runEnforcedBoundedDecisions } from '$lib/server/llm/decision-plane'
+import { evictEvalLlmCacheEntry, evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import {
@@ -168,10 +169,9 @@ export async function interpretThoughtPreview(input: {
     responseFormat: 'json_object',
   })
 
-  const content = extractChatContent(response)
   let parsed: unknown
   try {
-    parsed = parseLlmJsonPayload(content)
+    parsed = evictOnReject(response, () => parseLlmJsonPayload(extractChatContent(response)))
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     throw new Error(`Failed to parse interpret LLM response: ${message}`, { cause: err })
@@ -182,6 +182,7 @@ export async function interpretThoughtPreview(input: {
     preview = parsePreviewBundle(parsed, ontology, allowedEntityKeys)
   } catch (err) {
     if (!isInvalidThoughtCategoryError(err)) {
+      evictEvalLlmCacheEntry(response)
       const message = err instanceof Error ? err.message : String(err)
       throw new Error(`Failed to parse interpret LLM response: ${message}`, { cause: err })
     }
@@ -203,6 +204,7 @@ export async function interpretThoughtPreview(input: {
     try {
       preview = parsePreviewBundle(parsed, ontology, allowedEntityKeys, forcedCategory)
     } catch (retryErr) {
+      evictEvalLlmCacheEntry(response)
       const message = retryErr instanceof Error ? retryErr.message : String(retryErr)
       throw new Error(`Failed to parse interpret LLM response: ${message}`, { cause: retryErr })
     }

@@ -7,6 +7,7 @@ import { getDb } from '$lib/server/db'
 import { thought, userOntology } from '$lib/server/db/schema'
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
 import { startDecisionShadow } from '$lib/server/llm/decision-plane'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
@@ -201,23 +202,26 @@ export async function resolveThoughtCategory(input: {
   })
   logOntology('[capture.ontology] LLM returned for category', { llmMs: Date.now() - tLlm })
 
-  const parsed = parseLlmJsonPayload(extractChatContent(response))
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Category classification output must be a JSON object')
-  }
-  const obj = parsed as { category?: unknown; confidence?: unknown; alternatives?: unknown }
-  const cat = obj.category
-  if (typeof cat !== 'string') {
-    throw new Error('Category classification output has invalid category')
-  }
-  const trimmed = cat.trim()
-  if (!validateEntityKindKeyForNewIngest(loaded, trimmed)) {
-    throw new Error(`Category classification returned invalid ontology key: ${trimmed}`)
-  }
-  const row = loaded.entityKindsByKey.get(trimmed)
-  if (!row) {
-    throw new Error(`Missing ontology row for validated key: ${trimmed}`)
-  }
+  const { obj, row } = evictOnReject(response, () => {
+    const parsed = parseLlmJsonPayload(extractChatContent(response))
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Category classification output must be a JSON object')
+    }
+    const obj = parsed as { category?: unknown; confidence?: unknown; alternatives?: unknown }
+    const cat = obj.category
+    if (typeof cat !== 'string') {
+      throw new Error('Category classification output has invalid category')
+    }
+    const trimmed = cat.trim()
+    if (!validateEntityKindKeyForNewIngest(loaded, trimmed)) {
+      throw new Error(`Category classification returned invalid ontology key: ${trimmed}`)
+    }
+    const row = loaded.entityKindsByKey.get(trimmed)
+    if (!row) {
+      throw new Error(`Missing ontology row for validated key: ${trimmed}`)
+    }
+    return { obj, row }
+  })
 
   // Parse confidence (clamp to [0,1])
   const rawConf = obj.confidence

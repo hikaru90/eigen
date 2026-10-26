@@ -2,6 +2,7 @@
  * Exactly one strict forced-choice LLM retry when category validation rejects every candidate.
  * Shared by interpret preview and enrich bundle — same contract, no synonym remapping.
  */
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import type { LoadedUserOntology } from '$lib/server/ontology-db/load-ontology'
@@ -40,9 +41,11 @@ export async function runStrictCategoryRetry(input: {
     logContext: input.logContext,
     responseFormat: 'json_object',
   })
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('Category retry: output must be a JSON object')
-  }
-  return resolveCategoryFromLlmOutput(input.ontology, parsed)
+  return evictOnReject(response, () => {
+    const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Category retry: output must be a JSON object')
+    }
+    return resolveCategoryFromLlmOutput(input.ontology, parsed)
+  })
 }

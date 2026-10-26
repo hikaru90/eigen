@@ -2,6 +2,7 @@ import {
   GROUNDING_FACET_KEYS,
   GROUNDING_NARRATIVE_MAX_CHARS,
 } from '$lib/server/grounding/constants'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import type { ChatMessage } from '$lib/server/llm/llm-client'
 
@@ -74,5 +75,5 @@ export async function synthesizeGroundingNarrative(input: {
     logContext: 'grounding_narrative_synthesis',
   })
 
-  return parseNarrativeJson(extractChatContent(response))
+  return evictOnReject(response, () => parseNarrativeJson(extractChatContent(response)))
 }

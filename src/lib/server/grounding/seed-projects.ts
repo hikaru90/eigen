@@ -1,5 +1,6 @@
 import { captureThought } from '$lib/server/capture/service'
 import type { ProjectStatus } from '$lib/server/db/schema'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { judgeGtdProjectHub } from '$lib/server/memory/judge-gtd-project'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
@@ -81,14 +82,16 @@ export async function extractProjectsFromGroundingFacet(
     responseFormat: 'json_object',
   })
 
-  const choices = (response as { choices?: Array<{ message?: { content?: string } }> }).choices
-  const content = choices?.[0]?.message?.content
-  if (typeof content !== 'string') {
-    throw new Error('extractProjectsFromGroundingFacet: missing LLM content')
-  }
+  return evictOnReject(response, () => {
+    const choices = (response as { choices?: Array<{ message?: { content?: string } }> }).choices
+    const content = choices?.[0]?.message?.content
+    if (typeof content !== 'string') {
+      throw new Error('extractProjectsFromGroundingFacet: missing LLM content')
+    }
 
-  const parsed = JSON.parse(stripMarkdownJsonFences(content)) as unknown
-  return parseProjectsPayload(parsed)
+    const parsed = JSON.parse(stripMarkdownJsonFences(content)) as unknown
+    return parseProjectsPayload(parsed)
+  })
 }
 
 export async function seedProjectsFromGrounding(input: {

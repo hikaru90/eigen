@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ExtendedPrivateEnv } from '$lib/server/env/private-env'
-import { createEvalLlmCache, evictEvalLlmCacheEntry, withEvalLlmCache } from './eval-llm-cache'
+import {
+  createEvalLlmCache,
+  evictEvalLlmCacheEntry,
+  evictOnReject,
+  withEvalLlmCache,
+} from './eval-llm-cache'
 import { llmChatCompletion, llmCreateEmbeddings } from './llm-client'
 
 const { mockEnv, logActivityCallMock, chargeMock, billingCalls } = vi.hoisted(() => ({
@@ -367,5 +372,74 @@ describe('llmCreateEmbeddings with the eval cache', () => {
       await llmCreateEmbeddings({ userId: TENANT, input: ['a', 'b'] })
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('evictOnReject: a parse that throws drops the reply it was parsing', () => {
+  const twoReplies = () =>
+    vi
+      .fn()
+      .mockResolvedValueOnce(ok(chatReply('{"unexpected":"shape"}')))
+      .mockResolvedValueOnce(ok(chatReply('{"letter":"A"}')))
+
+  it('evicts on a sync throw and rethrows the same error', async () => {
+    const fetchMock = twoReplies()
+    vi.stubGlobal('fetch', fetchMock)
+    const failure = new Error('wrong shape')
+
+    await withEvalLlmCache(createEvalLlmCache(dir), async () => {
+      const first = await chat()
+      expect(() =>
+        evictOnReject(first, () => {
+          throw failure
+        }),
+      ).toThrow(failure)
+      expect(await chat()).toEqual(chatReply('{"letter":"A"}'))
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('evicts on an async rejection and rethrows the same error', async () => {
+    const fetchMock = twoReplies()
+    vi.stubGlobal('fetch', fetchMock)
+    const failure = new Error('wrong shape')
+
+    await withEvalLlmCache(createEvalLlmCache(dir), async () => {
+      const first = await chat()
+      await expect(evictOnReject(first, async () => Promise.reject(failure))).rejects.toBe(failure)
+      expect(await chat()).toEqual(chatReply('{"letter":"A"}'))
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the entry and returns the value when the parse succeeds', async () => {
+    const fetchMock = vi.fn(async () => ok(chatBody))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await withEvalLlmCache(createEvalLlmCache(dir), async () => {
+      const first = await chat()
+      expect(evictOnReject(first, () => 'parsed')).toBe('parsed')
+      await expect(evictOnReject(first, async () => 42)).resolves.toBe(42)
+      await chat()
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('is a no-op without an eval cache: the error still propagates', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok(chatBody)),
+    )
+    const uncached = await chat()
+    const failure = new Error('wrong shape')
+
+    expect(() =>
+      evictOnReject(uncached, () => {
+        throw failure
+      }),
+    ).toThrow(failure)
   })
 })

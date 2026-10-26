@@ -15,6 +15,7 @@ import {
   runEnforcedBoundedDecisions,
   type BoundedDecisionSpec,
 } from '$lib/server/llm/decision-plane'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
@@ -385,8 +386,10 @@ async function resolveViaChatJudge(input: ResolutionEngineInput): Promise<Resolu
     responseFormat: 'json_object',
   })
 
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  return parseProjectIdentityPayload(parsed, allowedEntityIds)
+  return evictOnReject(response, () => {
+    const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
+    return parseProjectIdentityPayload(parsed, allowedEntityIds)
+  })
 }
 
 /** Below this winning probability the qwen chat judge arbitrates (qwen wins ties). */

@@ -17,6 +17,7 @@ import {
  * repair-before-fail via resolveCategoryFromLlmOutput, with exactly one strict forced-choice
  * retry when neither the primary key nor any alternative is valid.
  */
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { ASK_QUESTION_RULE, parseAskQuestion } from '$lib/server/memory/ask-question'
 import {
@@ -245,39 +246,41 @@ export async function extractEnrichThoughtBundle(input: {
     responseFormat: 'json_object',
   })
 
-  const content = extractChatContent(response)
-  try {
-    return parseEnrichThoughtBundleContent({
-      content,
-      context: input.context,
-      capturedAt: input.capturedAt,
-      ontologyEntityKinds: input.ontologyEntityKinds,
-      entityEnrichmentContext: input.entityEnrichmentContext,
-    })
-  } catch (err) {
-    if (!isInvalidThoughtCategoryError(err)) throw err
-    const rejected = err instanceof Error && 'raw' in err ? String(err.raw) : '(unknown)'
-    console.warn('[enrich-thought-bundle] invalid category; strict forced-choice retry', {
-      userId: input.context.userId.slice(0, 8),
-      rejected,
-    })
-    const allowedKeys = activeThoughtCategoryKinds(input.context.ontology).map((k) => k.key)
-    const forcedCategory = await runStrictCategoryRetry({
-      userId: input.context.userId,
-      normalizedText: input.context.normalizedText,
-      allowedKeys,
-      ontology: input.context.ontology,
-      logContext: 'enrich_thought_bundle_category_retry',
-    })
-    return parseEnrichThoughtBundleContent({
-      content,
-      context: input.context,
-      capturedAt: input.capturedAt,
-      ontologyEntityKinds: input.ontologyEntityKinds,
-      entityEnrichmentContext: input.entityEnrichmentContext,
-      forcedCategory,
-    })
-  }
+  return evictOnReject(response, async () => {
+    const content = extractChatContent(response)
+    try {
+      return parseEnrichThoughtBundleContent({
+        content,
+        context: input.context,
+        capturedAt: input.capturedAt,
+        ontologyEntityKinds: input.ontologyEntityKinds,
+        entityEnrichmentContext: input.entityEnrichmentContext,
+      })
+    } catch (err) {
+      if (!isInvalidThoughtCategoryError(err)) throw err
+      const rejected = err instanceof Error && 'raw' in err ? String(err.raw) : '(unknown)'
+      console.warn('[enrich-thought-bundle] invalid category; strict forced-choice retry', {
+        userId: input.context.userId.slice(0, 8),
+        rejected,
+      })
+      const allowedKeys = activeThoughtCategoryKinds(input.context.ontology).map((k) => k.key)
+      const forcedCategory = await runStrictCategoryRetry({
+        userId: input.context.userId,
+        normalizedText: input.context.normalizedText,
+        allowedKeys,
+        ontology: input.context.ontology,
+        logContext: 'enrich_thought_bundle_category_retry',
+      })
+      return parseEnrichThoughtBundleContent({
+        content,
+        context: input.context,
+        capturedAt: input.capturedAt,
+        ontologyEntityKinds: input.ontologyEntityKinds,
+        entityEnrichmentContext: input.entityEnrichmentContext,
+        forcedCategory,
+      })
+    }
+  })
 }
 
 /** @internal — tests */

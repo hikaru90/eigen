@@ -19,6 +19,7 @@
  */
 import { billingUserAsyncLocal } from '$lib/server/billing/context'
 import { extractBatchChatContent, parseBatchJsonArray } from '$lib/server/llm/batch-json'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { EVAL_JUDGE_USER_ID } from './eval-config'
 
@@ -121,25 +122,27 @@ export async function judgeCaptureFidelity(input: {
   const response = billingUserId
     ? await billingUserAsyncLocal.run(billingUserId, callLlm)
     : await callLlm()
-  const raw = parseJsonContent(extractContent(response))
-  if (!raw || typeof raw !== 'object') {
-    throw new Error('capture-fidelity judge: parsed JSON is not an object')
-  }
-  const obj = raw as Record<string, unknown>
-  const score = obj.score
-  const rationale = obj.rationale
-  if (typeof score !== 'number' || !Number.isInteger(score) || score < 1 || score > 5) {
-    throw new Error(`capture-fidelity judge: invalid score value: ${JSON.stringify(score)}`)
-  }
-  if (typeof rationale !== 'string' || rationale.trim().length === 0) {
-    throw new Error('capture-fidelity judge: missing rationale')
-  }
-  const validScore = score as FidelityVerdict['score']
-  return {
-    faithful: validScore >= 4,
-    score: validScore,
-    rationale,
-  }
+  return evictOnReject(response, () => {
+    const raw = parseJsonContent(extractContent(response))
+    if (!raw || typeof raw !== 'object') {
+      throw new Error('capture-fidelity judge: parsed JSON is not an object')
+    }
+    const obj = raw as Record<string, unknown>
+    const score = obj.score
+    const rationale = obj.rationale
+    if (typeof score !== 'number' || !Number.isInteger(score) || score < 1 || score > 5) {
+      throw new Error(`capture-fidelity judge: invalid score value: ${JSON.stringify(score)}`)
+    }
+    if (typeof rationale !== 'string' || rationale.trim().length === 0) {
+      throw new Error('capture-fidelity judge: missing rationale')
+    }
+    const validScore = score as FidelityVerdict['score']
+    return {
+      faithful: validScore >= 4,
+      score: validScore,
+      rationale,
+    }
+  })
 }
 
 export type BatchFidelityInput = {
@@ -226,18 +229,22 @@ export async function judgeCaptureFidelityBatch(input: {
     ? await billingUserAsyncLocal.run(billingUserId, callLlm)
     : await callLlm()
 
-  const wrapped = JSON.parse(extractBatchChatContent(response, 'capture-fidelity batch')) as unknown
-  const items =
-    wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped)
-      ? (wrapped as { items?: unknown }).items
-      : undefined
-  if (!Array.isArray(items)) {
-    throw new Error('capture-fidelity batch: output must be a JSON object with an "items" array')
-  }
-  const content = JSON.stringify(items)
-  const parsed = parseBatchJsonArray(content, expectedIds, 'capture-fidelity batch', (id, value) =>
-    parseFidelityItem(id, value),
-  )
+  const parsed = evictOnReject(response, () => {
+    const wrapped = JSON.parse(
+      extractBatchChatContent(response, 'capture-fidelity batch'),
+    ) as unknown
+    const items =
+      wrapped && typeof wrapped === 'object' && !Array.isArray(wrapped)
+        ? (wrapped as { items?: unknown }).items
+        : undefined
+    if (!Array.isArray(items)) {
+      throw new Error('capture-fidelity batch: output must be a JSON object with an "items" array')
+    }
+    const content = JSON.stringify(items)
+    return parseBatchJsonArray(content, expectedIds, 'capture-fidelity batch', (id, value) =>
+      parseFidelityItem(id, value),
+    )
+  })
   const out = new Map<string, FidelityVerdict>()
   for (const [id, row] of parsed) {
     out.set(id, row as unknown as FidelityVerdict)

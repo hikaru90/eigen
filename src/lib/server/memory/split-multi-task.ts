@@ -23,6 +23,7 @@ import { queueSplitChild } from '$lib/server/capture/queue-split-child'
 import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { thought, type MemoryAuthor } from '$lib/server/db/schema'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { loadProjectMembershipEntityIds } from '$lib/server/memory/project-membership'
@@ -127,7 +128,7 @@ export async function fanOutMultipleTasks(input: {
     temperature: 0,
     responseFormat: 'json_object',
   })
-  const judge = parseJudgePayload(extractChatContent(response))
+  const judge = evictOnReject(response, () => parseJudgePayload(extractChatContent(response)))
   if (!judge.multiple || !judge.tasks) return []
 
   // Mark the parent BEFORE creating children: a retried enrich sees the marker and

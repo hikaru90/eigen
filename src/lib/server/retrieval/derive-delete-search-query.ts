@@ -4,6 +4,7 @@
  * describe the content to find (dishes, people, tasks), not the removal action.
  */
 
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 
@@ -67,13 +68,15 @@ export async function deriveDeleteSearchQueries(params: {
     logContext: 'delete_search_query',
   })
 
-  const content =
-    (
-      raw as { choices?: Array<{ message?: { content?: string } }> }
-    )?.choices?.[0]?.message?.content?.trim() ?? ''
-  if (!content) {
-    throw new Error('delete search query: empty LLM response')
-  }
+  return evictOnReject(raw, () => {
+    const content =
+      (
+        raw as { choices?: Array<{ message?: { content?: string } }> }
+      )?.choices?.[0]?.message?.content?.trim() ?? ''
+    if (!content) {
+      throw new Error('delete search query: empty LLM response')
+    }
 
-  return parseDeleteSearchQueriesResponse(content)
+    return parseDeleteSearchQueriesResponse(content)
+  })
 }

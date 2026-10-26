@@ -5,6 +5,7 @@ import {
   RELEVANCE_QUESTION_TEMPLATE_ID_SET,
   type RelevanceQuestionTemplateId,
 } from '$lib/server/grounding/relevance-templates'
+import { evictEvalLlmCacheEntry } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 
@@ -106,6 +107,7 @@ export async function generateRelevanceQuestion(
   const content = (response as { choices?: Array<{ message?: { content?: string } }> }).choices?.[0]
     ?.message?.content
   if (typeof content !== 'string') {
+    evictEvalLlmCacheEntry(response)
     throw new Error('generateRelevanceQuestion: missing LLM content')
   }
 
@@ -127,6 +129,8 @@ export async function generateRelevanceQuestion(
       question: built.question,
     }
   } catch {
+    // unparseable reply: not a "skip" answer, so it must not be replayed by the eval cache
+    evictEvalLlmCacheEntry(response)
     return null
   }
 }

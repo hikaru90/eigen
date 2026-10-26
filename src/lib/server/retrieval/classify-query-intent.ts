@@ -8,6 +8,7 @@ import {
   type DecisionChoiceAnswer,
 } from '$lib/server/llm/decision-client'
 import { runEnforcedBoundedDecisions } from '$lib/server/llm/decision-plane'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 import type { RetrievalScope } from '$lib/server/retrieval/global-query'
@@ -178,15 +179,17 @@ export async function classifyQueryIntent(params: {
     logContext: 'query_intent_classifier',
   })
 
-  const content =
-    (
-      raw as { choices?: Array<{ message?: { content?: string } }> }
-    )?.choices?.[0]?.message?.content?.trim() ?? ''
-  if (!content) {
-    throw new Error('query intent classifier: empty LLM response')
-  }
+  const parsed = evictOnReject(raw, () => {
+    const content =
+      (
+        raw as { choices?: Array<{ message?: { content?: string } }> }
+      )?.choices?.[0]?.message?.content?.trim() ?? ''
+    if (!content) {
+      throw new Error('query intent classifier: empty LLM response')
+    }
 
-  const parsed = parseQueryIntentResponse(content)
+    return parseQueryIntentResponse(content)
+  })
 
   // Enforced bounded half: when any qa kind is decision-model authoritative,
   // ONE additional Decisions call overrides scope/kind/durationUnit. No

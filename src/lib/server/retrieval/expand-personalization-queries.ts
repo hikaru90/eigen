@@ -4,6 +4,7 @@
  * sub-queries; code only validates the JSON contract. The question text is the only input.
  */
 
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 
@@ -61,12 +62,14 @@ export async function expandPersonalizationQueries(params: {
     responseFormat: 'json_object',
     logContext: 'personalization_query_expansion',
   })
-  const content =
-    (
-      raw as { choices?: Array<{ message?: { content?: string } }> }
-    )?.choices?.[0]?.message?.content?.trim() ?? ''
-  if (!content) {
-    throw new Error('personalization expansion: empty LLM response')
-  }
-  return parseExpansionQueriesResponse(content)
+  return evictOnReject(raw, () => {
+    const content =
+      (
+        raw as { choices?: Array<{ message?: { content?: string } }> }
+      )?.choices?.[0]?.message?.content?.trim() ?? ''
+    if (!content) {
+      throw new Error('personalization expansion: empty LLM response')
+    }
+    return parseExpansionQueriesResponse(content)
+  })
 }

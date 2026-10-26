@@ -7,6 +7,7 @@ import type {
 } from '$lib/memory/project-review-types'
 import { m } from '$lib/paraglide/messages.js'
 import type { TemporalEventKind } from '$lib/server/db/brain.schema'
+import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
@@ -269,6 +270,8 @@ export async function extractProjectReview(input: {
     responseFormat: 'json_object',
   })
 
-  const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
-  return parseProjectReviewPayload(parsed, allowed)
+  return evictOnReject(response, () => {
+    const parsed = JSON.parse(stripMarkdownJsonFences(extractChatContent(response))) as unknown
+    return parseProjectReviewPayload(parsed, allowed)
+  })
 }
