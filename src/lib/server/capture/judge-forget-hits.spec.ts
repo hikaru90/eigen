@@ -35,6 +35,18 @@ const note = (id: string, title: string, text: string): ForgetHit => ({
   score: 0.8,
 })
 
+const fact = (id: string, text: string, over: Partial<Extract<ForgetHit, { kind: 'fact' }>> = {}): ForgetHit => ({
+  kind: 'fact',
+  id,
+  text,
+  subject: 'the user',
+  factKind: 'habit',
+  inferred: false,
+  createdAt: new Date('2026-05-10T00:00:00Z'),
+  score: 0.85,
+  ...over,
+})
+
 describe('parseForgetHitDecisions', () => {
   const refs = ['h1', 'h2', 'h3']
 
@@ -134,6 +146,35 @@ describe('judgeForgetHits', () => {
     ])
   })
 
+  it('shows a fact in full with who it is about, its kind, its as-of date and whether it was inferred', async () => {
+    const hits = [
+      fact('f1', 'Drinks three coffees a day'),
+      fact('f2', 'Mia (friend) keeps getting headaches', {
+        subject: 'Mia (friend)',
+        factKind: 'health',
+        inferred: true,
+      }),
+    ]
+    llmChatCompletionMock.mockResolvedValue(
+      reply({
+        decisions: [
+          { hit: 'h1', action: 'remove_all', confidence: 0.95 },
+          { hit: 'h2', action: 'keep', confidence: 0.9 },
+        ],
+      }),
+    )
+
+    const out = await judgeForgetHits({ userId: 'u1', forgetRequest: 'forget that I drink coffee', hits })
+
+    const user = llmChatCompletionMock.mock.calls[0][0].messages[1].content as string
+    expect(user).toContain('[h1] fact about the user (habit, as of 2026-05-10):\nDrinks three coffees a day')
+    expect(user).toContain(
+      '[h2] fact about Mia (friend) (health, inferred, as of 2026-05-10):\nMia (friend) keeps getting headaches',
+    )
+    expect(user).not.toContain('f1')
+    expect(out.map((j) => j.action)).toEqual(['remove_all', 'keep'])
+  })
+
   it('no hits: no LLM call', async () => {
     expect(await judgeForgetHits({ userId: 'u1', forgetRequest: 'r', hits: [] })).toEqual([])
     expect(llmChatCompletionMock).not.toHaveBeenCalled()
@@ -157,6 +198,11 @@ describe('judgeForgetHits', () => {
     expect(JUDGE_FORGET_HITS_PROMPT).toMatch(/any language/i)
     expect(JUDGE_FORGET_HITS_PROMPT).toMatch(/earlier request to forget/i)
     expect(JUDGE_FORGET_HITS_PROMPT).toContain(String(FORGET_CONFIDENCE_MIN))
+  })
+
+  it('the prompt explains facts: short statements derived from captures, forgotten with the thing they state', () => {
+    expect(JUDGE_FORGET_HITS_PROMPT).toMatch(/facts/i)
+    expect(JUDGE_FORGET_HITS_PROMPT).toMatch(/about the user or about another person/i)
   })
 })
 

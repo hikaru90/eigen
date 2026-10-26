@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DELETE_ALL_MEMORIES_CONFIRMATION } from '$lib/memory/delete-confirmation'
+import { userFact, userSecureValue } from '$lib/server/db/schema'
 import {
   assertDeleteAllMemoriesConfirmation,
   deleteAllMemoriesForUser,
@@ -54,5 +55,22 @@ describe('deleteAllMemoriesForUser', () => {
     expect(result).toEqual({ thoughtsDeleted: 2, entitiesDeleted: 2 })
     expect(deleteWhere).toHaveBeenCalled()
     expect(deleteAllUserGraphVerticesMock).toHaveBeenCalledWith('u1')
+  })
+
+  it('deletes the facts derived from the memories and the identifiers they pointed at', async () => {
+    const tx = {
+      select: vi.fn(() => ({ from: vi.fn(() => ({ where: vi.fn(async () => []) })) })),
+      delete: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })) })),
+    }
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(async (fn: (inner: typeof tx) => Promise<unknown>) => fn(tx)),
+    })
+
+    await deleteAllMemoriesForUser('u1')
+
+    const deletedTables = tx.delete.mock.calls.map((call) => (call as unknown[])[0])
+    expect(deletedTables).toContain(userFact)
+    expect(deletedTables).toContain(userSecureValue)
   })
 })

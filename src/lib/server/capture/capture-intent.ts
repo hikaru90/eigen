@@ -45,7 +45,7 @@ export const FORGET_INSTRUCTION_STATUSES = [
 export type ForgetInstructionStatus = (typeof FORGET_INSTRUCTION_STATUSES)[number]
 
 /** A hit the forget flow left untouched and recorded (ids only, never text). */
-export type UnresolvedForgetHit = { kind: 'thought' | 'note'; id: string }
+export type UnresolvedForgetHit = { kind: 'thought' | 'note' | 'fact'; id: string }
 
 export type ForgetInstructionMarker = {
   status: ForgetInstructionStatus
@@ -55,7 +55,9 @@ export type ForgetInstructionMarker = {
 function isUnresolvedForgetHit(value: unknown): value is UnresolvedForgetHit {
   if (!value || typeof value !== 'object') return false
   const { kind, id } = value as { kind?: unknown; id?: unknown }
-  return (kind === 'thought' || kind === 'note') && typeof id === 'string' && id.length > 0
+  return (
+    (kind === 'thought' || kind === 'note' || kind === 'fact') && typeof id === 'string' && id.length > 0
+  )
 }
 
 /**
@@ -78,7 +80,7 @@ export function readForgetInstruction(
   }
   if (!Array.isArray(unresolved) || !unresolved.every(isUnresolvedForgetHit)) {
     throw new Error(
-      'forgetInstruction marker is malformed: unresolved must be a list of {kind: thought | note, id}',
+      'forgetInstruction marker is malformed: unresolved must be a list of {kind: thought | note | fact, id}',
     )
   }
   return { status: status as ForgetInstructionStatus, unresolved }

@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm'
 import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { textFile, thought, thoughtTextFile } from '$lib/server/db/schema'
+import { retireFactsForArchivedNote } from '$lib/server/facts/user-fact-lifecycle'
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import type { MemoryAuthorship } from '$lib/server/memory/authorship'
 import {
@@ -345,7 +346,10 @@ export async function archiveTextFile(userId: string, fileId: string): Promise<b
     .set({ archivedAt: new Date() })
     .where(and(eq(textFile.id, fileId), eq(textFile.userId, userId), isNull(textFile.archivedAt)))
     .returning({ id: textFile.id })
-  return archived.length > 0
+  if (archived.length === 0) return false
+  // facts derived from this note lose a source (docs/planning/user-facts-layer.md)
+  await retireFactsForArchivedNote(userId, fileId)
+  return true
 }
 
 export async function getTextFile(

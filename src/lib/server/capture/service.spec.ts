@@ -27,7 +27,13 @@ const {
   scheduleEnrichThoughtMock,
   applyThoughtEditRequestMock,
   loadThoughtCaptureResultMock,
+  rederiveFactsMock,
+  factIdsDerivedFromThoughtMock,
+  retireFactsWithoutLiveSourceMock,
 } = vi.hoisted(() => ({
+  rederiveFactsMock: vi.fn(),
+  factIdsDerivedFromThoughtMock: vi.fn(),
+  retireFactsWithoutLiveSourceMock: vi.fn(),
   getDbMock: vi.fn(),
   logActivityCallMock: vi.fn(),
   createThoughtEmbeddingMock: vi.fn(),
@@ -132,6 +138,15 @@ vi.mock('$lib/server/capture/enrich', () => ({
 
 vi.mock('$lib/server/capture/capture-result', () => ({
   loadThoughtCaptureResult: loadThoughtCaptureResultMock,
+}))
+
+vi.mock('$lib/server/facts/rederive-user-facts', () => ({
+  rederiveUserFactsForThought: rederiveFactsMock,
+}))
+
+vi.mock('$lib/server/facts/user-fact-lifecycle', () => ({
+  factIdsDerivedFromThought: factIdsDerivedFromThoughtMock,
+  retireFactsWithoutLiveSource: retireFactsWithoutLiveSourceMock,
 }))
 
 vi.mock('$lib/server/memory/project-next-action', () => ({
@@ -271,6 +286,9 @@ describe('editStoredThought', () => {
       source: 'llm',
     })
     reenrichThoughtMock.mockResolvedValue(undefined)
+    rederiveFactsMock.mockResolvedValue({ added: 0, superseded: 0, confirmed: 0, droppedLowConfidence: 0 })
+    factIdsDerivedFromThoughtMock.mockResolvedValue([])
+    retireFactsWithoutLiveSourceMock.mockResolvedValue({ retired: [], revived: [] })
     loadThoughtCaptureResultMock.mockImplementation(async (_userId: string, thoughtId: string) => ({
       ...defaultCaptureResult,
       id: thoughtId,
@@ -354,6 +372,70 @@ describe('editStoredThought', () => {
       expect.objectContaining({ thoughtEmbedding: [0.5, 0.5] }),
     )
     expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 't1')
+  })
+
+  describe('facts follow the edit (docs/planning/user-facts-layer.md)', () => {
+    function textEditDb() {
+      const existing = {
+        id: 't1',
+        userId: 'u1',
+        rawText: 'I drink three coffees a day',
+        metadata: {},
+        category: 'task',
+        normalizedText: 'I drink three coffees a day',
+        lexicalText: 'x',
+      }
+      const updated = { ...existing, rawText: 'make shorter', normalizedText: 'make shorter' }
+      return {
+        select: vi.fn(() => ({
+          from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [existing]) })) })),
+        })),
+        update: vi.fn(() => ({
+          set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => [updated]) })) })),
+        })),
+      }
+    }
+
+    it('a text change derives the facts of the edited thought again, after it was re-enriched', async () => {
+      getDbMock.mockReturnValue(textEditDb())
+
+      const result = await editStoredThought('u1', 't1', 'make shorter')
+
+      expect(result.ok).toBe(true)
+      expect(rederiveFactsMock).toHaveBeenCalledTimes(1)
+      expect(rederiveFactsMock).toHaveBeenCalledWith('u1', 't1')
+      expect(reenrichThoughtMock.mock.invocationCallOrder[0]).toBeLessThan(
+        rederiveFactsMock.mock.invocationCallOrder[0]!,
+      )
+    })
+
+    it('a failure while deriving fails the edit loudly instead of leaving facts of the old text', async () => {
+      getDbMock.mockReturnValue(textEditDb())
+      rederiveFactsMock.mockRejectedValue(new Error('user fact extraction: response is not valid JSON'))
+      await expect(editStoredThought('u1', 't1', 'make shorter')).rejects.toThrow(/user fact extraction/)
+    })
+
+    it('a status-only edit leaves the facts alone (the text did not change)', async () => {
+      const existing = {
+        id: 't1',
+        userId: 'u1',
+        rawText: 'Buy milk',
+        metadata: { status: 'open' },
+        category: 'task',
+        normalizedText: 'Buy milk',
+        lexicalText: 'buy milk',
+      }
+      getDbMock.mockReturnValue(
+        makeLifecycleEditDb(existing, { ...existing, metadata: { status: 'completed' } }),
+      )
+      applyThoughtEditRequestMock.mockResolvedValue({
+        rawText: 'Buy milk',
+        status: 'completed',
+        summary: 'Marked complete',
+      })
+      await editStoredThought('u1', 't1', 'please mark done')
+      expect(rederiveFactsMock).not.toHaveBeenCalled()
+    })
   })
 
   it('merges metadata when existing row has null decrypted metadata', async () => {
@@ -1075,6 +1157,11 @@ describe('relinkThoughtGraph', () => {
 })
 
 describe('deleteThoughtForUser', () => {
+  beforeEach(() => {
+    factIdsDerivedFromThoughtMock.mockResolvedValue([])
+    retireFactsWithoutLiveSourceMock.mockResolvedValue({ retired: [], revived: [] })
+  })
+
   it('returns not_found when thought does not exist', async () => {
     const db = {
       select: vi.fn(() => ({
@@ -1139,6 +1226,41 @@ describe('deleteThoughtForUser', () => {
     })
     expect(deleteWhere).toHaveBeenCalled()
     expect(pruneCanonicalEntitiesWithNoThoughtLinksMock).toHaveBeenCalledWith('u1', ['e1', 'e2'])
+  })
+
+  it('retires the facts the deleted thought carried: read before the row (and its links) go, retired after', async () => {
+    const order: string[] = []
+    factIdsDerivedFromThoughtMock.mockImplementation(async () => {
+      order.push('read fact ids')
+      return ['fact-1', 'fact-2']
+    })
+    retireFactsWithoutLiveSourceMock.mockImplementation(async () => {
+      order.push('retire')
+      return { retired: ['fact-1'], revived: [] }
+    })
+    const deleteWhere = vi.fn(async () => {
+      order.push('delete thought')
+    })
+    const select = vi
+      .fn()
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ limit: vi.fn(async () => [{ id: 't1' }]) })) })),
+      })
+      .mockReturnValueOnce({ from: vi.fn(() => ({ where: vi.fn(async () => []) })) })
+      .mockReturnValueOnce({ from: vi.fn(() => ({ where: vi.fn(async () => []) })) })
+      .mockReturnValueOnce({
+        from: vi.fn(() => ({ innerJoin: vi.fn(() => ({ where: vi.fn(async () => []) })) })),
+      })
+    getDbMock.mockReturnValue({ select, delete: vi.fn(() => ({ where: deleteWhere })) })
+    removeThoughtGraphArtifactsMock.mockResolvedValue(undefined)
+    pruneCanonicalEntitiesWithNoThoughtLinksMock.mockResolvedValue(0)
+
+    await deleteThoughtForUser('u1', 't1')
+
+    expect(order).toEqual(['read fact ids', 'delete thought', 'retire'])
+    expect(retireFactsWithoutLiveSourceMock).toHaveBeenCalledWith('u1', ['fact-1', 'fact-2'], {
+      revive: true,
+    })
   })
 })
 
