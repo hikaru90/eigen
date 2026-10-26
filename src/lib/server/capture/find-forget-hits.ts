@@ -2,13 +2,17 @@
  * Find what a forget request is about (docs/planning/personamem-score-plan.md, S2b): the same
  * retrieval Ask uses, run for every LLM-derived target phrase, over thoughts AND note passages,
  * restricted to items stored before the forget capture. The facts derived from captures
- * (docs/planning/user-facts-layer.md) are searched for the same phrases and are hits too — the
+ * (docs/planning/user-facts-layer.md) come from the same retrieval and are hits too — the
  * statement the user is asking to forget usually exists as a fact as well. Finding does not decide
  * anything: every hit goes to the per-hit judge with its full text.
  */
 
-import { statementForIndex, type FactKind } from '$lib/server/facts/fact-vocabulary'
-import { searchUserFacts, type UserFactHit } from '$lib/server/facts/search-user-facts'
+import {
+  factSubjectLabel,
+  statementForIndex,
+  type FactKind,
+} from '$lib/server/facts/fact-vocabulary'
+import type { UserFactHit } from '$lib/server/facts/search-user-facts'
 import { createThoughtEmbeddings } from '$lib/server/llm/embedding'
 import { retrieveAnswerEvidence } from '$lib/server/qa/retrieve-answer-evidence'
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
@@ -88,31 +92,22 @@ export async function findForgetHits(input: {
   ).map((phrase) => redactedText(phrase))
   const embeddings = await createThoughtEmbeddings(input.userId, phrases)
 
-  const [evidence, factResults] = await Promise.all([
-    Promise.all(
-      phrases.map((phrase, i) =>
-        retrieveAnswerEvidence({
-          userId: input.userId,
-          query: phrase,
-          queryEmbedding: embeddings[i]!,
-          topK: FORGET_TOP_K_PER_PHRASE,
-          noteTopK: FORGET_TOP_K_PER_PHRASE,
-          weights: CONTEXT_WEIGHTS.default,
-        }),
-      ),
+  // one search path: thoughts, notes and facts all come from what Ask would retrieve; only items
+  // known before the forget capture can be forgotten (a fact restated later stays)
+  const evidence = await Promise.all(
+    phrases.map((phrase, i) =>
+      retrieveAnswerEvidence({
+        userId: input.userId,
+        query: phrase,
+        queryEmbedding: embeddings[i]!,
+        topK: FORGET_TOP_K_PER_PHRASE,
+        noteTopK: FORGET_TOP_K_PER_PHRASE,
+        factTopK: FORGET_TOP_K_PER_PHRASE,
+        factsAsOfBefore: input.createdBefore,
+        weights: CONTEXT_WEIGHTS.default,
+      }),
     ),
-    // only facts known before the forget capture: a fact restated later stays
-    Promise.all(
-      phrases.map((phrase, i) =>
-        searchUserFacts(input.userId, {
-          query: phrase,
-          queryEmbedding: embeddings[i]!,
-          topK: FORGET_TOP_K_PER_PHRASE,
-          asOfBefore: input.createdBefore,
-        }),
-      ),
-    ),
-  ])
+  )
 
   const cutoff = input.createdBefore.getTime()
   const thoughts = mergeRetrievalResultsByBestScore(evidence.map((e) => e.retrieved)).filter(
@@ -122,7 +117,7 @@ export async function findForgetHits(input: {
     (hit) => new Date(hit.createdAt).getTime() < cutoff,
   )
 
-  const facts = mergeFactsByBestScore(factResults)
+  const facts = mergeFactsByBestScore(evidence.map((e) => e.facts))
 
   const hits: ForgetHit[] = [
     ...facts.map(
@@ -130,7 +125,7 @@ export async function findForgetHits(input: {
         kind: 'fact',
         id: hit.id,
         text: statementForIndex(hit.statement),
-        subject: hit.subjectKind === 'user' ? 'the user' : (hit.subjectLabel ?? 'a person'),
+        subject: factSubjectLabel(hit),
         factKind: hit.kind,
         inferred: hit.inferred,
         createdAt: hit.asOf,

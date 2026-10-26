@@ -6,7 +6,11 @@
  * never logged and never returned anywhere but in the substituted text.
  *
  * A token whose secure value no longer exists (the fact was forgotten) stays in the text and is
- * reported in `unresolved`: the caller fails or strips it, nothing is guessed here.
+ * reported in `unresolved`, unless the caller names a replacement: nothing is guessed here.
+ *
+ * `resolveSecureReferences` is the form the response boundaries use (the Ask turn's response and the
+ * display read of a stored session): every token becomes its value, a gone one becomes a neutral
+ * text. Stored answers, agent messages, prompts, logs and the harness all keep the token.
  */
 
 import { and, eq, inArray } from 'drizzle-orm'
@@ -14,6 +18,9 @@ import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { userSecureValue } from '$lib/server/db/schema'
 import { secureReferencePattern } from './fact-vocabulary'
+
+/** What a reference whose value no longer exists reads as in a user-facing response. */
+export const SECURE_VALUE_GONE_TEXT = '[no longer stored]'
 
 export type SecureSubstitution = {
   text: string
@@ -26,6 +33,7 @@ export type SecureSubstitution = {
 export async function substituteSecureReferences(
   userId: string,
   text: string,
+  options: { unresolvedAs?: string } = {},
 ): Promise<SecureSubstitution> {
   const ids = [
     ...new Set([...text.matchAll(secureReferencePattern())].map((m) => m[1]!.toLowerCase())),
@@ -53,9 +61,15 @@ export async function substituteSecureReferences(
   let substituted = 0
   const out = text.replace(secureReferencePattern(), (token, id: string) => {
     const value = values.get(id.toLowerCase())
-    if (value === undefined) return token
+    if (value === undefined) return options.unresolvedAs ?? token
     substituted += 1
     return value
   })
   return { text: out, substituted, unresolved: ids.filter((id) => !values.has(id)) }
+}
+
+/** The user-facing form of a stored answer: tokens replaced by their values, gone ones by a neutral text. */
+export async function resolveSecureReferences(userId: string, text: string): Promise<string> {
+  return (await substituteSecureReferences(userId, text, { unresolvedAs: SECURE_VALUE_GONE_TEXT }))
+    .text
 }

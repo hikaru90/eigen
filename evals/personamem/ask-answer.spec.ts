@@ -82,6 +82,38 @@ describe('answerViaAsk', () => {
     expect(result.askAnsweredWithoutMemory).toBe(false)
   })
 
+  it('keeps fact items in the chooser context, and the answer as Ask stored it (a reference token, never a secure value)', async () => {
+    const token = '[secure:11111111-1111-4111-8111-111111111111]'
+    m.runAskTurn.mockImplementation(async () => {
+      observeComposedAnswer(
+        TENANT,
+        composed(
+          item('t1', 'one'),
+          {
+            ...item('f1', 'Fact about Mia (friend): Mia (friend) barely drinks water'),
+            kind: 'fact',
+          } as never,
+          {
+            ...item('f2', `Fact about the user: The user's licence plate is ${token}`),
+            kind: 'fact',
+          } as never,
+        ),
+      )
+      return {
+        answer: `Your plate is ${token}.`,
+        toolCalls: [{ tool: 'answer_question', arguments: {}, failed: false }],
+      }
+    })
+    const result = await answerViaAsk({
+      tenantUserId: TENANT,
+      query: "what's my plate?",
+      referenceTime: REFERENCE,
+      billing,
+    })
+    expect(result.context.map((c) => c.id)).toEqual(['t1', 'f1', 'f2'])
+    expect(result.answer).toBe(`Your plate is ${token}.`)
+  })
+
   it('flags an answer without any answer_question call and gives an empty context', async () => {
     m.runAskTurn.mockResolvedValue({ answer: 'I do not know.', toolCalls: [] })
     const result = await answerViaAsk({

@@ -26,6 +26,7 @@ import {
   deactivateTenantDbSession,
 } from '$lib/server/db'
 import type { ChatSessionMode } from '$lib/server/db/brain.schema'
+import { resolveSecureReferences } from '$lib/server/facts/secure-values'
 import { agentChat } from '$lib/server/llm/agent-loop'
 
 function collectErrorMessages(input: unknown): string[] {
@@ -223,12 +224,17 @@ export async function handleAgentChatPost(
           ),
         )
 
-        const responseText = finalAnswerText(result.response, intermediateSteps)
+        // The stored turn is what the next turn's model reads: it keeps a secure-value reference as
+        // the token. Only the response that leaves the server shows the user the value.
+        const storedText = finalAnswerText(result.response, intermediateSteps)
+        const responseText = await tenantUserAsyncLocal.run(user.id, () =>
+          appDbAsyncLocal.run(scopedDb, () => resolveSecureReferences(user.id, storedText)),
+        )
         const { messageId } = await persistStreamedAssistantTurn({
           db: scopedDb,
           sessionId,
           userId: user.id,
-          responseText,
+          responseText: storedText,
           intermediateSteps,
         })
         sendTerminal({
@@ -303,7 +309,9 @@ export async function handleAgentChatPost(
     })
 
     return json({
-      response: result.answer,
+      // result.answer and the history are the stored form (secure-value references as tokens);
+      // the value is substituted only into the response that leaves the server
+      response: await resolveSecureReferences(user.id, result.answer),
       history: result.messages.filter((m) => m.role !== 'system'),
       sessionId,
       messageId: result.messageId,

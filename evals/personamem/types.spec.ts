@@ -38,6 +38,38 @@ describe('answerRowSchema', () => {
     ).toThrow(/createdAt/)
   })
 
+  it('knows what a retrieved item is: a thought, a note or a fact; rows written before facts have no kind', () => {
+    for (const kind of ['thought', 'note', 'fact'] as const) {
+      const ok = answerRowSchema.parse({
+        ...base,
+        retrieved: [
+          {
+            id: 'x1',
+            kind,
+            normalizedText: 'Fact about the user: swims',
+            score: 0.5,
+            createdAt: '2026-03-02T09:00:00.000Z',
+          },
+        ],
+      })
+      expect(ok.retrieved![0]!.kind).toBe(kind)
+    }
+    expect(() =>
+      answerRowSchema.parse({
+        ...base,
+        retrieved: [
+          {
+            id: 'x1',
+            kind: 'summary',
+            normalizedText: 'a',
+            score: 0.5,
+            createdAt: '2026-03-02T09:00:00.000Z',
+          },
+        ],
+      }),
+    ).toThrow()
+  })
+
   it('carries the cited ids next to the context items, as strings only', () => {
     const ok = answerRowSchema.parse({ ...base, retrieved: [], citedIds: ['t1', 't2'] })
     expect(ok.citedIds).toEqual(['t1', 't2'])

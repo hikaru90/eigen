@@ -1,8 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { POST } from './+server'
 
-const { agentChatMock, getDbMock, appSqlMock, createScopedDrizzleMock } = vi.hoisted(() => ({
+const {
+  agentChatMock,
+  getDbMock,
+  appSqlMock,
+  createScopedDrizzleMock,
+  resolveSecureReferencesMock,
+} = vi.hoisted(() => ({
   agentChatMock: vi.fn(),
+  resolveSecureReferencesMock: vi.fn(),
   getDbMock: vi.fn(),
   appSqlMock: {
     reserve: vi.fn(),
@@ -10,6 +17,9 @@ const { agentChatMock, getDbMock, appSqlMock, createScopedDrizzleMock } = vi.hoi
   createScopedDrizzleMock: vi.fn(),
 }))
 
+vi.mock('$lib/server/facts/secure-values', () => ({
+  resolveSecureReferences: resolveSecureReferencesMock,
+}))
 vi.mock('$lib/server/db', () => ({
   getDb: getDbMock,
   appSql: appSqlMock,
@@ -85,7 +95,7 @@ function buildMainDb() {
   whereForSelect.mockImplementationOnce(() => thenableWhere([]))
   whereForSelect.mockImplementation(() => thenableWhere([{ count: 1 }]))
 
-  return { insert, select, update }
+  return { insert, select, update, insertValues }
 }
 
 function buildStreamDb() {
@@ -118,6 +128,8 @@ describe('POST /api/chat', () => {
     getDbMock.mockReset()
     appSqlMock.reserve.mockReset()
     createScopedDrizzleMock.mockReset()
+    resolveSecureReferencesMock.mockReset()
+    resolveSecureReferencesMock.mockImplementation(async (_userId: string, text: string) => text)
     getDbMock.mockReturnValue(buildMainDb())
     const streamDb = buildStreamDb()
     createScopedDrizzleMock.mockReturnValue(streamDb)
@@ -287,6 +299,103 @@ describe('POST /api/chat', () => {
     const done = lines.find((l) => l.type === 'done')
     expect(done?.response).toBe('To cook salmon, whisk miso glaze and broil. [salmon-id]')
     expect(insertMock.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  describe('secure values (docs/planning/user-facts-layer.md, Q3): substituted only in the response that leaves the server', () => {
+    const SECURE_ID = '11111111-1111-4111-8111-111111111111'
+    const TOKEN = `[secure:${SECURE_ID}]`
+    const VALUE = 'B-XY 4711'
+    const composed = `Answer: Your licence plate is ${TOKEN}.\nEvidence:\n- Plate on file [f_plate]\nUnknown:\n- none`
+
+    function resolvesPlate() {
+      resolveSecureReferencesMock.mockImplementation(async (_userId: string, text: string) =>
+        text.split(TOKEN).join(VALUE),
+      )
+    }
+
+    it('streaming: done.response carries the value, while the stored turn and the agent messages keep the token', async () => {
+      resolvesPlate()
+      const messages = [{ role: 'assistant', content: `Answer: Your licence plate is ${TOKEN}.` }]
+      agentChatMock.mockResolvedValue({ response: composed, messages })
+      const valuesMock = vi.fn().mockReturnValue({
+        returning: vi.fn().mockResolvedValue([{ id: ASSISTANT_MSG_ID }]),
+      })
+      createScopedDrizzleMock.mockReturnValue({
+        insert: vi.fn().mockReturnValue({ values: valuesMock }),
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) }),
+        }),
+      })
+
+      const res = await POST({
+        locals: { user: { id: 'u1' } },
+        request: ndjsonRequest({ message: "what's my licence plate?" }),
+      } as never)
+      const lines = await readNdjsonLines(res)
+      const done = lines.find((l) => l.type === 'done')
+
+      expect(done?.response).toBe(`Your licence plate is ${VALUE}.`)
+      expect(resolveSecureReferencesMock).toHaveBeenCalledTimes(1)
+      expect(resolveSecureReferencesMock).toHaveBeenCalledWith(
+        'u1',
+        `Your licence plate is ${TOKEN}.`,
+      )
+      // persisted history is what the next turn's model reads: references only
+      const persisted = JSON.stringify(valuesMock.mock.calls)
+      expect(persisted).toContain(TOKEN)
+      expect(persisted).not.toContain(VALUE)
+      expect(JSON.stringify(messages)).not.toContain(VALUE)
+    })
+
+    it('JSON mode: response carries the value, the stored answer and the history keep the token', async () => {
+      resolvesPlate()
+      const messages = [{ role: 'assistant', content: `Answer: Your licence plate is ${TOKEN}.` }]
+      agentChatMock.mockResolvedValue({ response: composed, messages })
+      const main = buildMainDb()
+      getDbMock.mockReturnValue(main)
+
+      const res = await POST({
+        locals: { user: { id: 'u1' } },
+        request: jsonRequest({ message: "what's my licence plate?" }),
+      } as never)
+      const body = await res.json()
+
+      expect(body.response).toBe(`Your licence plate is ${VALUE}.`)
+      expect(JSON.stringify(body.history)).toContain(TOKEN)
+      expect(JSON.stringify(body.history)).not.toContain(VALUE)
+      const stored = JSON.stringify(main.insertValues.mock.calls)
+      expect(stored).toContain(TOKEN)
+      expect(stored).not.toContain(VALUE)
+    })
+
+    it('a token whose value is gone reaches the user as the neutral text, not the token', async () => {
+      resolveSecureReferencesMock.mockImplementation(async (_userId: string, text: string) =>
+        text.split(TOKEN).join('[no longer stored]'),
+      )
+      agentChatMock.mockResolvedValue({ response: composed, messages: [] })
+      const res = await POST({
+        locals: { user: { id: 'u1' } },
+        request: ndjsonRequest({ message: "what's my licence plate?" }),
+      } as never)
+      const done = (await readNdjsonLines(res)).find((l) => l.type === 'done')
+      expect(done?.response).toBe('Your licence plate is [no longer stored].')
+    })
+
+    it('an error during substitution is an error turn, never a response with the raw token', async () => {
+      resolveSecureReferencesMock.mockRejectedValue(new Error('secure lookup failed'))
+      agentChatMock.mockResolvedValue({ response: composed, messages: [] })
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const res = await POST({
+        locals: { user: { id: 'u1' } },
+        request: ndjsonRequest({ message: "what's my licence plate?" }),
+      } as never)
+      const lines = await readNdjsonLines(res)
+      expect(lines.some((l) => l.type === 'done')).toBe(false)
+      const last = lines[lines.length - 1]!
+      expect(last.type).toBe('error')
+      expect(last.error).toBe('secure lookup failed')
+      consoleSpy.mockRestore()
+    })
   })
 
   it('streams ndjson error line when agentChat throws', async () => {
