@@ -38,6 +38,7 @@ const {
   graphOnlySearchByQueryMock,
   dbWhereMock,
   loadTemporalContextMock,
+  expandPersonalizationQueriesMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   searchTextFilesMock: vi.fn(),
@@ -53,6 +54,7 @@ const {
   graphOnlySearchByQueryMock: vi.fn(),
   dbWhereMock: vi.fn(),
   loadTemporalContextMock: vi.fn(),
+  expandPersonalizationQueriesMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/retrieval/service', () => ({
@@ -61,6 +63,10 @@ vi.mock('$lib/server/retrieval/service', () => ({
 
 vi.mock('$lib/server/text-files/service', () => ({
   searchTextFiles: searchTextFilesMock,
+}))
+
+vi.mock('$lib/server/retrieval/expand-personalization-queries', () => ({
+  expandPersonalizationQueries: expandPersonalizationQueriesMock,
 }))
 
 vi.mock('$lib/server/retrieval/classify-query-intent', () => ({
@@ -413,6 +419,7 @@ describe('composeAnswer', () => {
     timeWindow: null,
     durationUnit: null,
     comparativeOrdering: false,
+    personalization: false,
   }
 
   beforeEach(() => {
@@ -623,6 +630,108 @@ describe('composeAnswer', () => {
       onBelowFloor: expect.any(Function),
     })
     expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1)
+  })
+
+  describe('personalization expansion (S3)', () => {
+    const advice = 'What should I eat before my morning run?'
+    const subQueries = ['foods the user avoids', 'health conditions affecting energy']
+
+    it("fact questions take today's path: no expansion call, no extra embedding, one search each", async () => {
+      const result = await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
+
+      expect(expandPersonalizationQueriesMock).not.toHaveBeenCalled()
+      expect(createThoughtEmbeddingsMock).not.toHaveBeenCalled()
+      expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1)
+      expect(searchThoughtsMock).toHaveBeenCalledTimes(1)
+      expect(searchThoughtsMock.mock.calls[0]![0]).not.toHaveProperty('expansions')
+      expect(searchTextFilesMock).toHaveBeenCalledTimes(1)
+      // the only LLM call from compose itself is the answer
+      expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
+      expect(result.expansionQueries).toBeUndefined()
+    })
+
+    it('expands only when personalization is true, with the question text as the only input', async () => {
+      classifyQueryIntentMock.mockResolvedValue({ ...localIntent, personalization: true })
+      expandPersonalizationQueriesMock.mockResolvedValue(subQueries)
+
+      const result = await composeAnswer({
+        userId: 'u1',
+        question: advice,
+        retrievalQuery: 'unrelated probe text',
+      })
+
+      expect(expandPersonalizationQueriesMock).toHaveBeenCalledTimes(1)
+      expect(expandPersonalizationQueriesMock).toHaveBeenCalledWith({
+        userId: 'u1',
+        question: advice,
+      })
+      expect(result.expansionQueries).toEqual(subQueries)
+    })
+
+    it('embeds the sub-queries and hands thoughts one query-embedding pair per sub-query', async () => {
+      classifyQueryIntentMock.mockResolvedValue({ ...localIntent, personalization: true })
+      expandPersonalizationQueriesMock.mockResolvedValue(subQueries)
+
+      await composeAnswer({ userId: 'u1', question: advice })
+
+      expect(createThoughtEmbeddingsMock).toHaveBeenCalledWith('u1', subQueries)
+      expect(searchThoughtsMock).toHaveBeenCalledTimes(1)
+      expect(searchThoughtsMock.mock.calls[0]![0]).toEqual(
+        expect.objectContaining({
+          query: advice,
+          expansions: subQueries.map((query) => ({
+            query,
+            embedding: new Array(1536).fill(0.1),
+          })),
+        }),
+      )
+    })
+
+    it('searches notes for the question and every sub-query and merges by reciprocal rank within the notes budget', async () => {
+      classifyQueryIntentMock.mockResolvedValue({ ...localIntent, personalization: true })
+      expandPersonalizationQueriesMock.mockResolvedValue(subQueries)
+      const byQuery: Record<string, ReturnType<typeof noteHit>[]> = {
+        [advice]: [noteHit({ id: 'n1' }), noteHit({ id: 'n2' })],
+        [subQueries[0]!]: [noteHit({ id: 'n3' }), noteHit({ id: 'n2' })],
+        [subQueries[1]!]: [noteHit({ id: 'n3' }), noteHit({ id: 'n4' })],
+      }
+      searchTextFilesMock.mockImplementation(
+        async (_u: string, arg: { query: string }) => byQuery[arg.query],
+      )
+
+      const result = await composeAnswer({ userId: 'u1', question: advice })
+
+      expect(searchTextFilesMock).toHaveBeenCalledTimes(3)
+      expect(
+        searchTextFilesMock.mock.calls.map(([, arg]) => (arg as { query: string }).query),
+      ).toEqual([advice, ...subQueries])
+      const noteIds = result.context.filter((c) => c.category === 'note').map((c) => c.id)
+      expect(noteIds).toEqual(['n3', 'n2', 'n1', 'n4'])
+    })
+
+    it('never exceeds the notes budget when sub-queries add many notes', async () => {
+      classifyQueryIntentMock.mockResolvedValue({ ...localIntent, personalization: true })
+      expandPersonalizationQueriesMock.mockResolvedValue(subQueries)
+      let n = 0
+      searchTextFilesMock.mockImplementation(async () =>
+        Array.from({ length: 5 }, () => noteHit({ id: `n${n++}` })),
+      )
+
+      const result = await composeAnswer({ userId: 'u1', question: advice })
+
+      expect(result.context.filter((c) => c.category === 'note')).toHaveLength(5)
+    })
+
+    it('fails loud when expansion fails (no silent fall back to the plain question)', async () => {
+      classifyQueryIntentMock.mockResolvedValue({ ...localIntent, personalization: true })
+      expandPersonalizationQueriesMock.mockRejectedValue(new Error('expansion failed'))
+
+      await expect(composeAnswer({ userId: 'u1', question: advice })).rejects.toThrow(
+        'expansion failed',
+      )
+      expect(searchThoughtsMock).not.toHaveBeenCalled()
+      expect(searchTextFilesMock).not.toHaveBeenCalled()
+    })
   })
 
   describe('eval relevance floor override', () => {
@@ -952,6 +1061,7 @@ describe('composeAnswer', () => {
       timeWindow: null,
       durationUnit: 'days',
       comparativeOrdering: false,
+      personalization: false,
     })
     fetchTemporalEventSeedsMock.mockResolvedValue({
       seeds: [
@@ -998,6 +1108,7 @@ describe('composeAnswer', () => {
       timeWindow: null,
       durationUnit: 'days',
       comparativeOrdering: false,
+      personalization: false,
     })
     fetchTemporalEventSeedsMock.mockResolvedValue({
       seeds: [
@@ -1067,6 +1178,7 @@ describe('composeAnswer', () => {
       timeWindow: null,
       durationUnit: null,
       comparativeOrdering: false,
+      personalization: false,
     })
     fetchTemporalEventSeedsMock.mockResolvedValue({
       seeds: [

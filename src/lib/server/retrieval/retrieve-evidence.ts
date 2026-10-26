@@ -20,6 +20,10 @@ import {
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import { matchCanonicalEntitiesByEmbedding } from '$lib/server/memory/entity-resolution'
 import { activeThoughtLifecycleCondition } from '$lib/server/memory/thought-lifecycle-filter'
+import {
+  fetchExpansionCandidates,
+  type ExpansionCandidate,
+} from '$lib/server/retrieval/expansion-candidates'
 import type { RelevantCommunitySummary } from '$lib/server/retrieval/global'
 import { lexicalSearch } from '$lib/server/retrieval/lexical'
 import { createPhaseTimer, logRetrievalPhaseTiming } from '$lib/server/retrieval/phase-timing'
@@ -28,7 +32,7 @@ import {
   shouldSkipRerank,
   type RerankCandidate,
 } from '$lib/server/retrieval/reranker'
-import { normalizeLexicalRank } from '$lib/server/retrieval/rrf-scoring'
+import { normalizeLexicalRank, reciprocalRankFusion } from '$lib/server/retrieval/rrf-scoring'
 import type { RetrievalResult } from '$lib/server/retrieval/service'
 import {
   filterTemporalEvents,
@@ -40,6 +44,11 @@ import {
   type TemporalQueryIntent,
   type TemporalSearchHit,
 } from '$lib/server/retrieval/temporal'
+import {
+  fetchThoughtAnn,
+  THOUGHT_ANN_LIMIT,
+  toVectorLiteral,
+} from '$lib/server/retrieval/thought-ann'
 
 /** Optional bag filled by retrieveEvidence so callers can reuse ANN side-channels. */
 export type RetrieveEvidenceExtras = {
@@ -47,7 +56,6 @@ export type RetrieveEvidenceExtras = {
   temporalSeeds: TemporalEventSeed[]
 }
 
-const THOUGHT_ANN_LIMIT = 30
 const COMMUNITY_ANN_LIMIT = 12
 const ENTITY_ANN_LIMIT = 20
 const NEIGHBOR_PER_SEED = 2
@@ -93,10 +101,6 @@ async function bumpAccessAsync(userId: string, ids: string[]): Promise<void> {
       message: err instanceof Error ? err.message : String(err),
     })
   }
-}
-
-function toVectorLiteral(vector: number[]): string {
-  return `[${vector.join(',')}]`
 }
 
 function cosineSimilarityFromDistance(distance: number): number {
@@ -147,12 +151,26 @@ function directRelevanceMultiplier(candidate: ScoredCandidate): number {
 
 const LEXICAL_RERANK_RESERVE = 5
 
+/**
+ * The rerank pool: the lexical reserve first, then the best by score — or, when `fusedOrder`
+ * is given (personalization expansion), by that fused order. `reserveEligible` limits which
+ * entries may take a lexical-reserve slot.
+ */
 function buildRerankPool<T extends { candidate: ScoredCandidate; score: number }>(
   scored: T[],
+  options?: { fusedOrder: string[]; reserveEligible: (entry: T) => boolean },
 ): T[] {
-  const byScore = [...scored].sort((a, b) => b.score - a.score)
-  const byLexical = [...scored]
-    .filter((e) => e.candidate.sources.has('lexical'))
+  const byId = new Map(scored.map((entry) => [entry.candidate.id, entry]))
+  const byScore = options
+    ? options.fusedOrder.flatMap((id) => {
+        const entry = byId.get(id)
+        return entry ? [entry] : []
+      })
+    : [...scored].sort((a, b) => b.score - a.score)
+  const byLexical = scored
+    .filter(
+      (e) => e.candidate.sources.has('lexical') && (options ? options.reserveEligible(e) : true),
+    )
     .sort((a, b) => (b.candidate.lexicalScore ?? 0) - (a.candidate.lexicalScore ?? 0))
 
   const pool: T[] = []
@@ -170,6 +188,47 @@ function buildRerankPool<T extends { candidate: ScoredCandidate; score: number }
     seen.add(entry.candidate.id)
   }
   return pool
+}
+
+/**
+ * Personalization merge: the original query's ranking (its weighted-merge score order) and each
+ * sub-query's hybrid ranking are fused by reciprocal rank, deduplicated, into the usual
+ * RERANK_POOL budget. A thought found only through a sub-query is scored by the same formula
+ * from that sub-query's similarity; a thought found by several keeps its best score.
+ */
+function buildExpansionRerankPool<T extends { candidate: ScoredCandidate; score: number }>(params: {
+  scored: T[]
+  expansionLists: ExpansionCandidate[][]
+  scoreCandidate: (candidate: ScoredCandidate) => T | null
+}): T[] {
+  const originalIds = new Set(params.scored.map((e) => e.candidate.id))
+  const best = new Map(params.scored.map((e) => [e.candidate.id, e]))
+  const subRankings = params.expansionLists.map((list) => {
+    const ids: string[] = []
+    for (const hit of list) {
+      const sources = new Set<CandidateSource>()
+      if (hit.vectorDistance !== undefined) sources.add('vector')
+      if (hit.lexicalScore !== undefined) sources.add('lexical')
+      const entry = params.scoreCandidate({
+        id: hit.id,
+        sources,
+        vectorDistance: hit.vectorDistance,
+        lexicalScore: hit.lexicalScore,
+      })
+      if (!entry) continue
+      ids.push(hit.id)
+      const prior = best.get(hit.id)
+      if (!prior || entry.score > prior.score) best.set(hit.id, entry)
+    }
+    return ids
+  })
+  const originalRanking = [...params.scored]
+    .sort((a, b) => b.score - a.score)
+    .map((e) => e.candidate.id)
+  return buildRerankPool([...best.values()], {
+    fusedOrder: reciprocalRankFusion([originalRanking, ...subRankings]),
+    reserveEligible: (entry) => originalIds.has(entry.candidate.id),
+  })
 }
 
 function prioritizeMergeCandidates(candidates: Map<string, ScoredCandidate>): ScoredCandidate[] {
@@ -273,6 +332,12 @@ export async function retrieveEvidence(params: {
    * composeAnswer (and similar) can reuse them without a second HNSW round-trip.
    */
   extrasOut?: RetrieveEvidenceExtras
+  /**
+   * Personalization expansion: LLM-written sub-queries with their query embeddings. Each runs
+   * the hybrid thought channels; its ranking merges with the original query's by reciprocal
+   * rank into the same rerank pool and top-K budget. Reranking still judges `query`.
+   */
+  expansions?: Array<{ query: string; embedding: number[] }>
 }): Promise<RetrievalResult[]> {
   const timer = createPhaseTimer()
   const limit = Math.max(1, Math.min(params.topK ?? 12, 100))
@@ -281,30 +346,17 @@ export async function retrieveEvidence(params: {
   timer.mark('embed')
   const queryEmbedding =
     params.queryEmbedding ?? (await createThoughtEmbedding(params.userId, params.query))
-  const vectorLiteral = toVectorLiteral(queryEmbedding)
-  const vectorDistance = sql<number>`${thought.embedding} <=> ${vectorLiteral}::vector`
 
   timer.mark('vector')
   timer.mark('lexical')
   timer.mark('entity')
 
   const db = getDb()
-  const vectorQuery = db
-    .select({
-      id: thought.id,
-      distance: vectorDistance,
-    })
-    .from(thought)
-    .where(
-      and(
-        eq(thought.userId, params.userId),
-        activeThoughtLifecycleCondition(),
-        isNotNull(thought.embedding),
-        authorFilter ? eq(thought.author, authorFilter) : undefined,
-      ),
-    )
-    .orderBy(vectorDistance)
-    .limit(THOUGHT_ANN_LIMIT)
+  const vectorQuery = fetchThoughtAnn({
+    userId: params.userId,
+    queryEmbedding,
+    authorFilter,
+  })
 
   const lexicalQuery = lexicalSearch({
     userId: params.userId,
@@ -343,15 +395,34 @@ export async function retrieveEvidence(params: {
       }).then((result) => result.seeds)
     : Promise.resolve([] as TemporalEventSeed[])
 
-  const [vectorRows, lexicalRows, entityMatches, communities, temporalHits, temporalSeeds] =
-    await Promise.all([
-      vectorQuery,
-      lexicalQuery,
-      entityQuery,
-      communityQuery,
-      temporalQuery,
-      temporalSeedQuery,
-    ])
+  const expansionQueries = Promise.all(
+    (params.expansions ?? []).map((e) =>
+      fetchExpansionCandidates({
+        userId: params.userId,
+        query: e.query,
+        queryEmbedding: e.embedding,
+        authorFilter,
+      }),
+    ),
+  )
+
+  const [
+    vectorRows,
+    lexicalRows,
+    entityMatches,
+    communities,
+    temporalHits,
+    temporalSeeds,
+    expansionLists,
+  ] = await Promise.all([
+    vectorQuery,
+    lexicalQuery,
+    entityQuery,
+    communityQuery,
+    temporalQuery,
+    temporalSeedQuery,
+    expansionQueries,
+  ])
 
   if (params.extrasOut) {
     params.extrasOut.communityThemes = communities.slice(0, 6).map((c) => ({
@@ -492,7 +563,8 @@ export async function retrieveEvidence(params: {
   }
 
   const candidateList = prioritizeMergeCandidates(candidates)
-  const candidateIds = candidateList.map((c) => c.id)
+  const expansionCandidateIds = expansionLists.flatMap((list) => list.map((c) => c.id))
+  const candidateIds = [...new Set([...candidateList.map((c) => c.id), ...expansionCandidateIds])]
   if (candidateIds.length === 0) {
     logRetrievalPhaseTiming({
       userId: params.userId,
@@ -537,44 +609,48 @@ export async function retrieveEvidence(params: {
 
   timer.mark('fuse')
   const communityCounts = countCandidatesPerCommunity(rows)
-  const scored = candidateList
-    .map((c) => {
-      const row = rowById.get(c.id)
-      if (!row) return null
+  const scoreCandidate = (c: ScoredCandidate) => {
+    const row = rowById.get(c.id)
+    if (!row) return null
 
-      const direct = directRelevanceMultiplier(c)
-      const thoughtSim = computeThoughtSimilarity(c)
-      const communitySim =
-        c.communityDistance !== undefined
-          ? cosineSimilarityFromDistance(c.communityDistance) * direct
-          : 0
-      const entitySim =
-        c.entityDistance !== undefined ? cosineSimilarityFromDistance(c.entityDistance) * direct : 0
+    const direct = directRelevanceMultiplier(c)
+    const thoughtSim = computeThoughtSimilarity(c)
+    const communitySim =
+      c.communityDistance !== undefined
+        ? cosineSimilarityFromDistance(c.communityDistance) * direct
+        : 0
+    const entitySim =
+      c.entityDistance !== undefined ? cosineSimilarityFromDistance(c.entityDistance) * direct : 0
 
-      const temporalBoost = temporalEnabled && c.sources.has('temporal') ? TEMPORAL_BOOST : 0
+    const temporalBoost = temporalEnabled && c.sources.has('temporal') ? TEMPORAL_BOOST : 0
 
-      const score =
-        SCORE_WEIGHTS.thoughtSim * thoughtSim +
-        SCORE_WEIGHTS.communitySim * communitySim +
-        SCORE_WEIGHTS.entitySim * entitySim +
-        SCORE_WEIGHTS.centrality * (row.entityCentralityMax ?? 0) * direct +
-        SCORE_WEIGHTS.specificity * (row.specificityScore ?? 0) * direct +
-        SCORE_WEIGHTS.salience * Math.min((row.salienceScore ?? 1) / SALIENCE_MAX, 1) * direct +
-        SCORE_WEIGHTS.recency * (row.recencyBucket ?? 0) * direct -
-        redundancyPenalty(c, row, communityCounts) +
-        temporalBoost
+    const score =
+      SCORE_WEIGHTS.thoughtSim * thoughtSim +
+      SCORE_WEIGHTS.communitySim * communitySim +
+      SCORE_WEIGHTS.entitySim * entitySim +
+      SCORE_WEIGHTS.centrality * (row.entityCentralityMax ?? 0) * direct +
+      SCORE_WEIGHTS.specificity * (row.specificityScore ?? 0) * direct +
+      SCORE_WEIGHTS.salience * Math.min((row.salienceScore ?? 1) / SALIENCE_MAX, 1) * direct +
+      SCORE_WEIGHTS.recency * (row.recencyBucket ?? 0) * direct -
+      redundancyPenalty(c, row, communityCounts) +
+      temporalBoost
 
-      return {
-        candidate: c,
-        row,
-        score,
-        vectorScore: thoughtSim,
-        graphScore: entitySim + (row.entityCentralityMax ?? 0) * 0.5,
-      }
-    })
-    .filter((e): e is NonNullable<typeof e> => e !== null)
+    return {
+      candidate: c,
+      row,
+      score,
+      vectorScore: thoughtSim,
+      graphScore: entitySim + (row.entityCentralityMax ?? 0) * 0.5,
+    }
+  }
+  type ScoredEntry = NonNullable<ReturnType<typeof scoreCandidate>>
 
-  const rerankPool = buildRerankPool(scored)
+  const scored = candidateList.map(scoreCandidate).filter((e): e is ScoredEntry => e !== null)
+
+  const rerankPool =
+    expansionLists.length === 0
+      ? buildRerankPool(scored)
+      : buildExpansionRerankPool({ scored, expansionLists, scoreCandidate })
 
   timer.mark('decrypt')
   const decrypted = await Promise.all(

@@ -27,13 +27,18 @@ export type QueryIntent = {
   durationUnit: DurationUnit | null
   /** True when the question compares which of two+ named alternatives came first (A or B). */
   comparativeOrdering: boolean
+  /**
+   * True when a good answer depends on who the user is (preferences, health, habits, constraints,
+   * circumstances) rather than on one stored fact — triggers retrieval query expansion.
+   */
+  personalization: boolean
 }
 
 export const QUERY_INTENT_CLASSIFIER_PROMPT = [
   'You classify questions for a personal memory assistant. Return JSON only — no markdown fences.',
   '',
   'Return exactly one object with these keys:',
-  '{"scope":"global"|"local","temporal":boolean,"kind":"ordering"|"multi_ordering"|"duration"|"count"|"lookback"|"span"|"absolute"|"none","entityHints":string[],"durationUnit":"days"|"weeks"|"months"|null,"comparativeOrdering":boolean}',
+  '{"scope":"global"|"local","temporal":boolean,"kind":"ordering"|"multi_ordering"|"duration"|"count"|"lookback"|"span"|"absolute"|"none","entityHints":string[],"durationUnit":"days"|"weeks"|"months"|null,"comparativeOrdering":boolean,"personalization":boolean}',
   '',
   'scope global — Corpus-wide sensemaking: themes, patterns, self-profile synthesis. Requires integrating many memories.',
   'scope local — Specific fact lookup answerable from one or a few stored thoughts.',
@@ -53,6 +58,8 @@ export const QUERY_INTENT_CLASSIFIER_PROMPT = [
   'entityHints — Verbatim product/entity/event names copied from the question in the same language (quoted names, "X or Y" / "X oder Y" alternatives, "before …" / "nach …" anchors). Include ALL endpoints for duration, span, and multi_ordering. For count, include the anchor event name. Empty array if none.',
   'durationUnit — Always "days", "weeks", or "months" (English keys) when the question asks for that unit in any language (e.g. German "Tage" → "days", "Wochen" → "weeks", "Monate" → "months"); null otherwise.',
   'comparativeOrdering — true when the question asks which of two or more named alternatives came first (e.g. "bike or car", "Fahrrad oder Auto", "Samsung or Dell"). false for "what was the first issue after …" / "was war das erste Problem nach …" and other fact-after-anchor lookups (use kind absolute).',
+  'personalization true — A good answer depends on who the user is (their preferences, health, habits, constraints, circumstances, past experiences) rather than on one stored fact: advice, recommendations, suggestions, "what should I …", "which would suit me", help choosing or planning something for themselves.',
+  "personalization false — The answer is a fact lookup, a recall of a specific event or detail, a timeline question, general knowledge, or about a third party, and does not depend on the user's own profile.",
   'timeWindowStart/timeWindowEnd — Optional ISO-8601 UTC strings when the question implies a calendar window. Leave both keys out entirely when unknown; never use placeholder text.',
   '',
   'Questions may be in any language. Classify by intent, not by keywords or language.',
@@ -69,6 +76,10 @@ export const QUERY_INTENT_CLASSIFIER_PROMPT = [
   '- "Which task did I complete first, fixing the fence or trimming the goats\' hooves?" → kind ordering, entityHints ["fixing the fence","trimming the goats\' hooves"], comparativeOrdering true.',
   '- "What was the first issue I had with my new car after its first service?" → kind absolute, entityHints include anchor events as needed, comparativeOrdering false.',
   '- "Which pair of shoes did I clean last month?" → kind absolute, temporal false or kind absolute with temporal true if date matters, comparativeOrdering false.',
+  '- "What should I eat before my morning run?" → personalization true (the answer depends on the user\'s health, diet and habits), kind none.',
+  '- "Which hobby could I pick up this winter?" → personalization true.',
+  '- "What is the name of my dentist?" → personalization false (one stored fact), kind absolute or none.',
+  '- "How many days between my move and my new job?" → personalization false.',
   'German examples:',
   '- "Welches Gerät habe ich zuerst bekommen, das Samsung Galaxy S22 oder den Dell XPS 13?" → kind ordering, comparativeOrdering true, entityHints ["Samsung Galaxy S22","Dell XPS 13"].',
   '- "Welches Fahrzeug habe ich im Februar zuerst gewartet, das Fahrrad oder das Auto?" → kind ordering, entityHints ["Fahrrad","Auto"].',
@@ -129,7 +140,20 @@ export function parseQueryIntentResponse(text: string): QueryIntent {
   if (typeof comparativeOrdering !== 'boolean') {
     throw new Error('query intent classifier: comparativeOrdering must be a boolean')
   }
-  return { scope, temporal, kind, entityHints, timeWindow, durationUnit, comparativeOrdering }
+  const personalization = obj.personalization
+  if (typeof personalization !== 'boolean') {
+    throw new Error('query intent classifier: personalization must be a boolean')
+  }
+  return {
+    scope,
+    temporal,
+    kind,
+    entityHints,
+    timeWindow,
+    durationUnit,
+    comparativeOrdering,
+    personalization,
+  }
 }
 
 export async function classifyQueryIntent(params: {

@@ -36,6 +36,7 @@ export async function searchThoughts(params: {
   temporalIntent?: import('$lib/server/retrieval/temporal').TemporalQueryIntent | null
   authorFilter?: MemoryAuthor
   extrasOut?: import('$lib/server/retrieval/retrieve-evidence').RetrieveEvidenceExtras
+  expansions?: Array<{ query: string; embedding: number[] }>
 }): Promise<RetrievalResult[]> {
   return retrieveEvidence({
     userId: params.userId,
@@ -45,6 +46,7 @@ export async function searchThoughts(params: {
     temporalIntent: params.temporalIntent,
     authorFilter: params.authorFilter,
     extrasOut: params.extrasOut,
+    expansions: params.expansions,
   })
 }
 

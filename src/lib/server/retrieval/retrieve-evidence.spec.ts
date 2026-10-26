@@ -10,6 +10,7 @@ const {
   decryptTenantValueMock,
   isTemporalQueryMock,
   filterTemporalEventsMock,
+  fetchExpansionCandidatesMock,
 } = vi.hoisted(() => ({
   createThoughtEmbeddingMock: vi.fn(),
   getDbMock: vi.fn(),
@@ -19,6 +20,7 @@ const {
   decryptTenantValueMock: vi.fn(),
   isTemporalQueryMock: vi.fn(),
   filterTemporalEventsMock: vi.fn(),
+  fetchExpansionCandidatesMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/llm/embedding', () => ({
@@ -27,6 +29,10 @@ vi.mock('$lib/server/llm/embedding', () => ({
 
 vi.mock('$lib/server/db', () => ({
   getDb: getDbMock,
+}))
+
+vi.mock('$lib/server/retrieval/expansion-candidates', () => ({
+  fetchExpansionCandidates: fetchExpansionCandidatesMock,
 }))
 
 vi.mock('$lib/server/retrieval/lexical', () => ({
@@ -112,6 +118,7 @@ describe('retrieveEvidence', () => {
     matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([])
     isTemporalQueryMock.mockReturnValue(false)
     filterTemporalEventsMock.mockResolvedValue([])
+    fetchExpansionCandidatesMock.mockResolvedValue([])
     rerankCandidatesMock.mockImplementation(async (_u, _q, c) => c)
     decryptTenantValueMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
       Promise.resolve(ciphertext),
@@ -482,5 +489,115 @@ describe('retrieveEvidence', () => {
       expect.objectContaining({ message: 'salience down' }),
     )
     warnSpy.mockRestore()
+  })
+})
+
+describe('retrieveEvidence with personalization expansions', () => {
+  const row = (id: string) => ({ ...thoughtRow, id, rerankSnippet: `snippet ${id}` })
+  const expansions = [
+    { query: 'foods the user avoids', embedding: [0.3, 0.4] },
+    { query: 'health conditions affecting energy', embedding: [0.5, 0.6] },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    createThoughtEmbeddingMock.mockResolvedValue([0.1, 0.2])
+    lexicalSearchMock.mockResolvedValue([])
+    matchCanonicalEntitiesByEmbeddingMock.mockResolvedValue([])
+    isTemporalQueryMock.mockReturnValue(false)
+    filterTemporalEventsMock.mockResolvedValue([])
+    fetchExpansionCandidatesMock.mockResolvedValue([])
+    rerankCandidatesMock.mockImplementation(async (_u, _q, c) => c)
+    decryptTenantValueMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
+      Promise.resolve(ciphertext),
+    )
+  })
+
+  it('runs each sub-query through hybrid candidate retrieval with its own embedding', async () => {
+    getDbMock.mockReturnValue(
+      makeSequentialDb([[{ id: 't1', distance: 0.1 }], [], [], [row('t1')]]),
+    )
+
+    await retrieveEvidence({
+      userId: 'u1',
+      query: 'What should I eat?',
+      queryEmbedding: [0.1, 0.2],
+      expansions,
+    })
+
+    expect(fetchExpansionCandidatesMock).toHaveBeenCalledTimes(2)
+    expect(fetchExpansionCandidatesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'u1',
+        query: 'foods the user avoids',
+        queryEmbedding: [0.3, 0.4],
+      }),
+    )
+    expect(createThoughtEmbeddingMock).not.toHaveBeenCalled()
+  })
+
+  it('merges original and sub-query rankings by reciprocal rank, deduplicated, before rerank', async () => {
+    fetchExpansionCandidatesMock.mockImplementation(async ({ query }: { query: string }) =>
+      query === 'foods the user avoids'
+        ? [
+            { id: 't2', vectorDistance: 0.2 },
+            { id: 't1', vectorDistance: 0.25 },
+          ]
+        : [
+            { id: 't2', vectorDistance: 0.3 },
+            { id: 't3', vectorDistance: 0.35 },
+          ],
+    )
+    getDbMock.mockReturnValue(
+      makeSequentialDb([[{ id: 't1', distance: 0.1 }], [], [], [row('t1'), row('t2'), row('t3')]]),
+    )
+
+    const result = await retrieveEvidence({
+      userId: 'u1',
+      query: 'What should I eat?',
+      queryEmbedding: [0.1, 0.2],
+      expansions,
+      topK: 10,
+    })
+
+    // t2 is found by both sub-queries, t1 by the original and one sub-query, t3 by one.
+    expect(result.map((r) => r.id)).toEqual(['t2', 't1', 't3'])
+    const [, rerankQuery, rerankInput] = rerankCandidatesMock.mock.calls[0]!
+    expect(rerankQuery).toBe('What should I eat?')
+    expect((rerankInput as Array<{ id: string }>).map((c) => c.id)).toEqual(['t2', 't1', 't3'])
+  })
+
+  it('keeps the merged pool inside the rerank pool and the top-K budget', async () => {
+    const subIds = Array.from({ length: 15 }, (_, i) => `s${i}`)
+    fetchExpansionCandidatesMock.mockResolvedValue(
+      subIds.map((id, i) => ({ id, vectorDistance: 0.2 + i / 100 })),
+    )
+    getDbMock.mockReturnValue(
+      makeSequentialDb([[{ id: 't1', distance: 0.1 }], [], [], [row('t1'), ...subIds.map(row)]]),
+    )
+
+    const result = await retrieveEvidence({
+      userId: 'u1',
+      query: 'q',
+      queryEmbedding: [0.1, 0.2],
+      expansions,
+      topK: 4,
+    })
+
+    const rerankInput = rerankCandidatesMock.mock.calls[0]![2] as unknown[]
+    expect(rerankInput.length).toBeLessThanOrEqual(15)
+    expect(result).toHaveLength(4)
+    expect(new Set(result.map((r) => r.id)).size).toBe(4)
+  })
+
+  it('makes no expansion retrieval when no expansions are given (fact path unchanged)', async () => {
+    getDbMock.mockReturnValue(
+      makeSequentialDb([[{ id: 't1', distance: 0.1 }], [], [], [row('t1')]]),
+    )
+
+    const result = await retrieveEvidence({ userId: 'u1', query: 'q', queryEmbedding: [0.1, 0.2] })
+
+    expect(fetchExpansionCandidatesMock).not.toHaveBeenCalled()
+    expect(result.map((r) => r.id)).toEqual(['t1'])
   })
 })

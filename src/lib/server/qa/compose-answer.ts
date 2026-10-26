@@ -9,7 +9,7 @@ import { getDb } from '$lib/server/db'
 import { thoughtRelation } from '$lib/server/db/schema'
 import { loadGroundingProfileForEnrichment } from '$lib/server/grounding/profile'
 import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block'
-import { createThoughtEmbedding } from '$lib/server/llm/embedding'
+import { createThoughtEmbedding, createThoughtEmbeddings } from '$lib/server/llm/embedding'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
 import { loadTemporalContextByThoughtIds } from '$lib/server/memory/temporal-context'
 import {
@@ -32,6 +32,7 @@ import {
   classifyQueryIntent,
   type TemporalQuestionKind,
 } from '$lib/server/retrieval/classify-query-intent'
+import { expandPersonalizationQueries } from '$lib/server/retrieval/expand-personalization-queries'
 import { type RelevantCommunitySummary } from '$lib/server/retrieval/global'
 import { tryRecordRetrievalQualityEvent } from '$lib/server/retrieval/quality-telemetry'
 import {
@@ -44,7 +45,11 @@ import {
   resolveTemporalHintBindings,
 } from '$lib/server/retrieval/resolve-temporal-hint-bindings'
 import type { RetrieveEvidenceExtras } from '$lib/server/retrieval/retrieve-evidence'
-import { bestScoreBelowFloor, normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
+import {
+  bestScoreBelowFloor,
+  fuseRankedHits,
+  normalizeRetrievalScore,
+} from '$lib/server/retrieval/rrf-scoring'
 import { searchThoughts } from '$lib/server/retrieval/service'
 import {
   fetchTemporalEventSeeds,
@@ -142,6 +147,11 @@ export type ComposedAnswer = {
   /** Contradiction pairs detected among retrieved thoughts, if any. */
   conflicts: ConflictPair[]
   retrievalPath?: 'local' | 'global'
+  /**
+   * Personalization questions only: the LLM-written retrieval sub-queries whose results were
+   * merged with the question's own (diagnostics). Absent for fact questions.
+   */
+  expansionQueries?: string[]
 }
 
 export type ComposeAnswerProgressPhase = 'embedding' | 'searching' | 'composing'
@@ -553,6 +563,12 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
         ? GLOBAL_COMPOSE_TOP_K
         : DEFAULT_COMPOSE_TOP_K)
 
+  // Advice-style questions: one LLM call writes sub-queries about the user; the question text
+  // is its only input. Fact questions skip it entirely. A failure propagates (no fallback).
+  const expansionQueries = queryIntent.personalization
+    ? await expandPersonalizationQueries({ userId: input.userId, question: trimmedQuestion })
+    : undefined
+
   const groundingProfile = await loadGroundingProfileForEnrichment(input.userId)
   const profilePromptBlock = groundingProfilePromptBlock(groundingProfile)
   const hasGroundingProfile = profilePromptBlock.trim().length > 0
@@ -567,9 +583,15 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
   })
   await input.onProgress?.('embedding')
   const queryEmbedding = await createThoughtEmbedding(input.userId, retrievalQuery)
+  const expansions = expansionQueries
+    ? (await createThoughtEmbeddings(input.userId, expansionQueries)).map((embedding, i) => ({
+        query: expansionQueries[i]!,
+        embedding,
+      }))
+    : undefined
   console.info('[composeAnswer] phase=embedding done', {
     durationMs: Date.now() - phaseStart,
-    embeddingCount: 1,
+    embeddingCount: 1 + (expansions?.length ?? 0),
   })
 
   phaseStart = Date.now()
@@ -587,7 +609,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
   // the product floor, or (eval harness only) the floor of the run being measured
   const relevanceFloor = relevanceFloorFor(input.userId)
   let notePassagesBelowFloor: number | null = null
-  const [searchResults, textFileHits] = await Promise.all([
+  const [searchResults, questionTextFileHits, ...expansionTextFileHits] = await Promise.all([
     searchThoughts({
       userId: input.userId,
       query: retrievalQuery,
@@ -597,6 +619,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
       temporalIntent: queryIntent,
       authorFilter: input.authorFilter,
       extrasOut: retrievalExtras,
+      ...(expansions ? { expansions } : {}),
     }),
     searchTextFiles(input.userId, {
       query: retrievalQuery,
@@ -607,7 +630,20 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
         notePassagesBelowFloor = best
       },
     }),
+    ...(expansions ?? []).map((e) =>
+      searchTextFiles(input.userId, {
+        query: e.query,
+        topK: TEXT_FILE_COMPOSE_TOP_K,
+        queryEmbedding: e.embedding,
+        minScore: relevanceFloor,
+      }),
+    ),
   ])
+  // Notes: the question's passages and each sub-query's merge by reciprocal rank, deduplicated,
+  // inside the same notes budget.
+  const textFileHits = expansions
+    ? fuseRankedHits([questionTextFileHits, ...expansionTextFileHits], TEXT_FILE_COMPOSE_TOP_K)
+    : questionTextFileHits
   observeBelowFloor(input.userId, {
     thoughts: bestScoreBelowFloor(
       searchResults.map((r) => normalizeRetrievalScore(r.score)),
@@ -825,5 +861,6 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     context: allContextItems,
     conflicts,
     retrievalPath,
+    ...(expansionQueries ? { expansionQueries } : {}),
   }
 }

@@ -3,6 +3,9 @@ import {
   bestScoreBelowFloor,
   normalizeRetrievalScore,
   MAX_RETRIEVAL_MERGE_SCORE,
+  reciprocalRankFusion,
+  fuseRankedHits,
+  RRF_K,
 } from './rrf-scoring'
 
 describe('normalizeRetrievalScore', () => {
@@ -33,5 +36,56 @@ describe('bestScoreBelowFloor', () => {
   it('is null when every candidate passes or there are none', () => {
     expect(bestScoreBelowFloor([0.3, 0.9], 0.22)).toBeNull()
     expect(bestScoreBelowFloor([], 0.22)).toBeNull()
+  })
+})
+
+describe('reciprocalRankFusion', () => {
+  it('returns the single list unchanged', () => {
+    expect(reciprocalRankFusion([['a', 'b', 'c']])).toEqual(['a', 'b', 'c'])
+  })
+
+  it('ranks an item found by several lists above one found top-1 by only one list', () => {
+    expect(
+      reciprocalRankFusion([
+        ['a', 'x'],
+        ['b', 'x'],
+        ['c', 'x'],
+      ]),
+    ).toEqual(['x', 'a', 'b', 'c'])
+  })
+
+  it('deduplicates ids and sums 1/(k+rank) across lists', () => {
+    const fused = reciprocalRankFusion([
+      ['a', 'b'],
+      ['b', 'a'],
+    ])
+    expect(fused).toHaveLength(2)
+    expect(new Set(fused)).toEqual(new Set(['a', 'b']))
+    expect(RRF_K).toBeGreaterThan(0)
+  })
+
+  it('breaks ties by first appearance (earlier list, earlier rank) — deterministic', () => {
+    expect(reciprocalRankFusion([['a'], ['b'], ['c']])).toEqual(['a', 'b', 'c'])
+  })
+
+  it('returns [] for no lists or empty lists', () => {
+    expect(reciprocalRankFusion([])).toEqual([])
+    expect(reciprocalRankFusion([[], []])).toEqual([])
+  })
+})
+
+describe('fuseRankedHits', () => {
+  it('fuses hit lists by id, keeps the first-seen hit object, and honours the limit', () => {
+    const hit = (id: string, score: number) => ({ id, score })
+    const fused = fuseRankedHits(
+      [
+        [hit('a', 0.9), hit('b', 0.5)],
+        [hit('b', 0.8), hit('c', 0.4)],
+        [hit('b', 0.7), hit('d', 0.3)],
+      ],
+      2,
+    )
+    expect(fused.map((h) => h.id)).toEqual(['b', 'a'])
+    expect(fused[0]!.score).toBe(0.5)
   })
 })

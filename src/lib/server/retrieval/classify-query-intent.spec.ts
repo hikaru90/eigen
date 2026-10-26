@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { classifyQueryIntent, parseQueryIntentResponse } from './classify-query-intent'
+import {
+  classifyQueryIntent,
+  parseQueryIntentResponse,
+  QUERY_INTENT_CLASSIFIER_PROMPT,
+} from './classify-query-intent'
 
-const {
-  llmChatCompletionMock,
-  resolveEnforceKindsMock,
-  runEnforcedBoundedDecisionsMock,
-} = vi.hoisted(() => ({
-  llmChatCompletionMock: vi.fn(),
-  resolveEnforceKindsMock: vi.fn(),
-  runEnforcedBoundedDecisionsMock: vi.fn(),
-}))
+const { llmChatCompletionMock, resolveEnforceKindsMock, runEnforcedBoundedDecisionsMock } =
+  vi.hoisted(() => ({
+    llmChatCompletionMock: vi.fn(),
+    resolveEnforceKindsMock: vi.fn(),
+    runEnforcedBoundedDecisionsMock: vi.fn(),
+  }))
 
 vi.mock('$lib/server/llm/llm-client', () => ({
   llmChatCompletion: llmChatCompletionMock,
@@ -35,6 +36,7 @@ describe('parseQueryIntentResponse', () => {
         kind: 'ordering',
         entityHints: ['Samsung Galaxy S22', 'Dell XPS 13'],
         comparativeOrdering: true,
+        personalization: false,
       }),
     )
     expect(intent.scope).toBe('local')
@@ -55,6 +57,7 @@ describe('parseQueryIntentResponse', () => {
         entityHints: ['Run for the Cure'],
         durationUnit: null,
         comparativeOrdering: false,
+        personalization: false,
       }),
     )
     expect(count.kind).toBe('count')
@@ -67,6 +70,7 @@ describe('parseQueryIntentResponse', () => {
         entityHints: ['Airbnb in San Francisco'],
         durationUnit: 'months',
         comparativeOrdering: false,
+        personalization: false,
       }),
     )
     expect(lookback.kind).toBe('lookback')
@@ -83,11 +87,52 @@ describe('parseQueryIntentResponse', () => {
         timeWindowStart: '2023-01-01T00:00:00.000Z',
         timeWindowEnd: '2023-02-01T00:00:00.000Z',
         comparativeOrdering: false,
+        personalization: false,
       }),
     )
     expect(intent.kind).toBe('duration')
     expect(intent.timeWindow?.start.toISOString()).toBe('2023-01-01T00:00:00.000Z')
     expect(intent.timeWindow?.end.toISOString()).toBe('2023-02-01T00:00:00.000Z')
+  })
+
+  it('parses personalization true and false', () => {
+    const base = {
+      scope: 'local',
+      temporal: false,
+      kind: 'none',
+      entityHints: [],
+      comparativeOrdering: false,
+    }
+    expect(
+      parseQueryIntentResponse(JSON.stringify({ ...base, personalization: true })).personalization,
+    ).toBe(true)
+    expect(
+      parseQueryIntentResponse(JSON.stringify({ ...base, personalization: false })).personalization,
+    ).toBe(false)
+  })
+
+  it('fails loud when personalization is missing or not a boolean', () => {
+    const base = {
+      scope: 'local',
+      temporal: false,
+      kind: 'none',
+      entityHints: [],
+      comparativeOrdering: false,
+    }
+    expect(() => parseQueryIntentResponse(JSON.stringify(base))).toThrow(
+      /personalization must be a boolean/,
+    )
+    for (const bad of ['true', 1, null]) {
+      expect(() =>
+        parseQueryIntentResponse(JSON.stringify({ ...base, personalization: bad })),
+      ).toThrow(/personalization must be a boolean/)
+    }
+  })
+
+  it('the classifier prompt defines personalization and asks for it in the JSON shape', () => {
+    expect(QUERY_INTENT_CLASSIFIER_PROMPT).toContain('"personalization":boolean')
+    expect(QUERY_INTENT_CLASSIFIER_PROMPT).toContain('personalization true')
+    expect(QUERY_INTENT_CLASSIFIER_PROMPT).toContain('personalization false')
   })
 
   it('rejects invalid scope', () => {
@@ -108,6 +153,7 @@ describe('parseQueryIntentResponse', () => {
         timeWindowStart: 'omit',
         timeWindowEnd: 'unknown',
         comparativeOrdering: true,
+        personalization: false,
       }),
     )
     expect(intent.timeWindow).toBeNull()
@@ -122,6 +168,7 @@ describe('parseQueryIntentResponse', () => {
         entityHints: [],
         timeWindowStart: '2023-06-01T00:00:00.000Z',
         comparativeOrdering: false,
+        personalization: false,
       }),
     )
     expect(intent.timeWindow).toBeNull()
@@ -136,6 +183,7 @@ describe('parseQueryIntentResponse', () => {
         entityHints: ['Fahrrad', 'Auto'],
         durationUnit: null,
         comparativeOrdering: true,
+        personalization: false,
       }),
     )
     expect(intent.entityHints).toEqual(['Fahrrad', 'Auto'])
@@ -151,6 +199,7 @@ describe('parseQueryIntentResponse', () => {
         entityHints: ['Walk for Hunger', 'Coastal Cleanup'],
         durationUnit: 'days',
         comparativeOrdering: false,
+        personalization: false,
       }),
     )
     expect(intent.kind).toBe('duration')
@@ -167,6 +216,7 @@ describe('parseQueryIntentResponse', () => {
         entityHints: ['working professionally', 'NovaTech'],
         durationUnit: null,
         comparativeOrdering: false,
+        personalization: false,
       }),
     )
     expect(intent.kind).toBe('span')
@@ -182,6 +232,7 @@ describe('parseQueryIntentResponse', () => {
         entityHints: ['The Hate U Give', 'The Nightingale'],
         durationUnit: null,
         comparativeOrdering: true,
+        personalization: false,
       }),
     )
     expect(intent.kind).toBe('ordering')
@@ -197,6 +248,7 @@ describe('parseQueryIntentResponse', () => {
         entityHints: ['starting to work with Rachel', 'find a house I loved'],
         durationUnit: 'days',
         comparativeOrdering: false,
+        personalization: false,
       }),
     )
     expect(intent.kind).toBe('duration')
@@ -213,6 +265,7 @@ const QWEN_CONTENT = JSON.stringify({
   entityHints: ['Airbnb in San Francisco'],
   durationUnit: 'months',
   comparativeOrdering: false,
+  personalization: false,
   timeWindowStart: '2026-01-05T00:00:00.000Z',
   timeWindowEnd: '2026-03-05T00:00:00.000Z',
 })
@@ -347,6 +400,7 @@ describe('classifyQueryIntent Jev enforcement', () => {
       },
       durationUnit: 'months',
       comparativeOrdering: false,
+      personalization: false,
     })
   })
 })
