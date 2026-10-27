@@ -13,7 +13,7 @@
         "dates": [{ "ref": "d1", "event": "Call Mom about the birthday dinner", "day": "2026-10-30", "detail": null }],
         "pieces": []
       },
-      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "right" }
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "right", "missing_dates": "none_missing" }
     },
     {
       "id": "a02-wrong-weekday",
@@ -27,7 +27,7 @@
         "dates": [{ "ref": "d1", "event": "Dentist appointment", "day": "2026-10-29", "detail": "at 09:00" }],
         "pieces": []
       },
-      "expected": { "missing_names": "none_missing", "date:d1": "wrong" }
+      "expected": { "missing_names": "none_missing", "date:d1": "wrong", "missing_dates": "none_missing" }
     },
     {
       "id": "a03-wording-adds-and-drops",
@@ -41,7 +41,7 @@
         "dates": [],
         "pieces": []
       },
-      "expected": { "wording": "wrong", "name:n1": "right", "missing_names": "none_missing" }
+      "expected": { "wording": "wrong", "name:n1": "right", "missing_names": "none_missing", "missing_dates": "none_missing" }
     },
     {
       "id": "a04-wording-typo-fix-ok",
@@ -55,7 +55,7 @@
         "dates": [{ "ref": "d1", "event": "Buy oat milk and eggs", "day": "2026-10-28", "detail": null }],
         "pieces": []
       },
-      "expected": { "wording": "right", "missing_names": "none_missing", "date:d1": "right" }
+      "expected": { "wording": "right", "missing_names": "none_missing", "date:d1": "right", "missing_dates": "none_missing" }
     },
     {
       "id": "a05-invented-name",
@@ -69,7 +69,7 @@
         "dates": [{ "ref": "d1", "event": "Lunch with the new team lead", "day": "2026-10-29", "detail": null }],
         "pieces": []
       },
-      "expected": { "name:n1": "wrong", "missing_names": "none_missing", "date:d1": "right" }
+      "expected": { "name:n1": "wrong", "missing_names": "none_missing", "date:d1": "right", "missing_dates": "none_missing" }
     },
     {
       "id": "a06-missing-place-name",
@@ -83,7 +83,7 @@
         "dates": [{ "ref": "d1", "event": "Drop the keys at Café Lotte", "day": "2026-10-27", "detail": "before 18:00" }],
         "pieces": []
       },
-      "expected": { "name:n1": "right", "missing_names": "something_missing", "date:d1": "right" }
+      "expected": { "name:n1": "right", "missing_names": "something_missing", "date:d1": "right", "missing_dates": "none_missing" }
     },
     {
       "id": "a07-german-clean",
@@ -97,7 +97,7 @@
         "dates": [{ "ref": "d1", "event": "Mit Papa zum Arzt nach Leipzig fahren", "day": "2026-10-28", "detail": null }],
         "pieces": []
       },
-      "expected": { "name:n1": "right", "name:n2": "right", "missing_names": "none_missing", "date:d1": "right" }
+      "expected": { "name:n1": "right", "name:n2": "right", "missing_names": "none_missing", "date:d1": "right", "missing_dates": "none_missing" }
     },
     {
       "id": "a08-german-wrong-deadline",
@@ -111,7 +111,7 @@
         "dates": [{ "ref": "d1", "event": "Steuererklärung abgeben", "day": "2026-10-31", "detail": "as the deadline" }],
         "pieces": []
       },
-      "expected": { "missing_names": "none_missing", "date:d1": "wrong" }
+      "expected": { "missing_names": "none_missing", "date:d1": "wrong", "missing_dates": "none_missing" }
     },
     {
       "id": "a09-good-split",
@@ -133,6 +133,7 @@
         "name:n1": "right",
         "name:n2": "right",
         "missing_names": "none_missing",
+        "missing_dates": "something_missing",
         "piece:p1": "right",
         "piece:p2": "right",
         "piece:p3": "right",
@@ -159,6 +160,7 @@
         "name:n1": "right",
         "name:n2": "right",
         "missing_names": "none_missing",
+        "missing_dates": "none_missing",
         "piece:p1": "right",
         "piece:p2": "wrong",
         "piece:p3": "right",
@@ -184,6 +186,7 @@
         "name:n1": "right",
         "name:n2": "right",
         "missing_names": "none_missing",
+        "missing_dates": "something_missing",
         "piece:p1": "right",
         "piece:p2": "right",
         "pieces_cover": "wrong"
@@ -204,7 +207,7 @@
           { "ref": "p2", "text": "Thanks," }
         ]
       },
-      "expected": { "missing_names": "none_missing", "piece:p1": "right", "piece:p2": "wrong", "pieces_cover": "right" }
+      "expected": { "missing_names": "none_missing", "missing_dates": "none_missing", "piece:p1": "right", "piece:p2": "wrong", "pieces_cover": "right" }
     },
     {
       "id": "a13-wording-stronger-claim",
@@ -218,7 +221,7 @@
         "dates": [],
         "pieces": []
       },
-      "expected": { "wording": "wrong", "missing_names": "none_missing" }
+      "expected": { "wording": "wrong", "missing_names": "none_missing", "missing_dates": "none_missing" }
     },
     {
       "id": "a14-recurring-right",
@@ -232,7 +235,7 @@
         "dates": [{ "ref": "d1", "event": "Yoga at Studio Nord", "day": null, "detail": "every Tuesday at 19:00" }],
         "pieces": []
       },
-      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "right" }
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "right", "missing_dates": "none_missing" }
     },
     {
       "id": "a15-date-not-in-capture",
@@ -246,7 +249,7 @@
         "dates": [{ "ref": "d1", "event": "Board meeting", "day": "2026-10-30", "detail": null }],
         "pieces": []
       },
-      "expected": { "missing_names": "none_missing", "date:d1": "wrong" }
+      "expected": { "missing_names": "none_missing", "date:d1": "wrong", "missing_dates": "none_missing" }
     },
     {
       "id": "a16-wrong-hour",
@@ -260,7 +263,7 @@
         "dates": [{ "ref": "d1", "event": "Dentist appointment", "day": "2026-10-30", "detail": "at 15:00" }],
         "pieces": []
       },
-      "expected": { "missing_names": "none_missing", "date:d1": "wrong" }
+      "expected": { "missing_names": "none_missing", "date:d1": "wrong", "missing_dates": "none_missing" }
     },
     {
       "id": "a17-far-deadline-right",
@@ -274,7 +277,7 @@
         "dates": [{ "ref": "d1", "event": "Steuererklärung abgeben", "day": "2026-11-30", "detail": "as the deadline" }],
         "pieces": []
       },
-      "expected": { "missing_names": "none_missing", "date:d1": "right" }
+      "expected": { "missing_names": "none_missing", "date:d1": "right", "missing_dates": "none_missing" }
     },
     {
       "id": "a18-wrong-repeat-day",
@@ -288,7 +291,7 @@
         "dates": [{ "ref": "d1", "event": "Yoga at Studio Nord", "day": null, "detail": "every Thursday at 19:00" }],
         "pieces": []
       },
-      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "wrong" }
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "wrong", "missing_dates": "none_missing" }
     },
     {
       "id": "a19-next-monday",
@@ -302,7 +305,63 @@
         "dates": [{ "ref": "d1", "event": "Ask Priya about the budget", "day": "2026-11-02", "detail": null }],
         "pieces": []
       },
-      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "right" }
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "right", "missing_dates": "none_missing" }
+    },
+    {
+      "id": "a20-dentist-date-lost",
+      "note": "The clock-time date was never stored.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Dentist appointment on Friday at 9am",
+        "storedText": "Dentist appointment on Friday at 9am",
+        "names": [],
+        "dates": [],
+        "pieces": []
+      },
+      "expected": { "missing_names": "none_missing", "missing_dates": "something_missing" }
+    },
+    {
+      "id": "a21-yoga-repeat-lost",
+      "note": "The repeating time was never stored.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Yoga every Tuesday at 7pm at Studio Nord",
+        "storedText": "Yoga every Tuesday at 7pm at Studio Nord",
+        "names": [{ "ref": "n1", "surface": "Studio Nord" }],
+        "dates": [],
+        "pieces": []
+      },
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "missing_dates": "something_missing" }
+    },
+    {
+      "id": "a22-vague-not-a-time",
+      "note": "'more often' does not fix a time, so nothing is missing.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "I should call Grandma more often",
+        "storedText": "I should call Grandma more often",
+        "names": [{ "ref": "n1", "surface": "Grandma" }],
+        "dates": [],
+        "pieces": []
+      },
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "missing_dates": "none_missing" }
+    },
+    {
+      "id": "a23-german-deadline-lost",
+      "note": "German; 'Bis Freitag' is a deadline that was never stored.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Bis Freitag die Rechnung an Herrn Weber schicken",
+        "storedText": "Bis Freitag die Rechnung an Herrn Weber schicken",
+        "names": [{ "ref": "n1", "surface": "Herrn Weber" }],
+        "dates": [],
+        "pieces": []
+      },
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "missing_dates": "something_missing" }
     }
   ]
 }

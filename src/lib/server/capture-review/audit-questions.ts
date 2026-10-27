@@ -3,11 +3,12 @@
  * (docs/planning/capture-feedback.md §4). Pure: builds the Decisions request, does no I/O.
  *
  * Jev judges four things the chat model wrote: the stored wording, the names it found (and whether
- * one is missing), the dates it took from the text, and the pieces a capture was split into. The
- * criteria below are the product contract for those judgments, tuned with `npm run jev:check`
- * (evals/jev-check) before anything is wired. The state names the day and time the user wrote; each
- * date question says when Eigen stored the event as a distance from that capture day ("the Friday
- * after the capture day (3 days later)"), computed here, because Jev cannot do calendar arithmetic.
+ * one is missing), the dates it took from the text (and whether one is missing), and the pieces a
+ * capture was split into. The criteria below are the product contract for those judgments, tuned
+ * with `npm run jev:check` (evals/jev-check) before anything is wired. The state names the day and
+ * time the user wrote; each date question (and the missing_dates list) says when Eigen stored the
+ * event as a distance from that capture day ("the Friday after the capture day (3 days later)"),
+ * computed here, because Jev cannot do calendar arithmetic.
  *
  * No string rules decide meaning here: every semantic call is Jev's. This code only formats the
  * question text and validates the shape of its input.
@@ -38,6 +39,7 @@ export type CaptureAuditInput = {
 
 export const AUDIT_QUESTION_WORDING = 'wording'
 export const AUDIT_QUESTION_MISSING_NAMES = 'missing_names'
+export const AUDIT_QUESTION_MISSING_DATES = 'missing_dates'
 export const AUDIT_QUESTION_PIECES_COVER = 'pieces_cover'
 
 export const auditNameQuestionId = (ref: string): string => `name:${ref}`
@@ -72,6 +74,15 @@ export const AUDIT_CRITERIA_DATE: Readonly<Record<'right' | 'wrong', string>> = 
     'Yes: the capture\'s own time words for this event ("Friday", "tomorrow", "Mittwoch", "today", "before 6pm", "every Tuesday") point to this time. A vague time in the capture ("next week", "end of November", "in spring") is right when the stored time falls within it.',
   wrong:
     "No: the capture's time words point to a different day or time, the capture gives no time for this event, or the event is not in the capture.",
+}
+
+export const AUDIT_CRITERIA_MISSING_DATES: Readonly<
+  Record<'none_missing' | 'something_missing', string>
+> = {
+  none_missing:
+    'Every day, time, deadline or repetition the capture gives is in the list — in other words, or even stored wrongly (a wrong time is judged separately). Words that do not fix a time — "soon", "sometimes", "lately", "more often" — do not count.',
+  something_missing:
+    'The capture gives at least one day, time, deadline or repetition ("on Friday at 9am", "every Tuesday", "by the end of November", "tomorrow", "today", "in March") that is not in the list.',
 }
 
 export const AUDIT_CRITERIA_PIECE: Readonly<Record<'right' | 'wrong', string>> = {
@@ -260,6 +271,20 @@ function describeDay(target: CalendarDay, captureDay: CalendarDay): string {
     : `${formatDay(names)} (${-n} days before the capture day${lastDay})`
 }
 
+/**
+ * When Eigen stored an event, in words: the stored day as a distance from the capture day, then
+ * the detail ("the Friday after the capture day (3 days later) at 09:00"). The date question and
+ * the missing_dates list both use this one phrase.
+ */
+function datePhrase(date: CaptureAuditInput['dates'][number], captureDay: CalendarDay): string {
+  return [
+    date.day === null ? null : describeDay(requireDay(date.day, 'day'), captureDay),
+    date.detail === null ? null : date.detail.trim(),
+  ]
+    .filter((piece) => piece !== null)
+    .join(' ')
+}
+
 function question(
   instructions: string,
   criteria: Readonly<Record<string, string>>,
@@ -269,8 +294,9 @@ function question(
 
 /**
  * The Decisions request that audits one capture. Question ids: `wording` (only when the stored text
- * differs from what the user wrote), `name:{ref}`, `missing_names`, `date:{ref}`, `piece:{ref}` and
- * `pieces_cover` (the last two only when the capture was split), in that order.
+ * differs from what the user wrote), `name:{ref}`, `missing_names`, `date:{ref}`, `missing_dates`,
+ * `piece:{ref}` and `pieces_cover` (the last two only when the capture was split), in that order.
+ * `missing_names` and `missing_dates` are always asked, even when nothing was found.
  */
 export function buildCaptureAuditRequest(input: CaptureAuditInput): DecisionRequest {
   validate(input)
@@ -306,21 +332,22 @@ export function buildCaptureAuditRequest(input: CaptureAuditInput): DecisionRequ
     AUDIT_CRITERIA_MISSING_NAMES,
   )
 
-  if (input.dates.length > 0) {
-    const captureDay = captureDayOf(input.capturedAt, input.timezone)
-    for (const date of input.dates) {
-      const when = [
-        date.day === null ? null : describeDay(requireDay(date.day, 'day'), captureDay),
-        date.detail === null ? null : date.detail.trim(),
-      ]
-        .filter((piece) => piece !== null)
-        .join(' ')
-      questions[auditDateQuestionId(date.ref)] = question(
-        `Eigen stored "${date.event}" for ${when}. Does the capture put this event at that time?`,
-        AUDIT_CRITERIA_DATE,
-      )
-    }
+  const captureDay = captureDayOf(input.capturedAt, input.timezone)
+  for (const date of input.dates) {
+    questions[auditDateQuestionId(date.ref)] = question(
+      `Eigen stored "${date.event}" for ${datePhrase(date, captureDay)}. Does the capture put this event at that time?`,
+      AUDIT_CRITERIA_DATE,
+    )
   }
+
+  const stored =
+    input.dates.length > 0
+      ? input.dates.map((d) => `"${d.event}" — ${datePhrase(d, captureDay)}`).join('; ')
+      : 'none'
+  questions[AUDIT_QUESTION_MISSING_DATES] = question(
+    `Eigen stored these times from the capture: ${stored}. Does the capture give a time for something that is missing from this list?`,
+    AUDIT_CRITERIA_MISSING_DATES,
+  )
 
   if (input.pieces.length > 0) {
     for (const piece of input.pieces) {

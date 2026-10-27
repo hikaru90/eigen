@@ -27,8 +27,9 @@ function answer(choice: string, probabilities: Record<string, number>): Decision
 function allGood(p = 0.95): Map<string, DecisionChoiceAnswer> {
   const answers = new Map<string, DecisionChoiceAnswer>()
   for (const id of Object.keys(request.questions)) {
-    const good = id === 'missing_names' ? 'none_missing' : 'right'
-    const bad = id === 'missing_names' ? 'something_missing' : 'wrong'
+    const missing = id === 'missing_names' || id === 'missing_dates'
+    const good = missing ? 'none_missing' : 'right'
+    const bad = missing ? 'something_missing' : 'wrong'
     answers.set(id, answer(good, { [good]: p, [bad]: 1 - p }))
   }
   return answers
@@ -43,6 +44,7 @@ describe('auditPartsFromAnswers', () => {
       ['name', 'name:n1'],
       ['missing_names', 'missing_names'],
       ['date', 'date:d1'],
+      ['missing_dates', 'missing_dates'],
       ['piece', 'piece:p1'],
       ['piece', 'piece:p2'],
       ['pieces_cover', 'pieces_cover'],
@@ -73,6 +75,10 @@ describe('auditPartsFromAnswers', () => {
       'missing_names',
       answer('something_missing', { none_missing: 0.31, something_missing: 0.69 }),
     )
+    answers.set(
+      'missing_dates',
+      answer('something_missing', { none_missing: 0.12, something_missing: 0.88 }),
+    )
 
     const parts = auditPartsFromAnswers(request, answers)
 
@@ -84,6 +90,11 @@ describe('auditPartsFromAnswers', () => {
       label: 'something_missing',
       probability: 0.31,
     })
+    expect(parts.find((p) => p.ref === 'missing_dates')).toMatchObject({
+      part: 'missing_dates',
+      label: 'something_missing',
+      probability: 0.12,
+    })
   })
 
   it('produces parts that pass the strict part schema and hold no thought text', () => {
@@ -93,7 +104,7 @@ describe('auditPartsFromAnswers', () => {
     for (const text of ['Anna', 'Dentist', 'ride', 'Friday']) expect(json).not.toContain(text)
   })
 
-  it('asks no more than the request asked: a capture without names, dates or pieces has the two base questions', () => {
+  it('asks no more than the request asked: a capture without names, dates or pieces has the two base questions (missing names, missing dates)', () => {
     const plain = buildCaptureAuditRequest({
       ...input,
       storedText: input.rawText,
@@ -103,6 +114,7 @@ describe('auditPartsFromAnswers', () => {
     })
     const answers = new Map([
       ['missing_names', answer('none_missing', { none_missing: 0.97, something_missing: 0.03 })],
+      ['missing_dates', answer('something_missing', { none_missing: 0.2, something_missing: 0.8 })],
     ])
     expect(auditPartsFromAnswers(plain, answers)).toEqual([
       {
@@ -111,6 +123,13 @@ describe('auditPartsFromAnswers', () => {
         engine: 'jev_audit',
         label: 'none_missing',
         probability: 0.97,
+      },
+      {
+        part: 'missing_dates',
+        ref: 'missing_dates',
+        engine: 'jev_audit',
+        label: 'something_missing',
+        probability: 0.2,
       },
     ])
   })
@@ -128,6 +147,14 @@ describe('auditPartsFromAnswers', () => {
     answers.set('missing_names', answer('right', { right: 0.9 }))
     expect(() => auditPartsFromAnswers(request, answers)).toThrow(
       /question "missing_names".*off-catalog choice "right"/,
+    )
+  })
+
+  it('throws when missing_dates is answered with a label of the right/wrong questions', () => {
+    const answers = allGood()
+    answers.set('missing_dates', answer('right', { right: 0.9 }))
+    expect(() => auditPartsFromAnswers(request, answers)).toThrow(
+      /question "missing_dates".*off-catalog choice "right"/,
     )
   })
 

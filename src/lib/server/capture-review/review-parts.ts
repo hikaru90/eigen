@@ -8,9 +8,10 @@
  *   `probability` is Jev's probability that it is right, so low means "probably wrong".
  *
  * A part holds NO user text. `ref` is a decision item ref (`m1`, `t2`) or an audit question id
- * (`name:n1`, `date:d1`, `wording`, `missing_names`, `piece:p1`, `pieces_cover`); `label` is a
- * closed value (an ontology key or a criteria key). The schema is strict so a surface, an event
- * text or a piece text cannot ride along; it validates on write and on read.
+ * (`name:n1`, `date:d1`, `wording`, `missing_names`, `missing_dates`, `piece:p1`,
+ * `pieces_cover`); `label` is a closed value (an ontology key or a criteria key). The schema is
+ * strict so a surface, an event text or a piece text cannot ride along; it validates on write and
+ * on read.
  */
 
 import type { RecordedDecision } from './decision-recorder'
@@ -34,6 +35,7 @@ export const REVIEW_AUDIT_PARTS = [
   'name',
   'missing_names',
   'date',
+  'missing_dates',
   'piece',
   'pieces_cover',
 ] as const

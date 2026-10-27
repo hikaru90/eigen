@@ -48,8 +48,9 @@ function juryAnswers(p = 0.95, overrides: Record<string, DecisionChoiceAnswer> =
   return async ({ request }: { request: DecisionRequest }) => {
     const answers = new Map<string, DecisionChoiceAnswer>()
     for (const id of Object.keys(request.questions)) {
-      const good = id === 'missing_names' ? 'none_missing' : 'right'
-      const bad = id === 'missing_names' ? 'something_missing' : 'wrong'
+      const missing = id === 'missing_names' || id === 'missing_dates'
+      const good = missing ? 'none_missing' : 'right'
+      const bad = missing ? 'something_missing' : 'wrong'
       answers.set(id, overrides[id] ?? answer(good, { [good]: p, [bad]: 1 - p }))
     }
     return answers
@@ -89,7 +90,12 @@ describe('runCaptureReviewAudit: the audit', () => {
       request: DecisionRequest
     }
     expect(call.userId).toBe('u1')
-    expect(Object.keys(call.request.questions)).toEqual(['name:n1', 'missing_names', 'date:d1'])
+    expect(Object.keys(call.request.questions)).toEqual([
+      'name:n1',
+      'missing_names',
+      'date:d1',
+      'missing_dates',
+    ])
 
     expect(mocks.completeCaptureReviewAudit).toHaveBeenCalledTimes(1)
     const done = mocks.completeCaptureReviewAudit.mock.calls[0][0] as {
@@ -111,6 +117,13 @@ describe('runCaptureReviewAudit: the audit', () => {
         probability: 0.95,
       },
       { part: 'date', ref: 'date:d1', engine: 'jev_audit', label: 'right', probability: 0.95 },
+      {
+        part: 'missing_dates',
+        ref: 'missing_dates',
+        engine: 'jev_audit',
+        label: 'none_missing',
+        probability: 0.95,
+      },
     ])
     expect(mocks.failCaptureReviewAudit).not.toHaveBeenCalled()
   })
@@ -129,6 +142,18 @@ describe('runCaptureReviewAudit: the audit', () => {
     await run()
     expect((mocks.completeCaptureReviewAudit.mock.calls[0][0] as { score: number }).score).toBe(
       0.08,
+    )
+  })
+
+  it('a date that was never stored lowers the score through missing_dates', async () => {
+    mocks.runCaptureAudit.mockImplementation(
+      juryAnswers(0.95, {
+        missing_dates: answer('something_missing', { none_missing: 0.06, something_missing: 0.94 }),
+      }),
+    )
+    await run()
+    expect((mocks.completeCaptureReviewAudit.mock.calls[0][0] as { score: number }).score).toBe(
+      0.06,
     )
   })
 

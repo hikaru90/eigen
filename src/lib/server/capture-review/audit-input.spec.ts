@@ -377,6 +377,7 @@ describe('loadCaptureAuditInput', () => {
       'name:n1',
       'missing_names',
       'date:d1',
+      'missing_dates',
       'piece:p1',
       'piece:p2',
       'pieces_cover',

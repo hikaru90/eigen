@@ -16,7 +16,12 @@ const AUDIT_CASE = {
     dates: [{ ref: 'd1', event: 'Call Mom', day: '2026-10-30', detail: 'at 09:00' }],
     pieces: [],
   },
-  expected: { 'name:n1': 'right', missing_names: 'none_missing', 'date:d1': 'right' },
+  expected: {
+    'name:n1': 'right',
+    missing_names: 'none_missing',
+    'date:d1': 'right',
+    missing_dates: 'none_missing',
+  },
 }
 
 const REASON_CASE = {
@@ -102,6 +107,7 @@ describe('the real fixture files', () => {
       expect(byId('a16-wrong-hour').expected).toEqual({
         missing_names: 'none_missing',
         'date:d1': 'wrong',
+        missing_dates: 'none_missing',
       })
       expect(byId('a17-far-deadline-right').input.rawText).toBe(
         'Steuererklärung bis Ende November abgeben',
@@ -110,6 +116,7 @@ describe('the real fixture files', () => {
       expect(byId('a17-far-deadline-right').expected).toEqual({
         missing_names: 'none_missing',
         'date:d1': 'right',
+        missing_dates: 'none_missing',
       })
       expect(byId('a18-wrong-repeat-day').input.rawText).toBe(
         'Yoga every Tuesday at 7pm at Studio Nord',
@@ -121,6 +128,7 @@ describe('the real fixture files', () => {
         'name:n1': 'right',
         missing_names: 'none_missing',
         'date:d1': 'wrong',
+        missing_dates: 'none_missing',
       })
       expect(byId('a19-next-monday').input.rawText).toBe('Ask Priya about the budget next Monday')
       expect(byId('a19-next-monday').input.names).toEqual([{ ref: 'n1', surface: 'Priya' }])
@@ -128,7 +136,92 @@ describe('the real fixture files', () => {
         'name:n1': 'right',
         missing_names: 'none_missing',
         'date:d1': 'right',
+        missing_dates: 'none_missing',
       })
+    })
+
+    it('every case expects missing_dates: something_missing only where the capture gives a time nobody stored', () => {
+      const somethingMissing = [
+        'a09-good-split', // "Today:" is a time and no date is stored
+        'a11-split-drops-detail', // "expires in March"
+        'a20-dentist-date-lost',
+        'a21-yoga-repeat-lost',
+        'a23-german-deadline-lost',
+      ]
+      for (const c of audit.cases) {
+        expect(c.expected.missing_dates, c.id).toBe(
+          somethingMissing.includes(c.id) ? 'something_missing' : 'none_missing',
+        )
+      }
+    })
+
+    it('a20 to a23: the lost-date cases are the planned captures, nothing stored', () => {
+      for (const id of [
+        'a20-dentist-date-lost',
+        'a21-yoga-repeat-lost',
+        'a22-vague-not-a-time',
+        'a23-german-deadline-lost',
+      ]) {
+        const c = byId(id)
+        expect(c.input.capturedAt, id).toBe('2026-10-27T10:00:00+01:00')
+        expect(c.input.timezone, id).toBe('Europe/Berlin')
+        expect(c.input.storedText, id).toBe(c.input.rawText)
+        expect(c.input.dates, id).toEqual([])
+        expect(c.input.pieces, id).toEqual([])
+        expect(c.note, id).toBeTruthy()
+      }
+      expect(byId('a20-dentist-date-lost')).toMatchObject({
+        input: { rawText: 'Dentist appointment on Friday at 9am', names: [] },
+        expected: { missing_names: 'none_missing', missing_dates: 'something_missing' },
+        note: 'The clock-time date was never stored.',
+      })
+      expect(byId('a21-yoga-repeat-lost')).toMatchObject({
+        input: {
+          rawText: 'Yoga every Tuesday at 7pm at Studio Nord',
+          names: [{ ref: 'n1', surface: 'Studio Nord' }],
+        },
+        expected: {
+          'name:n1': 'right',
+          missing_names: 'none_missing',
+          missing_dates: 'something_missing',
+        },
+      })
+      expect(byId('a22-vague-not-a-time')).toMatchObject({
+        input: {
+          rawText: 'I should call Grandma more often',
+          names: [{ ref: 'n1', surface: 'Grandma' }],
+        },
+        expected: {
+          'name:n1': 'right',
+          missing_names: 'none_missing',
+          missing_dates: 'none_missing',
+        },
+      })
+      expect(byId('a23-german-deadline-lost')).toMatchObject({
+        input: {
+          rawText: 'Bis Freitag die Rechnung an Herrn Weber schicken',
+          names: [{ ref: 'n1', surface: 'Herrn Weber' }],
+        },
+        expected: {
+          'name:n1': 'right',
+          missing_names: 'none_missing',
+          missing_dates: 'something_missing',
+        },
+      })
+    })
+
+    it('the missing_dates question of a case with a stored date lists it, with the same phrase as the date question', () => {
+      const request = prepareCases(files).find((c) => c.id === 'a16-wrong-hour')?.request
+      expect(request?.questions.missing_dates.instructions).toBe(
+        'Eigen stored these times from the capture: "Dentist appointment" — the Friday after the capture day (3 days later) at 15:00. Does the capture give a time for something that is missing from this list?',
+      )
+    })
+
+    it('the missing_dates question of a case with nothing stored says none', () => {
+      const request = prepareCases(files).find((c) => c.id === 'a20-dentist-date-lost')?.request
+      expect(request?.questions.missing_dates.instructions).toBe(
+        'Eigen stored these times from the capture: none. Does the capture give a time for something that is missing from this list?',
+      )
     })
 
     it('a17 asks about the last day of November, 34 days after the capture day', () => {

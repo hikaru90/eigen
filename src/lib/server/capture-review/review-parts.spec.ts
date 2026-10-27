@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CAPTURE_REVIEW_THRESHOLD,
+  REVIEW_AUDIT_PARTS,
   REVIEW_DECISION_KINDS,
   captureReviewPartSchema,
   computeReviewScore,
@@ -32,6 +33,18 @@ describe('review constants', () => {
       'content_role',
       'entity_type',
       'temporal_kind',
+    ])
+  })
+
+  it('audits wording, names, missing names and dates, the date, pieces and their cover', () => {
+    expect([...REVIEW_AUDIT_PARTS]).toEqual([
+      'wording',
+      'name',
+      'missing_names',
+      'date',
+      'missing_dates',
+      'piece',
+      'pieces_cover',
     ])
   })
 

@@ -262,7 +262,8 @@ describe('runJevCheck', () => {
       expect(text).toMatch(/name:n1\s+right\s+right\s+0\.950\s+ok/)
       expect(text).toMatch(/missing_names\s+none_missing\s+none_missing\s+0\.950\s+ok/)
       expect(text).toMatch(/date:d1\s+right\s+right\s+0\.950\s+ok/)
-      expect(text).toMatch(/questions 3\s+ok 3\s+low 0\s+mismatch 0\s+USD 0\.000100/)
+      expect(text).toMatch(/missing_dates\s+none_missing\s+none_missing\s+0\.950\s+ok/)
+      expect(text).toMatch(/questions 4\s+ok 4\s+low 0\s+mismatch 0\s+USD 0\.000100/)
     })
 
     it('writes the full result JSON to <outDir>/<timestamp>.json', async () => {
@@ -276,9 +277,9 @@ describe('runJevCheck', () => {
       const saved = JSON.parse(readFileSync(result.resultPath as string, 'utf8'))
       expect(saved.startedAt).toBe('2026-10-27T10:20:30.456Z')
       expect(saved.filters).toEqual({ kind: null, caseIds: ['a01-clean-task-en'] })
-      expect(saved.totals).toEqual({ questions: 3, ok: 3, low: 0, mismatch: 0 })
+      expect(saved.totals).toEqual({ questions: 4, ok: 4, low: 0, mismatch: 0 })
       expect(saved.reportedCostUsd).toBeCloseTo(0.0001, 10)
-      expect(saved.rows).toHaveLength(3)
+      expect(saved.rows).toHaveLength(4)
       expect(saved.cases[0].caseId).toBe('a01-clean-task-en')
       expect(saved.cases[0].request.state).toContain('Captured on Tuesday 27 October 2026')
     })
@@ -292,7 +293,7 @@ describe('runJevCheck', () => {
       expect(result.resultPath).not.toBeNull()
       const text = lines.join('\n')
       expect(text).toMatch(/date:d1\s+right\s+wrong\s+0\.900\s+mismatch/)
-      expect(text).toMatch(/questions 3\s+ok 2\s+low 0\s+mismatch 1/)
+      expect(text).toMatch(/questions 4\s+ok 3\s+low 0\s+mismatch 1/)
       expect(text).toContain('Mismatches')
     })
 
@@ -304,7 +305,7 @@ describe('runJevCheck', () => {
       expect(result.exitCode).toBe(0)
       const text = lines.join('\n')
       expect(text).toMatch(/name:n1\s+right\s+right\s+0\.700\s+low/)
-      expect(text).toMatch(/questions 3\s+ok 0\s+low 3\s+mismatch 0/)
+      expect(text).toMatch(/questions 4\s+ok 0\s+low 4\s+mismatch 0/)
       expect(text).toContain('Low')
     })
 

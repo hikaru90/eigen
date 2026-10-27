@@ -62,7 +62,7 @@ Every capture gets a **score**: how sure Eigen is that it stored the capture rig
 | Kind of time / duration | Jev `temporal_kind`, `duration_unit` | Jev probability |
 | Stored wording (when it differs from what the user typed) | chat (interpret / normalize) | **Jev audit** |
 | Which names were found; whether one is missing | chat (entity extraction) | **Jev audit** |
-| Dates and times taken from the text | chat (temporal extraction) | **Jev audit** |
+| Dates and times taken from the text, and whether one was never stored | chat (temporal extraction) | **Jev audit** |
 | Split pieces / one task per piece | chat (split, multi-task fan-out) | **Jev audit** |
 
 The chat model's own "confidence" numbers (in the interpret preview) are not used: they are not
@@ -81,8 +81,8 @@ calibrated. Internal parts the user never sees (retrieval cues, ask-question) ar
 - `parts` holds no user text. Each part is `{ part, ref, engine: 'jev_decision' | 'jev_audit',
   label, probability }`.
   - `ref` is a Jev decision item ref (`m1`, `t2`; the kind name for a whole-capture decision) or an
-    audit question id (`name:n1`, `date:d1`, `wording`, `missing_names`, `piece:p1`,
-    `pieces_cover`). Built this way in C1 (not entity or event ids) so a part cannot point at text.
+    audit question id (`name:n1`, `date:d1`, `wording`, `missing_names`, `missing_dates`,
+    `piece:p1`, `pieces_cover`). Built this way in C1 (not entity or event ids) so a part cannot point at text.
   - `label` is a closed value: an ontology key, `right`/`wrong`, `none_missing`/`something_missing`.
 - Migration note: the parked branch also uses 0083–0085. If it ever comes back, its migrations
   get renumbered. The migrator is hash-based, so the local DB is unaffected.
@@ -103,6 +103,10 @@ in the user's own tenant.
   - Missing names: does the capture name a person, place, organisation or project that is not in
     this list? `none_missing | something_missing`
   - Each date or time: does the capture say this event is at this time? `right | wrong`
+  - Missing dates, always asked: does the capture give a day, time, deadline or repetition that is
+    not in the list of stored times? Words that fix no time ("soon", "more often") do not count. A
+    time that was stored wrongly is not missing: the date question judges it. `none_missing |
+    something_missing`
   - Each split piece: is it one complete thing from the capture, in the user's words? `right | wrong`
   - All pieces together: do they keep everything the capture says? `right | wrong`
 - **Cost and failure:** about $0.0002 per capture, in the background, never delaying capture.
@@ -227,6 +231,10 @@ in the user's own tenant.
     repeat (`every Tuesday`) and `until {day}` (only when the text gave an end: the app's own
     one-day or one-hour padding is not described). Recurrence rules: DAILY, WEEKLY, MONTHLY, YEARLY
     with INTERVAL, COUNT, UNTIL, BYDAY and the single month-day forms; anything else fails the audit.
+    The `missing_dates` question lists the same items with the same computed phrase as the date
+    question (`"{event}" — {phrase}`, joined with `; `, `none` when nothing was stored), so a
+    clock-time date that enrichment lost ("Dentist on Friday at 9am", nothing stored) shows up as
+    `something_missing` and pulls the score down.
   - **Time zone** is `getUserPreferredTimezone`, the same call enrichment makes for temporal
     extraction (it falls back to `TEMPORAL_ANCHOR_TZ`, then Europe/Berlin, as enrichment does).
   - **Audit logging.** New decision kind `capture_audit` and surface `capture_review`. The ticker only

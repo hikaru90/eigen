@@ -3,13 +3,15 @@
  * (docs/planning/capture-feedback.md §4, §5).
  *
  * Each question becomes one part. Its probability is Jev's probability of the GOOD answer
- * (`right`, or `none_missing` for the missing-names question), not of the answer it chose, so a low
- * value always means "probably wrong" and the score can be the lowest value over all parts.
+ * (`right`, or `none_missing` for the missing-names and missing-dates questions), not of the answer
+ * it chose, so a low value always means "probably wrong" and the score can be the lowest value over
+ * the scored parts.
  * Parts hold the question id as `ref` and Jev's criteria key as `label`: no user text.
  */
 
 import type { DecisionChoiceAnswer, DecisionRequest } from '$lib/server/llm/decision-client'
 import {
+  AUDIT_QUESTION_MISSING_DATES,
   AUDIT_QUESTION_MISSING_NAMES,
   AUDIT_QUESTION_PIECES_COVER,
   AUDIT_QUESTION_WORDING,
@@ -28,6 +30,7 @@ function fail(message: string): never {
 function partOfQuestion(id: string): ReviewAuditPart {
   if (id === AUDIT_QUESTION_WORDING) return 'wording'
   if (id === AUDIT_QUESTION_MISSING_NAMES) return 'missing_names'
+  if (id === AUDIT_QUESTION_MISSING_DATES) return 'missing_dates'
   if (id === AUDIT_QUESTION_PIECES_COVER) return 'pieces_cover'
   const prefix = id.slice(0, id.indexOf(':'))
   if (id.includes(':') && (prefix === 'name' || prefix === 'date' || prefix === 'piece')) {
@@ -38,7 +41,7 @@ function partOfQuestion(id: string): ReviewAuditPart {
 
 /** The criteria key that means "this part is fine". */
 function goodAnswer(part: ReviewAuditPart): string {
-  return part === 'missing_names' ? 'none_missing' : 'right'
+  return part === 'missing_names' || part === 'missing_dates' ? 'none_missing' : 'right'
 }
 
 export function auditPartsFromAnswers(

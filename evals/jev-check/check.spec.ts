@@ -33,12 +33,21 @@ function fixtureSet(): {
         id: 'a1',
         note: 'clean',
         input: AUDIT_INPUT,
-        expected: { 'name:n1': 'right', missing_names: 'none_missing', 'date:d1': 'right' },
+        expected: {
+          'name:n1': 'right',
+          missing_names: 'none_missing',
+          'date:d1': 'right',
+          missing_dates: 'none_missing',
+        },
       },
       {
         id: 'a2',
         input: { ...AUDIT_INPUT, dates: [] },
-        expected: { 'name:n1': 'right', missing_names: 'none_missing' },
+        expected: {
+          'name:n1': 'right',
+          missing_names: 'none_missing',
+          missing_dates: 'none_missing',
+        },
       },
     ],
   }
@@ -91,6 +100,7 @@ const AGREE: Script = {
   'name:n1': { choice: 'right', probability: 0.95 },
   missing_names: { choice: 'none_missing', probability: 0.95 },
   'date:d1': { choice: 'right', probability: 0.95 },
+  missing_dates: { choice: 'none_missing', probability: 0.95 },
   reason: { choice: 'wrong_category', probability: 0.95 },
 }
 
@@ -183,6 +193,7 @@ describe('runChecks', () => {
       'name:n1',
       'missing_names',
       'date:d1',
+      'missing_dates',
     ])
     expect(decide.mock.calls[2][0]).toEqual(buildCaptureReasonRequest(REASON_INPUT))
   })
@@ -197,7 +208,7 @@ describe('runChecks', () => {
       probability: 0.95,
       status: 'ok',
     })
-    expect(result.totals).toEqual({ questions: 6, ok: 6, low: 0, mismatch: 0 })
+    expect(result.totals).toEqual({ questions: 8, ok: 8, low: 0, mismatch: 0 })
   })
 
   it('marks agreement below 0.8 low, and exactly 0.8 ok', async () => {
@@ -239,14 +250,14 @@ describe('runChecks', () => {
       choice: 'other',
       status: 'mismatch',
     })
-    expect(result.totals).toEqual({ questions: 6, ok: 4, low: 0, mismatch: 2 })
+    expect(result.totals).toEqual({ questions: 8, ok: 6, low: 0, mismatch: 2 })
   })
 
   it('groups rows by case in fixture order and keeps note, kind and request', async () => {
     const result = await runChecks({ fixtures: fixtures(), decide: fakeDecide(AGREE) })
     expect(result.cases.map((c) => [c.kind, c.caseId, c.note, c.rows.length])).toEqual([
-      ['capture_audit', 'a1', 'clean', 3],
-      ['capture_audit', 'a2', null, 2],
+      ['capture_audit', 'a1', 'clean', 4],
+      ['capture_audit', 'a2', null, 3],
       ['capture_reason', 'r1', null, 1],
     ])
     expect(result.cases[0].request).toEqual(buildCaptureAuditRequest(AUDIT_INPUT))
