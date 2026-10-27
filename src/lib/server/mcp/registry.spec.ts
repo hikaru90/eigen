@@ -28,6 +28,9 @@ const TEXT_NOTE_TOOLS = [
 /** Multiplayer board (feature-multiplayer-board.md MB-7): HTTP MCP only, never the ask loop. */
 const BOARD_TOOLS = ['list_board', 'share_idea', 'vote_idea', 'forget_idea'] as const
 
+/** Ask proposes thoughts (feature-ask-proposes-thoughts.md AP-2/AP-4): in-app Ask only. */
+const ASK_PROPOSAL_TOOLS = ['propose_thoughts', 'store_thoughts'] as const
+
 describe('MCP tool registry exposure', () => {
   it('keeps the shared board out of the ask/chat loop and the default MCP surface', () => {
     for (const name of BOARD_TOOLS) {
@@ -84,6 +87,7 @@ describe('MCP tool registry exposure', () => {
       ...BOARD_TOOLS,
       'update_idea',
       ...TEXT_NOTE_TOOLS,
+      ...ASK_PROPOSAL_TOOLS,
     ])
     expect(MCP_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_AGENT_TOOL_NAMES)
   })
@@ -102,6 +106,28 @@ describe('MCP tool registry exposure', () => {
     const block = buildChatAgentToolDescriptionBlock()
     expect(block).not.toContain('capture_thought')
     expect(block).toContain('answer_question')
+  })
+
+  it('offers Ask exactly two ways to keep thoughts — propose and store — and keeps them off HTTP MCP', () => {
+    for (const name of ASK_PROPOSAL_TOOLS) {
+      expect(isAgentTool(name)).toBe(true)
+      expect(isChatAgentTool(name)).toBe(true)
+      expect(isMcpExposedTool(name)).toBe(false)
+      expect(CHAT_AGENT_TOOL_NAMES).toContain(name)
+      expect(MCP_CLIENT_EXPOSED_TOOL_NAMES).not.toContain(name)
+    }
+    // capture_thought stays out of Ask and keeps its MCP exposure (AP-6)
+    expect(CHAT_AGENT_TOOL_NAMES).not.toContain('capture_thought')
+    expect(isMcpExposedTool('capture_thought')).toBe(true)
+    const block = buildChatAgentToolDescriptionBlock()
+    expect(block).toContain('propose_thoughts')
+    expect(block).toContain('store_thoughts')
+    expect(block).not.toContain('capture_thought')
+    const store = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'store_thoughts')
+    expect(store?.inputSchema).toMatchObject({ required: ['proposal_id'] })
+    expect(store?.agentArgumentSchema).not.toMatch(/thoughts"\s*:/)
+    const propose = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'propose_thoughts')
+    expect(propose?.inputSchema).toMatchObject({ required: ['thoughts'] })
   })
 
   it('does not register removed chat-only tools', () => {

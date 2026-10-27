@@ -507,5 +507,11 @@
   "ask_source_collapse": "Hide details",
   "ask_source_type": "Type",
   "ask_source_loading": "Loading…",
-  "ask_source_load_failed": "Couldn't load this thought's details."
+  "ask_source_load_failed": "Couldn't load this thought's details.",
+  "ask_proposal_lead_in": "I'd store these in your mesh:",
+  "ask_proposal_footer": "Say yes to store them, or tell me what to change.",
+  "ask_capture_check_failed": "I couldn't check this message for thoughts to keep.",
+  "ask_reply_check_failed": "I couldn't check your reply to the open proposal, so nothing was stored.",
+  "ask_proposal_missing": "I couldn't draft thoughts to keep from this message, so nothing was proposed.",
+  "ask_store_missing": "I couldn't store the proposal, so nothing was stored."
 }

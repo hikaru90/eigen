@@ -1,10 +1,98 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { agentChatMock, dbWrites } = vi.hoisted(() => ({
+  agentChatMock: vi.fn(),
+  dbWrites: [] as Array<{ values: Record<string, unknown> }>,
+}))
+
+vi.mock('$lib/server/llm/agent-loop', () => ({ agentChat: agentChatMock }))
+vi.mock('$lib/server/db', () => {
+  // chat_message history is empty; every insert is recorded in order
+  const scoped = {
+    select: () => ({
+      from: () => ({
+        where: (): unknown => ({
+          orderBy: async () => [],
+          then: (resolve: (v: unknown) => unknown) => resolve([{ count: 1 }]),
+        }),
+      }),
+    }),
+    insert: () => ({
+      values: (values: Record<string, unknown>) => {
+        dbWrites.push({ values })
+        return { returning: async () => [{ id: `msg-${dbWrites.length}` }] }
+      },
+    }),
+    update: () => ({ set: () => ({ where: async () => undefined }) }),
+  }
+  return {
+    getDb: () => scoped,
+    appDbAsyncLocal: { run: (_db: unknown, fn: () => unknown) => fn() },
+    appSql: { reserve: async () => ({ release: async () => undefined }) },
+    createScopedDrizzle: () => scoped,
+    activateTenantDbSession: async () => undefined,
+    deactivateTenantDbSession: async () => undefined,
+  }
+})
+
 import { InsufficientCreditsError } from '$lib/server/billing/wallet'
 import {
   BRIEFING_BOOTSTRAP_MESSAGES,
   chatErrorTerminalPayload,
   failedAssistantTurn,
+  handleAgentChatPost,
 } from './handle-agent-chat-post'
+
+async function streamedTurn(body: Record<string, unknown>) {
+  const event = {
+    locals: { user: { id: 'u1' } },
+    request: {
+      headers: new Headers({ accept: 'application/x-ndjson' }),
+      signal: new AbortController().signal,
+    },
+  }
+  const res = await handleAgentChatPost(event as never, body, {
+    sessionMode: 'default',
+    resolveAgentUserMessage: ({ message }) => message,
+  } as never)
+  const lines = (await res.text()).trim().split('\n').map((l) => JSON.parse(l))
+  return lines as Array<Record<string, unknown>>
+}
+
+describe('handleAgentChatPost streaming — Ask proposes thoughts', () => {
+  beforeEach(() => {
+    agentChatMock.mockReset()
+    dbWrites.length = 0
+  })
+
+  it('runs the agent on the user session and stores the proposal tool step and the answer with its appendix', async () => {
+    const preview = JSON.stringify({ proposalId: 'p1', thoughts: ['Started bouldering'] })
+    agentChatMock.mockImplementation(async (input: { onEvent: (e: unknown) => void }) => {
+      input.onEvent({ type: 'tool_call', tool: 'propose_thoughts', arguments: { thoughts: ['Started bouldering'] } })
+      input.onEvent({ type: 'tool_result', tool: 'propose_thoughts', preview })
+      return { response: 'Noted.', appendix: 'LEAD\n\n1. Started bouldering', messages: [] }
+    })
+
+    const lines = await streamedTurn({ message: 'I started bouldering', sessionId: '' })
+
+    expect(agentChatMock.mock.calls[0]![0].chatSessionId).toEqual(expect.any(String))
+    const stepWrite = dbWrites.find((w) => w.values.role === 'assistant' && w.values.content === preview)
+    expect(stepWrite?.values.metadata).toMatchObject({ variant: 'tool_step', tool: 'propose_thoughts' })
+    const done = lines.find((l) => l.type === 'done')
+    expect(done?.response).toBe('Noted.\n\nLEAD\n\n1. Started bouldering')
+    expect(
+      dbWrites.some((w) => w.values.role === 'assistant' && w.values.content === done?.response),
+    ).toBe(true)
+  })
+
+  it('a briefing bootstrap turn never opens the Ask proposal flow', async () => {
+    agentChatMock.mockResolvedValue({ response: 'Good morning.', messages: [] })
+
+    await streamedTurn({ bootstrap: true, briefingPeriod: 'morning', sessionId: '' })
+
+    expect(agentChatMock.mock.calls[0]![0].chatSessionId).toBeUndefined()
+  })
+})
 
 describe('chatErrorTerminalPayload', () => {
   it('includes insufficient_credits code for InsufficientCreditsError', () => {

@@ -74,6 +74,8 @@ export type CaptureThoughtOptions = {
   authorKeyId?: string | null
   /** Override thought.createdAt for temporal anchoring at enrich (external drivers, eval fixtures). */
   capturedAt?: Date
+  /** Where the thought came from (e.g. the Ask session + proposal), kept in the encrypted metadata. */
+  provenance?: Record<string, string>
 }
 
 async function decryptThoughtRow<
@@ -147,6 +149,7 @@ export async function captureThought(
     authorKeyId: options?.authorKeyId,
     skipWorker: awaitEnrichment,
     capturedAt: options?.capturedAt,
+    provenance: options?.provenance,
   })
 
   if (awaitEnrichment) {

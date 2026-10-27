@@ -5,7 +5,7 @@ const { agentChatMock } = vi.hoisted(() => ({ agentChatMock: vi.fn() }))
 
 vi.mock('$lib/server/llm/agent-loop', () => ({ agentChat: agentChatMock }))
 
-import { runAskTurn } from './run-ask-turn'
+import { finalAnswerText, runAskTurn } from './run-ask-turn'
 
 type Write = { table: unknown; values?: Record<string, unknown>; set?: Record<string, unknown> }
 
@@ -219,5 +219,84 @@ describe('runAskTurn', () => {
     expect(
       writes.filter((w) => w.table === chatMessage).map((w) => w.values?.role),
     ).toEqual(['user'])
+  })
+
+  it('hands the agent the session for a user turn but not for a bootstrap prompt (no proposals on briefings)', async () => {
+    agentChatMock.mockResolvedValue({ response: 'A.', messages: [] })
+
+    await runAskTurn({ db: fakeDb([]).db, userId: 'u1', sessionId: 's1', message: 'hi' })
+    expect(agentChatMock.mock.calls[0]![0].chatSessionId).toBe('s1')
+
+    await runAskTurn({
+      db: fakeDb([]).db,
+      userId: 'u1',
+      sessionId: 's1',
+      message: 'Give my morning briefing',
+      bootstrap: true,
+    })
+    expect(agentChatMock.mock.calls[1]![0].chatSessionId).toBeUndefined()
+  })
+
+  it('always stores the propose/store tool steps (the proposal lives there), and only those unless persistSteps', async () => {
+    const preview = JSON.stringify({ proposalId: 'p1', thoughts: ['Started bouldering'] })
+    agentChatMock.mockImplementation(async (input: { onEvent: (e: unknown) => void }) => {
+      input.onEvent({ type: 'thinking', content: 'hmm' })
+      input.onEvent({ type: 'tool_call', tool: 'answer_question', arguments: { question: 'q' } })
+      input.onEvent({ type: 'tool_result', tool: 'answer_question', preview: 'p' })
+      input.onEvent({
+        type: 'tool_call',
+        tool: 'propose_thoughts',
+        arguments: { thoughts: ['Started bouldering'] },
+      })
+      input.onEvent({ type: 'tool_executing', tool: 'propose_thoughts' })
+      input.onEvent({ type: 'tool_result', tool: 'propose_thoughts', preview })
+      return { response: 'The answer.', appendix: 'LEAD\n\n1. Started bouldering', messages: [] }
+    })
+    const { db, writes } = fakeDb([])
+
+    await runAskTurn({ db, userId: 'u1', sessionId: 's1', message: 'q' })
+
+    const assistantWrites = writes
+      .filter((w) => w.table === chatMessage && w.values?.role === 'assistant')
+      .map((w) => w.values!)
+    expect(assistantWrites).toHaveLength(2)
+    expect(assistantWrites[0]).toMatchObject({
+      content: preview,
+      metadata: { variant: 'tool_step', tool: 'propose_thoughts', failed: false },
+    })
+    expect(assistantWrites[1]!.content).toBe('The answer.\n\nLEAD\n\n1. Started bouldering')
+  })
+
+  it('returns the stored answer with the appendix (proposal block / notes) after the answer', async () => {
+    agentChatMock.mockResolvedValue({
+      response: 'You prefer sourdough.',
+      appendix: 'NOTE',
+      messages: [],
+    })
+    const { db } = fakeDb([])
+    const result = await runAskTurn({ db, userId: 'u1', sessionId: 's1', message: 'bread?' })
+    expect(result.answer).toBe('You prefer sourdough.\n\nNOTE')
+  })
+})
+
+describe('finalAnswerText with an appendix', () => {
+  it('appends after the answer_question answer, which would otherwise replace the agent response', () => {
+    const steps = [
+      {
+        content: JSON.stringify({ answer: 'Answer: Rest on Saturday.\nEvidence:\n- none\nUnknown:\n- none' }),
+        metadata: { variant: 'tool_result', tool: 'answer_question' },
+      },
+    ]
+    expect(finalAnswerText('ignored', steps, 'LEAD\n\n1. x')).toBe(
+      'Rest on Saturday.\n\nLEAD\n\n1. x',
+    )
+  })
+
+  it('leaves the answer untouched without an appendix, and the appendix is trusted text (not sanitised away)', () => {
+    expect(finalAnswerText('Plain answer.', [])).toBe('Plain answer.')
+    expect(finalAnswerText('Plain answer.', [], '')).toBe('Plain answer.')
+    expect(finalAnswerText('Plain answer.', [], '[1] raw-looking but ours')).toBe(
+      'Plain answer.\n\n[1] raw-looking but ours',
+    )
   })
 })

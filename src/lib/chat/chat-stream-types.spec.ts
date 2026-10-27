@@ -297,7 +297,41 @@ describe('chat-stream-types', () => {
       'search_text_files',
       'link_text_file_to_thought',
       'unlink_text_file_from_thought',
+      'propose_thoughts',
+      'store_thoughts',
     ])
+  })
+
+  it('shows the Ask proposal and store tools in plain words, never as raw JSON', () => {
+    expect(toolVisual('propose_thoughts').title).toBe('Proposing thoughts')
+    expect(toolVisual('store_thoughts').title).toBe('Saving to memory')
+    expect(formatToolArgumentsSummary('store_thoughts', { proposal_id: 'abcdef12-3456' })).toBe(
+      'Proposal abcdef12…',
+    )
+    expect(
+      formatToolArgumentsSummary('propose_thoughts', { thoughts: ['Started bouldering', 'b'] }),
+    ).toBe('Started bouldering (+1 more)')
+
+    const proposed = JSON.stringify({
+      proposalId: 'p1',
+      thoughts: ['Started bouldering', 'Rests Wednesdays'],
+    })
+    expect(formatToolResultForDisplay('propose_thoughts', proposed)).toBe(
+      '1. Started bouldering\n2. Rests Wednesdays',
+    )
+    const stored = JSON.stringify({
+      proposalId: 'p1',
+      stored: [
+        { thoughtId: 't1', text: 'Started bouldering' },
+        { thoughtId: 't2', text: 'Rests Wednesdays' },
+      ],
+    })
+    expect(formatToolResultForDisplay('store_thoughts', stored)).toBe(
+      'Saved to memory:\n1. Started bouldering\n2. Rests Wednesdays',
+    )
+    expect(
+      formatToolResultForDisplay('store_thoughts', JSON.stringify({ error: 'Nothing was stored' })),
+    ).toBe('Error: Nothing was stored')
   })
 
   it('summarizes append_text_file arguments', () => {

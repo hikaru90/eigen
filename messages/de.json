@@ -507,5 +507,11 @@
   "ask_source_collapse": "Details ausblenden",
   "ask_source_type": "Typ",
   "ask_source_loading": "Lädt…",
-  "ask_source_load_failed": "Die Details dieses Gedankens konnten nicht geladen werden."
+  "ask_source_load_failed": "Die Details dieses Gedankens konnten nicht geladen werden.",
+  "ask_proposal_lead_in": "Das würde ich in deinem Mesh speichern:",
+  "ask_proposal_footer": "Sag Ja, um es zu speichern, oder sag mir, was ich ändern soll.",
+  "ask_capture_check_failed": "Ich konnte diese Nachricht nicht auf Gedanken zum Behalten prüfen.",
+  "ask_reply_check_failed": "Ich konnte deine Antwort auf den offenen Vorschlag nicht prüfen, deshalb wurde nichts gespeichert.",
+  "ask_proposal_missing": "Ich konnte aus dieser Nachricht keine Gedanken zum Behalten entwerfen, deshalb wurde nichts vorgeschlagen.",
+  "ask_store_missing": "Ich konnte den Vorschlag nicht speichern, deshalb wurde nichts gespeichert."
 }

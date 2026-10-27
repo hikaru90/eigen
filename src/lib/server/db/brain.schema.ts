@@ -178,7 +178,8 @@ export const enrichQueueStatusEnum = [
 ] as const
 export type EnrichQueueStatus = (typeof enrichQueueStatusEnum)[number]
 
-export const captureSourceEnum = ['mcp', 'ui', 'api', 'eval', 'agent'] as const
+/** `ask`: stored from Ask after the user confirmed a proposal (text column, no DB constraint). */
+export const captureSourceEnum = ['mcp', 'ui', 'api', 'eval', 'agent', 'ask'] as const
 export type CaptureSource = (typeof captureSourceEnum)[number]
 
 /** Who authored a memory row — human user or a connected agent. */

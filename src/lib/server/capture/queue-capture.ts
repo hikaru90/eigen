@@ -73,6 +73,11 @@ export type QueueCaptureOptions = {
   awaitConfirmation?: boolean
   /** Override thought.createdAt (e.g. backdated haystack session date from external driver). */
   capturedAt?: Date
+  /**
+   * Where the thought came from (e.g. `{ askSessionId, askProposalId }` for a confirmed Ask
+   * proposal). Merged into the ENCRYPTED metadata only; the plaintext marker stays as is.
+   */
+  provenance?: Record<string, string>
 }
 
 async function resolvePlaceholderOntologyKindId(userId: string): Promise<string> {
@@ -142,6 +147,7 @@ export async function queueCapture(
     column: 'metadata',
     plaintext: JSON.stringify({
       ...metadata,
+      ...(options?.provenance ?? {}),
       queueTier,
       ...(awaitConfirmation ? { confirmationGate: true } : {}),
     }),

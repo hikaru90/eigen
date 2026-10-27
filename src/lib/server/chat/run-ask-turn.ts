@@ -4,6 +4,7 @@ import { formatToolResultForDisplay, sanitizeFinalAnswerText } from '$lib/chat/c
 import type { ChatStreamEvent } from '$lib/chat/chat-stream-types'
 import { compactChatIntermediateSteps } from '$lib/chat/normalize-messages'
 import { runWithTrace } from '$lib/server/activity/trace-context'
+import { isProposalToolStep } from '$lib/server/chat/ask-proposals'
 import { sessionMessagesToAgentHistory } from '$lib/server/chat/session-history-for-agent'
 import type { getDb } from '$lib/server/db'
 import { chatSession, chatMessage, type ChatSessionMode } from '$lib/server/db/brain.schema'
@@ -126,8 +127,16 @@ export function intermediateStepFromEvent(evt: ChatStreamEvent): IntermediateSte
   return null
 }
 
-/** The user-facing answer text of a finished agent run (steps supply the answer_question preview). */
-export function finalAnswerText(agentResponse: unknown, steps: IntermediateStep[]): string {
+/**
+ * The user-facing answer text of a finished agent run (steps supply the answer_question preview).
+ * `appendix` is the server-written text the agent loop returns after the answer (the proposed
+ * thoughts, visible notes); it is trusted text, added after the answer is sanitised.
+ */
+export function finalAnswerText(
+  agentResponse: unknown,
+  steps: IntermediateStep[],
+  appendix?: string,
+): string {
   let lastAnswerQuestionPreview: string | undefined
   for (const step of steps) {
     if (step.metadata.variant === 'tool_result' && step.metadata.tool === 'answer_question') {
@@ -138,7 +147,8 @@ export function finalAnswerText(agentResponse: unknown, steps: IntermediateStep[
     typeof agentResponse === 'string' && agentResponse.trim().length > 0
       ? agentResponse
       : 'The assistant did not produce a response.'
-  return sanitizeFinalAnswerText(rawResponse, lastAnswerQuestionPreview)
+  const answer = sanitizeFinalAnswerText(rawResponse, lastAnswerQuestionPreview)
+  return appendix?.trim() ? `${answer}\n\n${appendix.trim()}` : answer
 }
 
 /**
@@ -247,6 +257,8 @@ export async function runAskTurn(input: {
       messages: [...history, { role: 'user', content: message }],
       mode: input.mode ?? 'default',
       aiSessionId: input.sessionId,
+      // a bootstrap prompt is system-made: no Ask decisions, no thought proposals
+      ...(bootstrap ? {} : { chatSessionId: input.sessionId }),
       db: input.db,
       onEvent: (evt) => {
         const step = intermediateStepFromEvent(evt)
@@ -262,13 +274,15 @@ export async function runAskTurn(input: {
     }),
   )
 
-  const answer = finalAnswerText(result.response, steps)
+  const answer = finalAnswerText(result.response, steps, result.appendix)
+  // The proposal lives in its persisted propose_thoughts step (AP-2): those steps are always
+  // stored, so a confirming "yes" in the next turn can find it — whatever persistSteps says.
   const { messageId } = await persistStreamedAssistantTurn({
     db: input.db,
     sessionId: input.sessionId,
     userId: input.userId,
     responseText: answer,
-    intermediateSteps: input.persistSteps === true ? steps : [],
+    intermediateSteps: input.persistSteps === true ? steps : steps.filter(isProposalToolStep),
   })
 
   if (isFirstMessage && !bootstrap) {

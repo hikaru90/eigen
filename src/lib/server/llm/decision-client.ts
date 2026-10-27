@@ -29,8 +29,9 @@ export type DecisionShadowConfig = {
 /**
  * Bounded decision kinds the decision plane compares (spec §3). Widened with
  * resolution_choice, delete_target, message_intent, open_loop, and
- * salience_band (14 total) for the upcoming resolution / delete-gate /
- * chat-turn surfaces.
+ * salience_band for the resolution / delete-gate / chat-turn surfaces, and
+ * with capture_worthy and proposal_reply (16 total) for Ask proposing
+ * thoughts (docs/planning/feature-ask-proposes-thoughts.md, surface chat_turn).
  */
 export type DecisionKind =
   | 'category'
@@ -47,6 +48,8 @@ export type DecisionKind =
   | 'message_intent'
   | 'open_loop'
   | 'salience_band'
+  | 'capture_worthy'
+  | 'proposal_reply'
 
 /**
  * Kinds with an implemented promotion path (spec §6 P). entity_type,
@@ -58,7 +61,9 @@ export type DecisionKind =
  * message_intent, open_loop, and salience_band widen the accepted registry
  * ahead of their surfaces — they parse and enforce (fail loud) today and
  * gain their question wiring with the resolution / delete-gate / chat-turn
- * surfaces. Config fail-louds rather than silently ignoring an unknown kind.
+ * surfaces. capture_worthy and proposal_reply run on EVERY Ask turn (not gated
+ * by this setting — listing them only validates the config). Config fail-louds
+ * rather than silently ignoring an unknown kind.
  */
 const ENFORCEABLE_KINDS = [
   'category',
@@ -75,6 +80,8 @@ const ENFORCEABLE_KINDS = [
   'message_intent',
   'open_loop',
   'salience_band',
+  'capture_worthy',
+  'proposal_reply',
 ] as const
 
 export type EnforceableDecisionKind = (typeof ENFORCEABLE_KINDS)[number]

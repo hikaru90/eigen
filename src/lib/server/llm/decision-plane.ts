@@ -784,6 +784,9 @@ async function recordRows(
     message_intent: undefined,
     open_loop: undefined,
     salience_band: undefined,
+    // Ask turn kinds — bounded whole-question decisions with no chat-judge primary.
+    capture_worthy: undefined,
+    proposal_reply: undefined,
   }
 
   const rows: Array<typeof decisionShadowLog.$inferInsert> = []

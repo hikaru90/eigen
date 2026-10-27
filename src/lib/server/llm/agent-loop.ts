@@ -1,9 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import type { ChatStreamEvent } from '$lib/chat/chat-stream-types'
 import { isUnpresentableFinalAnswer } from '$lib/chat/chat-stream-types'
+import { m } from '$lib/paraglide/messages.js'
 import { AGENT_TOOL_ACTIVITY_PROVIDER } from '$lib/server/activity/gateway-providers'
 import { logActivityCall } from '$lib/server/activity/log-call'
 import { captureServerEvent } from '$lib/server/analytics/posthog-server'
+import {
+  loadOpenProposal,
+  readProposalFromResult,
+  renderProposalBlock,
+  type AskProposal,
+  type AskTurnState,
+} from '$lib/server/chat/ask-proposals'
+import { decideAskTurn, planAskTurn, type AskTurnPlan } from '$lib/server/chat/ask-turn-decisions'
 import { getDb } from '$lib/server/db'
 import type { ChatSessionMode } from '$lib/server/db/brain.schema'
 import {
@@ -28,9 +37,12 @@ import { readThoughtIdFromToolArgs } from '$lib/server/validation/mcp-args'
 
 const MAX_ITERATIONS = 8
 const MAX_PARSE_RETRIES = 3
+/** Re-asks when a turn skips the tool Jev's decisions made mandatory, before a visible note. */
+const MAX_REQUIRED_TOOL_REASKS = 2
 
 /** Mutation / write tools — a final answer after these does not require answer_question.
- *  capture_thought is deliberately absent: the ask surface never stores new thoughts. */
+ *  capture_thought is deliberately absent: Ask never stores a new thought on its own.
+ *  store_thoughts is the one Ask write, guarded server-side on a confirmed proposal. */
 const AGENT_WRITE_TOOLS = new Set([
   'edit_thought',
   'delete_thought',
@@ -48,11 +60,12 @@ const AGENT_WRITE_TOOLS = new Set([
   'edit_project',
   'merge_projects',
   'delete_project',
+  'store_thoughts',
 ])
 
 const REMOVED_TOOL_HINTS: Record<string, string> = {
   capture_thought:
-    'capture_thought is not available here — Ask is ask-only and never stores new thoughts (capturing happens on the Capture page). For any question call answer_question; for notes use the text-file tools.',
+    'capture_thought is not available here — Ask never stores a thought on its own: thoughts worth keeping are shown with propose_thoughts and stored with store_thoughts only after the user confirms (plain capturing happens on the Capture page). For any question call answer_question; for notes use the text-file tools.',
   list_temporal_events:
     'That tool was removed. For agendas/todos/deadlines use list_projects and get_project_timeline; for memory questions use answer_question.',
   manage_temporal_event:
@@ -84,10 +97,12 @@ function formatUnknownToolError(tool: string): string {
 const TOOL_DESCRIPTION_BLOCK = buildChatAgentToolDescriptionBlock()
 
 /**
- * Thin chat agent: ask-only MCP thought tools plus chat-only text-note tools, with streaming visual feedback.
- * No router or classifiers. The ask surface never captures: capture_thought is not in the
- * loop's toolset (CHAT_AGENT_TOOL_NAMES), so nothing typed into Ask is stored as a new
- * thought — a stray capture call is rejected with a steering hint and the turn answers instead.
+ * Thin chat agent: MCP thought tools plus chat-only text-note tools, with streaming visual feedback.
+ * No router or classifiers. The ask surface never captures on its own: capture_thought is not in
+ * the loop's toolset (CHAT_AGENT_TOOL_NAMES) — a stray capture call is rejected with a steering
+ * hint. Thoughts worth keeping are proposed (propose_thoughts) and stored (store_thoughts) only
+ * after the user confirms; Jev decides per turn what is worth keeping and whether a reply is a
+ * confirm, and the server guard (ask-proposal-tools.ts) enforces it.
  */
 export const AGENT_SYSTEM_PROMPT = [
   "You are a text interface over the user's personal memory tools.",
@@ -105,7 +120,7 @@ export const AGENT_SYSTEM_PROMPT = [
   '- You must call at least one tool before giving a final answer. A final answer with no prior tool call in this turn is rejected.',
   '- Any question (how/what/when/who/why, any language): call answer_question — never answer a question from your own knowledge.',
   '- retrieve_thoughts is for browsing/listing recent thoughts, not for answering questions.',
-  "- This surface is ask-only: the user asks questions here and capture is not available. Never store the user's message or anything from this turn as a new thought. If the user wants something remembered, tell them capturing happens on the Capture page; still call answer_question for any question.",
+  "- Thoughts worth keeping: this surface never stores anything on its own. When the turn context says [capture_worthy: yes] (or the user asks to change an open proposal), first do what the user asked, then call propose_thoughts with one or more self-contained thoughts in the user's own voice (what they said about themselves or their life — never your answers). The system shows the proposed thoughts to the user: do not list them yourself and never say they are saved. Only store_thoughts stores, and only when the turn context says [proposal_reply: confirm] — call it with that proposal_id and nothing else. If the user wants a change, call propose_thoughts again with the full revised list. When the context says [capture_worthy: no] or [proposal_reply: unrelated], propose and store nothing.",
   '- Notes tab documents (shopping lists, titled notes, notebooks, checklists) are text notes — create and edit them with the text-file tools. They are not memory thoughts.',
   '- Create a NEW note/list only: create_text_file with title and/or body (title-only is fine for an empty new list). Use create only when the user wants a fresh document, not when amending one that already exists.',
   '- Add / append / change content on a referenced note (e.g. "add milk to my shopping list"): search_text_files or list_text_files to find text_file_id, then append_text_file (or get_text_file + update_text_file for a full rewrite). Never create_text_file for additive requests on an existing named note/list.',
@@ -235,6 +250,12 @@ function parseResponse(text: string): AgentResponse {
 export type AgentChatResult = {
   response: string
   messages: ChatMessage[]
+  /**
+   * Server-written text shown after the answer: the proposed thoughts (listed from the
+   * persisted proposal, never from model text) and visible notes when a check failed.
+   * Absent when the turn has nothing to add.
+   */
+  appendix?: string
 }
 
 type ToolExecutionContext = {
@@ -265,7 +286,8 @@ async function executeAgentToolCall(input: {
   arguments: Record<string, unknown>
   exec: ToolExecutionContext
 }): Promise<
-  { done: true; response: string } | { done: false; result: unknown; assistantContent: string }
+  | { done: true; response: string; result: unknown }
+  | { done: false; result: unknown; assistantContent: string }
 > {
   const { tool, exec } = input
   const args = normalizeAgentToolArgs(tool, input.arguments)
@@ -328,6 +350,7 @@ async function executeAgentToolCall(input: {
       return {
         done: true,
         response: formatComposedAnswerForUser((result as ComposedAnswer).answer),
+        result,
       }
     }
   } catch (err) {
@@ -441,6 +464,47 @@ function currentUserMessageText(messages: ChatMessage[]): string | null {
   return null
 }
 
+/** Whether a required Ask tool's result is the success the turn was waiting for. */
+function requiredToolSucceeded(tool: string, result: unknown): boolean {
+  if (tool === 'propose_thoughts') return readProposalFromResult(result) !== null
+  if (tool === 'store_thoughts') {
+    return (
+      !!result &&
+      typeof result === 'object' &&
+      !('error' in result) &&
+      Array.isArray((result as { stored?: unknown }).stored)
+    )
+  }
+  return false
+}
+
+function requiredToolHint(tool: NonNullable<AskTurnPlan['requiredTool']>): string {
+  return tool === 'propose_thoughts'
+    ? "This turn is not finished: the user's message also holds thoughts worth keeping. Call propose_thoughts now with the self-contained thoughts (in the user's own voice). Do not repeat the answer — it is already recorded."
+    : 'This turn is not finished: the user confirmed the open proposal. Call store_thoughts now with the open proposal_id from the turn context.'
+}
+
+function requiredToolMissingNote(tool: NonNullable<AskTurnPlan['requiredTool']>): string {
+  return tool === 'propose_thoughts' ? m.ask_proposal_missing() : m.ask_store_missing()
+}
+
+/**
+ * The Ask proposal decisions for this turn (AP-1 / AP-3): the open proposal is resolved from
+ * the persisted session, then ONE Decisions call judges the message (and the reply, when a
+ * proposal is open). Null when the turn is not a user message in a session (briefing
+ * bootstrap, direct callers): no thought proposals there.
+ */
+async function decideAskTurnFor(input: {
+  userId: string
+  chatSessionId?: string
+  message: string | null
+  db?: ReturnType<typeof getDb>
+}) {
+  if (!input.chatSessionId || !input.message) return null
+  const openProposal = await loadOpenProposal(input.db ?? getDb(), input.chatSessionId)
+  return decideAskTurn({ userId: input.userId, message: input.message, openProposal })
+}
+
 export async function agentChat(input: {
   userId: string
   messages: ChatMessage[]
@@ -448,8 +512,40 @@ export async function agentChat(input: {
   db?: ReturnType<typeof getDb>
   mode?: ChatSessionMode
   aiSessionId?: string
+  /**
+   * The persisted Ask session this turn's user message belongs to. Absent for turns that are
+   * not a user message in a session (briefing bootstrap, direct callers): no Ask decisions and
+   * no thought proposals.
+   */
+  chatSessionId?: string
 }): Promise<AgentChatResult> {
   const aiTraceId = randomUUID()
+
+  // Per-turn Jev calls run side by side: the advisory intent hint (zero calls, byte-identical
+  // loop when message_intent is not enforced) and the Ask decisions (capture_worthy and — with
+  // an open proposal — proposal_reply, ONE call). Both must resolve before the first model
+  // call so their hints are part of the context that call sees.
+  const turnUserMessage = currentUserMessageText(input.messages)
+  const [intentHint, askDecisions] = await Promise.all([
+    turnUserMessage ? detectMessageIntentHint(input.userId, turnUserMessage) : null,
+    decideAskTurnFor({
+      userId: input.userId,
+      chatSessionId: input.chatSessionId,
+      message: turnUserMessage,
+      db: input.db,
+    }),
+  ])
+  const plan: AskTurnPlan | null = askDecisions ? planAskTurn(askDecisions) : null
+  const askTurn: AskTurnState | undefined =
+    askDecisions && input.chatSessionId
+      ? {
+          sessionId: input.chatSessionId,
+          captureWorthy: askDecisions.captureWorthy,
+          proposalReply: askDecisions.proposalReply,
+          storeStarted: false,
+        }
+      : undefined
+
   const ctx: McpToolContext = {
     userId: input.userId,
     onToolProgress: (event) => {
@@ -460,6 +556,7 @@ export async function agentChat(input: {
         label: event.label,
       })
     },
+    ...(askTurn ? { askTurn } : {}),
   }
 
   const exec: ToolExecutionContext = {
@@ -471,18 +568,12 @@ export async function agentChat(input: {
     aiTraceId,
   }
 
-  // Advisory intent hint (zero calls, byte-identical loop when message_intent
-  // is not enforced) — must resolve before the first model call so the hint is
-  // part of the context that call sees.
-  const turnUserMessage = currentUserMessageText(input.messages)
-  const intentHint = turnUserMessage
-    ? await detectMessageIntentHint(input.userId, turnUserMessage)
-    : null
-
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content: intentHint ? `${AGENT_SYSTEM_PROMPT}\n${intentHint}` : AGENT_SYSTEM_PROMPT,
+      content: [AGENT_SYSTEM_PROMPT, intentHint, ...(plan?.hints ?? [])]
+        .filter((part): part is string => !!part)
+        .join('\n'),
     },
     ...input.messages,
   ]
@@ -491,6 +582,21 @@ export async function agentChat(input: {
   let answerQuestionRan = false
   let writeToolRan = false
   let retrieveSearchRan = false
+
+  // Ask proposals: the tool Jev's decisions made mandatory this turn, and what the turn
+  // shows the user after the answer (the last successful proposal, visible notes).
+  const requiredTool = plan?.requiredTool ?? null
+  let requiredToolRan = false
+  let requiredToolReasks = 0
+  let deferredAnswer: string | null = null
+  let proposal: AskProposal | null = null
+  const notes: string[] = [...(askDecisions?.notes ?? [])]
+  const finish = (response: string): AgentChatResult => {
+    const appendix = [proposal ? renderProposalBlock(proposal.thoughts) : null, ...notes]
+      .filter((part): part is string => !!part)
+      .join('\n\n')
+    return { response, messages, ...(appendix ? { appendix } : {}) }
+  }
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     console.error('[agent-loop] iteration', { iteration, messageCount: messages.length })
@@ -524,7 +630,7 @@ export async function agentChat(input: {
 
     if (!content) {
       console.error('[agent-loop] LLM returned empty content')
-      return { response: 'The assistant did not produce a response.', messages }
+      return finish('The assistant did not produce a response.')
     }
 
     console.error('[agent-loop] LLM raw response', { preview: content.slice(0, 300) })
@@ -577,21 +683,43 @@ export async function agentChat(input: {
       if (parsed.tool === 'answer_question') answerQuestionRan = true
       if (AGENT_WRITE_TOOLS.has(parsed.tool)) writeToolRan = true
       if (isRetrieveThoughtsSearch(parsed.tool, parsed.arguments)) retrieveSearchRan = true
+      if (parsed.tool === 'propose_thoughts') {
+        const proposed = readProposalFromResult(outcome.result)
+        if (proposed) proposal = proposed
+      }
+      if (
+        requiredTool &&
+        parsed.tool === requiredTool &&
+        requiredToolSucceeded(parsed.tool, outcome.result)
+      ) {
+        requiredToolRan = true
+      }
 
       if (outcome.done) {
+        if (!requiredTool || requiredToolRan) {
+          messages.push({ role: 'assistant', content })
+          messages.push({ role: 'assistant', content: outcome.response })
+          return finish(outcome.response)
+        }
+        // answer_question would end the turn, but the turn still owes the required Ask tool:
+        // hold the answer (it is shown after the tool ran) and let the model continue.
+        deferredAnswer = outcome.response
+      } else if (requiredToolRan && deferredAnswer !== null) {
         messages.push({ role: 'assistant', content })
-        messages.push({ role: 'assistant', content: outcome.response })
-        return { response: outcome.response, messages }
+        messages.push({ role: 'assistant', content: deferredAnswer })
+        return finish(deferredAnswer)
       }
 
       const followUpHint = isRetrieveThoughtsSearch(parsed.tool, parsed.arguments)
         ? 'retrieve_thoughts search results are for finding ids or browsing — do not compose a memory answer from them. For any question, call answer_question next.'
         : 'If more tools are needed, call one now. Otherwise give your final answer using {"answer": "<your response>"}.'
+      const pendingHint =
+        requiredTool && !requiredToolRan ? `\n${requiredToolHint(requiredTool)}` : ''
 
       messages.push({ role: 'assistant', content })
       messages.push({
         role: 'user',
-        content: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, outcome.result)}\n\n${followUpHint}`,
+        content: `Tool result for ${parsed.tool}:\n${formatToolResultForAgentMessage(parsed.tool, outcome.result)}\n\n${followUpHint}${pendingHint}`,
       })
       continue
     }
@@ -645,13 +773,31 @@ export async function agentChat(input: {
       continue
     }
 
+    if (requiredTool && !requiredToolRan) {
+      // Never a silent skip: re-ask a bounded number of times, then say so in the reply.
+      rejectReply()
+      requiredToolReasks += 1
+      messages.push({ role: 'assistant', content })
+      if (requiredToolReasks > MAX_REQUIRED_TOOL_REASKS) {
+        console.error('[agent-loop] required Ask tool never ran', { requiredTool })
+        notes.push(requiredToolMissingNote(requiredTool))
+        return finish(deferredAnswer ?? parsed.content)
+      }
+      messages.push({
+        role: 'user',
+        content: `Error: ${requiredToolHint(requiredTool)} Respond with {"tool": "${requiredTool}", "arguments": {...}} only.`,
+      })
+      continue
+    }
+
     messages.push({ role: 'assistant', content })
-    return { response: parsed.content, messages }
+    return finish(parsed.content)
   }
 
   console.error('[agent-loop] max iterations reached')
-  return {
-    response: 'The assistant took too many steps to answer. Please try rephrasing your question.',
-    messages,
-  }
+  if (requiredTool && !requiredToolRan) notes.push(requiredToolMissingNote(requiredTool))
+  return finish(
+    deferredAnswer ??
+      'The assistant took too many steps to answer. Please try rephrasing your question.',
+  )
 }

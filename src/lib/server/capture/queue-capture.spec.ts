@@ -167,6 +167,40 @@ describe('queueCapture', () => {
     expect(thoughtValues.metadata?.confirmationGate).toBe(true)
   })
 
+  it('keeps chat provenance in the encrypted thought metadata, never in the plaintext marker', async () => {
+    const thoughtInsert = {
+      values: vi.fn(() => ({ returning: vi.fn(async () => [{ id: 'thought-1' }]) })),
+    }
+    let insertCall = 0
+    const sessionInsert = {
+      values: vi.fn(() => ({ returning: vi.fn(async () => [{ id: 'session-1' }]) })),
+    }
+    insertMock.mockImplementation(() => {
+      insertCall += 1
+      return insertCall === 1 ? sessionInsert : thoughtInsert
+    })
+
+    await queueCapture('u1', 'Started bouldering', {
+      source: 'ask',
+      provenance: { askSessionId: 's1', askProposalId: 'p1' },
+    })
+
+    const metadataCall = encryptMock.mock.calls
+      .map((c) => c[0] as { column: string; plaintext: string })
+      .find((c) => c.column === 'metadata')
+    expect(JSON.parse(metadataCall!.plaintext)).toMatchObject({
+      askSessionId: 's1',
+      askProposalId: 'p1',
+      queueTier: 'pending_enrich',
+    })
+    const thoughtValues = thoughtInsert.values.mock.calls[0]?.[0] as {
+      captureSource?: string
+      metadata?: Record<string, unknown>
+    }
+    expect(thoughtValues.captureSource).toBe('ask')
+    expect(thoughtValues.metadata).not.toHaveProperty('askSessionId')
+  })
+
   it('inserts session and thought atomically inside one transaction', async () => {
     await queueCapture('u1', 'atomic check')
     expect(transactionMock).toHaveBeenCalledTimes(1)
