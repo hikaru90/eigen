@@ -33,11 +33,11 @@ export const CAPTURE_REASON_CRITERIA: Readonly<Record<CaptureReasonKind, string>
     'A name was linked to the wrong existing person, place or project (the wrong Anna), or two different ones were treated as the same.',
   wrong_date: 'A date, time, deadline or repetition is wrong or missing.',
   wording_changed:
-    "The stored text changed what the user said — something added, dropped or reworded so that the meaning changed (for example 'maybe' became a must).",
+    "The stored text says something different from what the user said — reworded, added to, or made stronger or weaker so that the meaning changed (for example 'maybe' became a must). Not for details that were only left out.",
   split_wrong:
     'The capture was split wrongly: split when it should be one thought, not split when it should be several, or split in the wrong places.',
   something_missing:
-    'Something else the user said was not kept at all (not a name or a date — those have their own kinds).',
+    'A detail the user said was left out of what was stored — a reason, an amount, a condition, a place — while the rest is right (names and dates have their own kinds).',
   not_worth_keeping: 'The user says this should not have been stored at all.',
   other: 'Anything else, or the user does not say what was wrong.',
 }

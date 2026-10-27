@@ -37,7 +37,24 @@ describe('CAPTURE_REASON_KINDS', () => {
   it('names the decisive cases', () => {
     expect(CAPTURE_REASON_CRITERIA.wrong_link).toContain('the wrong Anna')
     expect(CAPTURE_REASON_CRITERIA.wording_changed).toContain("'maybe' became a must")
-    expect(CAPTURE_REASON_CRITERIA.something_missing).toContain('not a name or a date')
+    expect(CAPTURE_REASON_CRITERIA.something_missing).toContain(
+      'names and dates have their own kinds',
+    )
+  })
+
+  // Tuned against the live check: pinned word for word so a change is deliberate. The two kinds
+  // overlapped when wording_changed said "dropped"; now a left-out detail is something_missing only.
+  it('wording_changed is for a different meaning, not for details that were only left out', () => {
+    expect(CAPTURE_REASON_CRITERIA.wording_changed).toBe(
+      "The stored text says something different from what the user said — reworded, added to, or made stronger or weaker so that the meaning changed (for example 'maybe' became a must). Not for details that were only left out.",
+    )
+    expect(CAPTURE_REASON_CRITERIA.wording_changed).not.toContain('dropped')
+  })
+
+  it('something_missing is a left-out detail while the rest is right', () => {
+    expect(CAPTURE_REASON_CRITERIA.something_missing).toBe(
+      'A detail the user said was left out of what was stored — a reason, an amount, a condition, a place — while the rest is right (names and dates have their own kinds).',
+    )
   })
 })
 

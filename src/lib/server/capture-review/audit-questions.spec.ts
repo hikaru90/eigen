@@ -47,17 +47,63 @@ describe('question id helpers', () => {
   })
 })
 
+const STATE_WITHOUT_CALENDAR = [
+  'Captured on Tuesday 27 October 2026 at 10:00 (Europe/Berlin).',
+  'The user wrote:',
+  '<<<capture',
+  'Call Mom on Friday about the birthday dinner',
+  'capture>>>',
+].join('\n')
+
+const CALENDAR_FROM_BASE = [
+  'Calendar from the capture day on:',
+  '- Tuesday 27 October 2026 (today, the capture day)',
+  '- Wednesday 28 October 2026 (tomorrow)',
+  '- Thursday 29 October 2026',
+  '- Friday 30 October 2026',
+  '- Saturday 31 October 2026',
+  '- Sunday 1 November 2026',
+  '- Monday 2 November 2026',
+  '- Tuesday 3 November 2026',
+  '- Wednesday 4 November 2026',
+  '- Thursday 5 November 2026',
+  '- Friday 6 November 2026',
+  '- Saturday 7 November 2026',
+  '- Sunday 8 November 2026',
+  '- Monday 9 November 2026',
+].join('\n')
+
 describe('buildCaptureAuditRequest: state', () => {
-  it('names the capture date in the capture timezone and quotes the raw text', () => {
+  it('names the capture date in the capture timezone and quotes the raw text (no date questions: no calendar, byte for byte)', () => {
+    const request = buildCaptureAuditRequest(input({ dates: [] }))
+    expect(request.state).toBe(STATE_WITHOUT_CALENDAR)
+    expect(request.state).not.toContain('Calendar')
+  })
+
+  it('appends the calendar after the quoted capture when there is a date question', () => {
     expect(buildCaptureAuditRequest(BASE).state).toBe(
-      [
-        'Captured on Tuesday 27 October 2026 at 10:00 (Europe/Berlin).',
-        'The user wrote:',
-        '<<<capture',
-        'Call Mom on Friday about the birthday dinner',
-        'capture>>>',
-      ].join('\n'),
+      `${STATE_WITHOUT_CALENDAR}\n${CALENDAR_FROM_BASE}`,
     )
+  })
+
+  it('keeps the rest of the state identical with and without date questions', () => {
+    const without = buildCaptureAuditRequest(input({ dates: [] })).state
+    const withDates = buildCaptureAuditRequest(BASE).state
+    expect(withDates.startsWith(without)).toBe(true)
+  })
+
+  it('appends no calendar for wording, name or piece questions alone', () => {
+    const request = buildCaptureAuditRequest(
+      input({
+        dates: [],
+        storedText: 'Call Mom on Friday.',
+        pieces: [
+          { ref: 'p1', text: 'one' },
+          { ref: 'p2', text: 'two' },
+        ],
+      }),
+    )
+    expect(request.state).toBe(STATE_WITHOUT_CALENDAR)
   })
 
   it('renders the instant in the given timezone: UTC late evening is the next day in Berlin, midnight hour is 00', () => {
@@ -100,6 +146,94 @@ describe('buildCaptureAuditRequest: state', () => {
     const rawText = '  two  spaces\nand a line  '
     expect(buildCaptureAuditRequest(input({ rawText, storedText: rawText })).state).toContain(
       `<<<capture\n${rawText}\ncapture>>>`,
+    )
+  })
+})
+
+describe('buildCaptureAuditRequest: calendar', () => {
+  function calendarOf(patch: Partial<CaptureAuditInput>): string[] {
+    const state = buildCaptureAuditRequest(input(patch)).state
+    const at = state.indexOf('Calendar from the capture day on:\n')
+    expect(at).toBeGreaterThan(-1)
+    return state.slice(at).split('\n')
+  }
+
+  it('is a heading and 14 days: the capture day and the next 13', () => {
+    const lines = calendarOf({})
+    expect(lines[0]).toBe('Calendar from the capture day on:')
+    expect(lines).toHaveLength(15)
+    for (const line of lines.slice(1)) expect(line.startsWith('- ')).toBe(true)
+  })
+
+  it('marks only the capture day (today) and the day after (tomorrow)', () => {
+    const lines = calendarOf({})
+    expect(lines[1]).toBe('- Tuesday 27 October 2026 (today, the capture day)')
+    expect(lines[2]).toBe('- Wednesday 28 October 2026 (tomorrow)')
+    expect(lines.slice(3).filter((line) => line.includes('('))).toEqual([])
+  })
+
+  it('starts on the capture day in the capture timezone, not in UTC', () => {
+    expect(calendarOf({ capturedAt: '2026-10-27T23:30:00Z' })[1]).toBe(
+      '- Wednesday 28 October 2026 (today, the capture day)',
+    )
+    expect(
+      calendarOf({ capturedAt: '2026-10-27T01:00:00Z', timezone: 'America/New_York' })[1],
+    ).toBe('- Monday 26 October 2026 (today, the capture day)')
+  })
+
+  it('steps by calendar days across the end of daylight saving time (25 October 2026)', () => {
+    const lines = calendarOf({ capturedAt: '2026-10-20T10:00:00+02:00' })
+    expect(lines.slice(1)).toEqual([
+      '- Tuesday 20 October 2026 (today, the capture day)',
+      '- Wednesday 21 October 2026 (tomorrow)',
+      '- Thursday 22 October 2026',
+      '- Friday 23 October 2026',
+      '- Saturday 24 October 2026',
+      '- Sunday 25 October 2026',
+      '- Monday 26 October 2026',
+      '- Tuesday 27 October 2026',
+      '- Wednesday 28 October 2026',
+      '- Thursday 29 October 2026',
+      '- Friday 30 October 2026',
+      '- Saturday 31 October 2026',
+      '- Sunday 1 November 2026',
+      '- Monday 2 November 2026',
+    ])
+  })
+
+  it('runs over a year end', () => {
+    const lines = calendarOf({ capturedAt: '2026-12-24T09:00:00+01:00' })
+    expect(lines[1]).toBe('- Thursday 24 December 2026 (today, the capture day)')
+    expect(lines[9]).toBe('- Friday 1 January 2027')
+    expect(lines[14]).toBe('- Wednesday 6 January 2027')
+  })
+
+  it('includes a leap day', () => {
+    const lines = calendarOf({ capturedAt: '2028-02-27T09:00:00+01:00' })
+    expect(lines[1]).toBe('- Sunday 27 February 2028 (today, the capture day)')
+    expect(lines[3]).toBe('- Tuesday 29 February 2028')
+    expect(lines[4]).toBe('- Wednesday 1 March 2028')
+  })
+
+  it('is the same for German captures: English day names, whatever the capture language', () => {
+    const rawText = 'Am Mittwoch mit Papa zum Arzt nach Leipzig fahren'
+    const state = buildCaptureAuditRequest(
+      input({
+        rawText,
+        storedText: rawText,
+        names: [],
+        dates: [{ ref: 'd1', event: 'Arzt', when: 'Mittwoch, 28. Oktober 2026' }],
+      }),
+    ).state
+    expect(state).toBe(
+      [
+        'Captured on Tuesday 27 October 2026 at 10:00 (Europe/Berlin).',
+        'The user wrote:',
+        '<<<capture',
+        rawText,
+        'capture>>>',
+        CALENDAR_FROM_BASE,
+      ].join('\n'),
     )
   })
 })
@@ -296,6 +430,25 @@ describe('buildCaptureAuditRequest: criteria', () => {
     expect(AUDIT_CRITERIA_MISSING_NAMES.none_missing).toContain('"the team lead"')
     expect(AUDIT_CRITERIA_DATE.right).toContain('"before 6pm" with no day meaning today')
     expect(AUDIT_CRITERIA_PIECE.wrong).toContain('a greeting, a sign-off, half a sentence')
+  })
+
+  // Tuned against the live check: pinned word for word so a change is deliberate.
+  it('date right sends Jev to the calendar in the state to resolve weekday names and relative days', () => {
+    expect(AUDIT_CRITERIA_DATE.right).toBe(
+      'The capture says this event is at this time. A relative time ("Friday", "tomorrow", "next week", "before 6pm" with no day meaning today) counts as right when it resolves to this time from the capture date — use the calendar above to resolve weekday names and relative days. A repeating time counts as right when the capture says it repeats.',
+    )
+  })
+
+  it('pieces_cover right judges only whether something is lost, not whether a piece should exist', () => {
+    expect(AUDIT_CRITERIA_PIECES_COVER.right).toBe(
+      'Everything of substance in the capture is in at least one of the thoughts. Greetings, filler and repetition may be left out. Judge only whether something is lost: a piece that is a fragment or should not exist does not make this wrong — each piece is judged on its own.',
+    )
+  })
+
+  it('pieces_cover wrong is unchanged', () => {
+    expect(AUDIT_CRITERIA_PIECES_COVER.wrong).toBe(
+      'Something of substance in the capture — a task, a fact, a date, a person, an amount or a reason — is in none of the thoughts.',
+    )
   })
 })
 

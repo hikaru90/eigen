@@ -64,7 +64,7 @@ export const AUDIT_CRITERIA_MISSING_NAMES: Readonly<
 
 export const AUDIT_CRITERIA_DATE: Readonly<Record<'right' | 'wrong', string>> = {
   right:
-    'The capture says this event is at this time. A relative time ("Friday", "tomorrow", "next week", "before 6pm" with no day meaning today) counts as right when it resolves to this time from the capture date above. A repeating time counts as right when the capture says it repeats.',
+    'The capture says this event is at this time. A relative time ("Friday", "tomorrow", "next week", "before 6pm" with no day meaning today) counts as right when it resolves to this time from the capture date — use the calendar above to resolve weekday names and relative days. A repeating time counts as right when the capture says it repeats.',
   wrong:
     'The capture gives a different time for this event, gives no time for it at all, or does not contain this event.',
 }
@@ -78,7 +78,7 @@ export const AUDIT_CRITERIA_PIECE: Readonly<Record<'right' | 'wrong', string>> =
 
 export const AUDIT_CRITERIA_PIECES_COVER: Readonly<Record<'right' | 'wrong', string>> = {
   right:
-    'Everything of substance in the capture is in at least one of the thoughts. Greetings, filler and repetition may be left out.',
+    'Everything of substance in the capture is in at least one of the thoughts. Greetings, filler and repetition may be left out. Judge only whether something is lost: a piece that is a fragment or should not exist does not make this wrong — each piece is judged on its own.',
   wrong:
     'Something of substance in the capture — a task, a fact, a date, a person, an amount or a reason — is in none of the thoughts.',
 }
@@ -144,35 +144,68 @@ function validate(input: CaptureAuditInput): void {
   input.pieces.forEach((p, i) => requireText(p.text, `pieces[${i}].text`))
 }
 
-/** "Tuesday 27 October 2026 at 10:00" in the given zone; parts are joined here so ICU punctuation cannot vary. */
-function formatCapturedOn(capturedAt: string, timezone: string): string {
-  const instant = new Date(capturedAt)
-  const day = new Intl.DateTimeFormat('en-GB', {
-    timeZone: timezone,
+/** Days in the calendar of the state: the capture day and the 13 after it. */
+const CALENDAR_DAYS = 14
+
+function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
+  const found = parts.find((p) => p.type === type)
+  if (!found) throw new Error(`[capture-review] audit: no ${type} in the formatted capture date`)
+  return found.value
+}
+
+/** "Tuesday 27 October 2026" in the given zone; parts are joined here so ICU punctuation cannot vary. */
+function formatDay(instant: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
     weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
-  })
-  const part = (parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string => {
-    const found = parts.find((p) => p.type === type)
-    if (!found) throw new Error(`[capture-review] audit: no ${type} in the formatted capture date`)
-    return found.value
-  }
-  const dayParts = day.formatToParts(instant)
+  }).formatToParts(instant)
+  return [
+    part(parts, 'weekday'),
+    part(parts, 'day'),
+    part(parts, 'month'),
+    part(parts, 'year'),
+  ].join(' ')
+}
+
+/** "Tuesday 27 October 2026 at 10:00" in the given zone. */
+function formatCapturedOn(capturedAt: string, timezone: string): string {
+  const instant = new Date(capturedAt)
   const clock = new Intl.DateTimeFormat('en-GB', {
     timeZone: timezone,
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   }).formatToParts(instant)
-  const date = [
-    part(dayParts, 'weekday'),
-    part(dayParts, 'day'),
-    part(dayParts, 'month'),
-    part(dayParts, 'year'),
-  ].join(' ')
-  return `${date} at ${part(clock, 'hour')}:${part(clock, 'minute')}`
+  return `${formatDay(instant, timezone)} at ${part(clock, 'hour')}:${part(clock, 'minute')}`
+}
+
+/**
+ * The capture day and the 13 days after it, one line each, so a relative day ("Friday",
+ * "tomorrow", "Mittwoch") can be read off instead of computed. Deterministic: the capture day is
+ * the calendar date in the capture time zone, and each next day is that date plus one in plain
+ * calendar arithmetic (UTC midday carries no daylight-saving shift).
+ */
+function formatCalendar(capturedAt: string, timezone: string): string {
+  const local = new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  }).formatToParts(new Date(capturedAt))
+  const year = Number(part(local, 'year'))
+  const month = Number(part(local, 'month'))
+  const day = Number(part(local, 'day'))
+
+  const lines = ['Calendar from the capture day on:']
+  for (let i = 0; i < CALENDAR_DAYS; i++) {
+    const label = formatDay(new Date(Date.UTC(year, month - 1, day + i, 12)), 'UTC')
+    const note = i === 0 ? ' (today, the capture day)' : i === 1 ? ' (tomorrow)' : ''
+    lines.push(`- ${label}${note}`)
+  }
+  return lines.join('\n')
 }
 
 function question(
@@ -190,13 +223,16 @@ function question(
 export function buildCaptureAuditRequest(input: CaptureAuditInput): DecisionRequest {
   validate(input)
 
-  const state = [
+  const stateLines = [
     `Captured on ${formatCapturedOn(input.capturedAt, input.timezone)} (${input.timezone}).`,
     'The user wrote:',
     '<<<capture',
     input.rawText,
     'capture>>>',
-  ].join('\n')
+  ]
+  // Jev cannot do calendar arithmetic ("Friday" from a Tuesday): with a date question it reads the day off a calendar.
+  if (input.dates.length > 0) stateLines.push(formatCalendar(input.capturedAt, input.timezone))
+  const state = stateLines.join('\n')
 
   const questions: Record<string, DecisionChoiceQuestion> = {}
 
