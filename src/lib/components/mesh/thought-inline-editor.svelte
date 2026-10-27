@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ThoughtKindOption } from '$lib/thought/kind-option'
   import { tick } from 'svelte'
+  import { pillAction } from '$lib/components/mesh/pill-classes'
   import ThoughtThreadMenu from '$lib/components/thought-thread-menu.svelte'
   import ThoughtTypeMenu from '$lib/components/thought-type-menu.svelte'
   import { m } from '$lib/paraglide/messages.js'
@@ -16,8 +17,11 @@
   } from '$lib/thought/thought-edit-client'
 
   /**
-   * Change a thought where you read it: what an unfolded row in Yarn or a thread
-   * shows under the words. The three things a thought is — its words, its type and
+   * Change a thought where you read it. Rendered inside a thought row's pill line
+   * (its root is `display: contents`): the type pill, the thread pill and the
+   * "Edit words" pill sit inline with the row's other pills; editing the words
+   * opens the textarea and Save/Cancel on their own full-width line below the
+   * pills. The three things a thought is — its words, its type and
    * its thread — each one tap away, in the flow of the list (board 3f2796a8, b6f74d02:
    * editing used to need the thought page). Every change goes to the real endpoint and
    * the row takes what the server kept (`onchange`); a failure says why, in the row.
@@ -143,70 +147,77 @@
     'p-0 border-0 bg-transparent [font:inherit] text-ink-2 cursor-pointer transition-colors duration-300 ease-settle pointer-fine:hover:text-ink disabled:cursor-default disabled:text-ink-4'
 </script>
 
-<div class="flex flex-col gap-2.5" data-testid="thought-inline-editor" aria-busy={busy}>
-  {#if draft !== null}
-    <textarea
-      bind:this={field}
-      bind:value={draft}
-      class="block w-full min-h-[80px] p-3 rounded-[12px] border border-line bg-paper-2 font-you text-[20px] leading-[1.3] text-ink outline-none resize-y focus:border-signal"
-      aria-label={m.thought_edit()}
-      data-testid="thought-inline-field"
+<div class="contents" data-testid="thought-inline-editor" aria-busy={busy}>
+  <ThoughtTypeMenu
+    pill
+    {kinds}
+    current={category}
+    open={typeMenuOpen}
+    {busy}
+    onOpenChange={(o) => (typeMenuOpen = o)}
+    onPick={pickType}
+  />
+  <ThoughtThreadMenu
+    pill
+    {thread}
+    options={threadOptions}
+    loading={threadOptionsLoading}
+    open={threadMenuOpen}
+    {busy}
+    {newThreadLabel}
+    onOpenChange={(o) => void onThreadMenuChange(o)}
+    onPick={pickThread}
+    onNewThreadLabel={(label) => (newThreadLabel = label)}
+    onUnassign={leaveThread}
+  />
+  {#if draft === null}
+    <button
+      class={pillAction}
+      type="button"
+      data-testid="thought-inline-words"
       disabled={busy}
-      onkeydown={onFieldKey}
-    ></textarea>
-    <div class="flex items-center gap-4 font-mesh text-sm">
-      <button
-        class="h-[30px] px-3.5 rounded-full border-0 bg-ink text-paper cursor-pointer disabled:opacity-40 disabled:cursor-default"
-        type="button"
-        data-testid="thought-inline-save"
-        disabled={busy || !draft.trim()}
-        onclick={() => void saveWords()}>{m.thought_inline_save()}</button
+      onclick={() => void startWords()}
+    >
+      <svg
+        class="size-[10px] fill-none stroke-current [stroke-width:1.5] [stroke-linecap:round] [stroke-linejoin:round]"
+        viewBox="0 0 16 16"
+        aria-hidden="true"
       >
-      <button class={quietButton} type="button" disabled={busy} onclick={() => (draft = null)}
-        >{m.graph_dialog_cancel()}</button
-      >
-    </div>
+        <path
+          d="M10.6 2.9l2.5 2.5M3 13l.6-3.1 7.6-7.6a1.2 1.2 0 011.7 0l.8.8a1.2 1.2 0 010 1.7l-7.6 7.6z"
+        />
+      </svg>
+      {m.thought_inline_edit_words()}
+    </button>
   {:else}
-    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 font-mesh text-sm text-ink-3">
-      <button
-        class={[quietButton, 'inline-flex items-center gap-1.5']}
-        type="button"
-        data-testid="thought-inline-words"
+    <!-- the words editor takes its own full-width line under the pills -->
+    <div
+      class="order-last flex basis-full flex-col gap-2.5 pt-1"
+      data-testid="thought-inline-words-editor"
+    >
+      <textarea
+        bind:this={field}
+        bind:value={draft}
+        class="block w-full min-h-[80px] p-3 rounded-[12px] border border-line bg-paper-2 font-you text-[20px] leading-[1.3] text-ink outline-none resize-y focus:border-signal"
+        aria-label={m.thought_edit()}
+        data-testid="thought-inline-field"
         disabled={busy}
-        onclick={() => void startWords()}
-      >
-        <svg
-          class="size-3 fill-none stroke-current [stroke-width:1.5] [stroke-linecap:round] [stroke-linejoin:round]"
-          viewBox="0 0 16 16"
-          aria-hidden="true"
+        onkeydown={onFieldKey}></textarea>
+      <div class="flex items-center gap-4 font-mesh text-sm">
+        <button
+          class="h-[30px] px-3.5 rounded-full border-0 bg-ink text-paper cursor-pointer disabled:opacity-40 disabled:cursor-default"
+          type="button"
+          data-testid="thought-inline-save"
+          disabled={busy || !draft.trim()}
+          onclick={() => void saveWords()}>{m.thought_inline_save()}</button
         >
-          <path d="M10.6 2.9l2.5 2.5M3 13l.6-3.1 7.6-7.6a1.2 1.2 0 011.7 0l.8.8a1.2 1.2 0 010 1.7l-7.6 7.6z" />
-        </svg>
-        {m.thought_inline_edit_words()}
-      </button>
-      <ThoughtTypeMenu
-        {kinds}
-        current={category}
-        open={typeMenuOpen}
-        {busy}
-        onOpenChange={(o) => (typeMenuOpen = o)}
-        onPick={pickType}
-      />
-      <ThoughtThreadMenu
-        {thread}
-        options={threadOptions}
-        loading={threadOptionsLoading}
-        open={threadMenuOpen}
-        {busy}
-        {newThreadLabel}
-        onOpenChange={(o) => void onThreadMenuChange(o)}
-        onPick={pickThread}
-        onNewThreadLabel={(label) => (newThreadLabel = label)}
-        onUnassign={leaveThread}
-      />
+        <button class={quietButton} type="button" disabled={busy} onclick={() => (draft = null)}
+          >{m.graph_dialog_cancel()}</button
+        >
+      </div>
     </div>
   {/if}
   {#if error}
-    <p class="m-0 font-mesh text-sm text-clay" role="alert">{error}</p>
+    <p class="order-last m-0 basis-full font-mesh text-sm text-clay" role="alert">{error}</p>
   {/if}
 </div>

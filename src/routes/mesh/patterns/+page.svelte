@@ -2,6 +2,7 @@
   import type { CreateProjectResponse } from '../../api/timeline/projects/+server'
   import type { PageData } from './$types'
   import { invalidateAll } from '$app/navigation'
+  import { resolve } from '$app/paths'
   import { thoughtHref } from '$lib/chat/thought-href'
   import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import { m } from '$lib/paraglide/messages.js'
@@ -58,6 +59,15 @@
     }
   }
 
+  /** The stream itself failed (network): SvelteKit hands over an App.Error-shaped object, not an Error. */
+  function streamFailureMessage(err: unknown): string {
+    if (err instanceof Error) return err.message
+    if (typeof err === 'object' && err !== null && 'message' in err && typeof err.message === 'string') {
+      return err.message
+    }
+    return m.patterns_load_failed()
+  }
+
   function retry() {
     void invalidateAll()
   }
@@ -73,10 +83,34 @@
       <MeshSpinner working size={22} />
       <span class="animate-[breathe_2.6s_ease-in-out_infinite] motion-reduce:[animation:none]">{m.patterns_forming()}</span>
     </div>
-  {:then result}
-    {#if result.status === 'empty'}
+  {:then outcome}
+    {#if outcome.kind === 'failed'}
+      <!-- Not the quiet state: the judge or the gateway failed. Say so plainly. -->
+      {#if outcome.reason === 'insufficient_credits'}
+        <p class="mt-[18px] mb-0 text-sm leading-[1.5] text-ink-3 animate-[fade_0.8s_var(--ease)_both]" role="alert">
+          {m.patterns_out_of_credits()}
+          <a
+            class="text-ink-2 underline underline-offset-2 transition-colors duration-300 pointer-fine:hover:text-ink"
+            href={resolve('/settings/llm')}
+            data-testid="patterns-credits-link"
+          >
+            {m.patterns_out_of_credits_link()}
+          </a>
+        </p>
+      {:else}
+        <p class="mt-[18px] mb-0 text-sm leading-[1.5] text-ink-3 animate-[fade_0.8s_var(--ease)_both]" role="alert">{outcome.message}</p>
+        <button
+          type="button"
+          class="mt-2.5 py-1 px-0 border-0 bg-transparent [font:inherit] text-sm text-ink-2 transition-colors duration-300 cursor-pointer pointer-fine:hover:text-ink"
+          onclick={retry}
+        >
+          {m.ask_try()}
+        </button>
+      {/if}
+    {:else if outcome.result.status === 'empty'}
       <p class="mt-2 mb-0 text-base leading-[1.5] text-ink-3 animate-[fade_0.8s_var(--ease)_both]">{m.patterns_empty()}</p>
     {:else}
+      {@const result = outcome.result}
       {@const previews = previewsById(result)}
       <p
         class="m-0 max-w-[24ch] text-[26px] leading-[1.18] tracking-[-0.028em] animate-[rise_1s_var(--ease)_0.25s_both] min-[720px]:text-[30px]"
@@ -189,7 +223,7 @@
     {/if}
   {:catch err}
     <!-- Not the quiet state: the judge or the gateway failed. Say so plainly. -->
-    <p class="mt-[18px] mb-0 text-sm leading-[1.5] text-ink-3 animate-[fade_0.8s_var(--ease)_both]" role="alert">{err instanceof Error ? err.message : String(err)}</p>
+    <p class="mt-[18px] mb-0 text-sm leading-[1.5] text-ink-3 animate-[fade_0.8s_var(--ease)_both]" role="alert">{streamFailureMessage(err)}</p>
     <button
       type="button"
       class="mt-2.5 py-1 px-0 border-0 bg-transparent [font:inherit] text-sm text-ink-2 transition-colors duration-300 cursor-pointer pointer-fine:hover:text-ink"

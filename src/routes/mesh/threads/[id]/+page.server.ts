@@ -63,6 +63,7 @@ export const load: PageServerLoad = async (event) => {
       createdAt: row.createdAtIso,
       thoughtCategory: row.category,
       thoughtStatus: row.status,
+      related: row.related,
     }),
   )
 

@@ -1,10 +1,11 @@
 <script lang="ts">
   import type { PageData } from './$types'
   import { onMount } from 'svelte'
-  import { goto } from '$app/navigation'
-  import { base, resolve } from '$app/paths'
+  import { base } from '$app/paths'
+  import { thoughtHref } from '$lib/chat/thought-href'
   import ThoughtInlineEditor from '$lib/components/mesh/thought-inline-editor.svelte'
   import ThoughtRow from '$lib/components/mesh/thought-row.svelte'
+  import { relativeDayLabel } from '$lib/chat/relative-day'
   import { hapticConfirm } from '$lib/haptics'
   import {
     groupThoughtsByDay,
@@ -18,7 +19,10 @@
   import { isTodoCategory } from '$lib/mesh/thought-status'
   import { m } from '$lib/paraglide/messages.js'
   import { getLocale } from '$lib/paraglide/runtime'
-  import { subscribeCurrentUserView, type CurrentUserView } from '$lib/stores/current-user-view.svelte'
+  import {
+    subscribeCurrentUserView,
+    type CurrentUserView,
+  } from '$lib/stores/current-user-view.svelte'
   import { showWhisper } from '$lib/stores/whisper.svelte'
   import { shouldRefetchForViewChange } from '../../timeline/timeline-client-loads'
 
@@ -64,7 +68,9 @@
 
   async function refreshForView(view: CurrentUserView): Promise<void> {
     try {
-      const res = await fetch(`${base}${meshApiUrlForView('yarn', view)}`, { credentials: 'include' })
+      const res = await fetch(`${base}${meshApiUrlForView('yarn', view)}`, {
+        credentials: 'include',
+      })
       if (!res.ok) {
         throw new Error(`yarn load failed: ${res.status} ${await res.text()}`)
       }
@@ -166,8 +172,13 @@
     )
   }
 
-  function openThought(row: (typeof rows)[number]): void {
-    void goto(resolve('/thought/[id]', { id: encodeURIComponent(row.id) }))
+  function relatedItem(r: { id: string; text: string; createdAtIso: string }) {
+    return {
+      id: r.id,
+      text: r.text,
+      dateLabel: relativeDayLabel(r.createdAtIso, new Date(nowMs), getLocale()),
+      href: thoughtHref(r.id),
+    }
   }
 </script>
 
@@ -195,13 +206,12 @@
           fresh={isFreshThought(row.createdAtIso, nowMs)}
           done={row.status === 'completed'}
           showTick={row.isTodo}
-          tickLabel={row.status === 'completed' ? m.graph_temporal_reopen() : m.graph_temporal_mark_done()}
-          openLabel={m.desk_action_open_task()}
-          pageLabel={m.thought_open_page()}
-          kindLabel={data.kindLabels[row.category] ?? null}
-          threadLabel={row.threadLabel}
+          tickLabel={row.status === 'completed'
+            ? m.graph_temporal_reopen()
+            : m.graph_temporal_mark_done()}
+          relatedLabel={m.thought_open_page()}
+          related={row.related.map((r) => relatedItem(r))}
           ontoggle={() => void toggleDone(row)}
-          onopen={() => openThought(row)}
         >
           {#snippet editor()}
             <ThoughtInlineEditor
@@ -228,4 +238,3 @@
     <p class="mt-[46px] text-sm text-ink-3" aria-live="polite">{m.yarn_no_matches()}</p>
   {/if}
 </div>
-

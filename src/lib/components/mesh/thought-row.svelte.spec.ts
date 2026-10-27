@@ -5,91 +5,133 @@ import { page } from 'vitest/browser'
 import ThoughtRow from './thought-row.svelte'
 
 /**
- * The shared thought row for Yarn and Threads (ei app.js:737-742 as a
- * component). Behavioral contract (docs/planning/ei-redesign.md, wave 2.2):
- * words in your voice, time, kind chip, thread name, a tick ring only for
- * to-dos, and one explicit open control — rows never open on tap (DESIGN.md
- * "Lists are for reading"). The open control unfolds the row in place; the
- * full page (editing, echoes) stays reachable from the unfolded row's link.
+ * The shared thought row for Yarn and Threads. Contract: the words on their own
+ * (tick ring only for to-dos), then one pill line — time, type, thread, edit
+ * words, related thoughts — always visible; no unfold, no chevron.
  */
 
 const baseProps = {
   thoughtId: 't1',
   text: 'Call the studio about pricing',
   timeLabel: '11:05',
-  openLabel: 'Open this thought',
 }
 
+const editor = createRawSnippet(() => ({
+  render: () =>
+    '<span style="display:contents"><span data-testid="row-type">Task</span><span data-testid="row-thread">Studio</span><button data-testid="row-edit">Edit</button></span>',
+}))
+
+const related = [
+  { id: 'r1', text: 'Book the studio', dateLabel: 'Yesterday', href: '/thought/r1' },
+  { id: 'r2', text: 'Studio rent', dateLabel: '2 Oct', href: '/thought/r2' },
+]
+
+const follows = (a: Element, b: Element) =>
+  Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+
 describe('thought-row.svelte', () => {
-  it('renders the words, the time and an open control', async () => {
+  it('shows the words and the time without any click, and has no chevron or unfold', async () => {
     render(ThoughtRow, { ...baseProps })
 
     await expect.element(page.getByText('Call the studio about pricing')).toBeInTheDocument()
     await expect.element(page.getByText('11:05')).toBeInTheDocument()
-    await expect
-      .element(page.getByRole('button', { name: 'Open this thought' }))
-      .toBeInTheDocument()
+    await expect.element(page.getByTestId('thought-row-chevron')).not.toBeInTheDocument()
+    expect(document.querySelector('[aria-expanded]')).toBeNull()
   })
 
-  it('clamps the words to three lines with an ellipsis (the full thought is on its page)', async () => {
+  it('clamps only the words paragraph to three lines; the time is not in it', async () => {
     render(ThoughtRow, { ...baseProps, text: 'long '.repeat(400) })
     const words = page.getByTestId('thought-row-text').element() as HTMLElement
     expect(words.className).toContain('line-clamp-3')
+    expect(words.querySelector('time')).toBeNull()
+    expect(words.className).not.toContain('border-l')
   })
 
-  it('the open control unfolds the row in place — no navigation, onopen only from the page link', async () => {
-    const onopen = vi.fn()
-    render(ThoughtRow, { ...baseProps, onopen, pageLabel: 'Open page' })
+  it('puts the pill line (with the bar) after the words paragraph, time pill first, not a superscript', async () => {
+    render(ThoughtRow, { ...baseProps, editor, relatedLabel: 'Related thoughts', related })
+    const words = page.getByTestId('thought-row-text').element()
+    const line = page.getByTestId('thought-row-pills').element() as HTMLElement
+    expect(line.className).toContain('border-l-[3px]')
+    expect(line.className).toContain('flex-wrap')
+    expect(words.contains(line)).toBe(false)
+    expect(follows(words, line)).toBe(true)
 
-    await page.getByText('Call the studio about pricing').click()
-    expect(onopen).not.toHaveBeenCalled()
-
-    const open = page.getByRole('button', { name: 'Open this thought' })
-    await open.click()
-    // unfolded in place: the words unclamp, the control reports expanded, no page open
-    const words = page.getByTestId('thought-row-text').element() as HTMLElement
-    expect(words.className).not.toContain('line-clamp-3')
-    await expect.element(open).toHaveAttribute('aria-expanded', 'true')
-    expect(onopen).not.toHaveBeenCalled()
-
-    // the full page stays one tap away, from inside the unfolded row
-    await page.getByRole('button', { name: 'Open page' }).click()
-    expect(onopen).toHaveBeenCalledTimes(1)
-
-    // folding back
-    await open.click()
-    const folded = page.getByTestId('thought-row-text').element() as HTMLElement
-    expect(folded.className).toContain('line-clamp-3')
-    await expect.element(open).toHaveAttribute('aria-expanded', 'false')
+    const time = page.getByTestId('thought-row-time').element() as HTMLElement
+    expect(time.className).not.toContain('align-super')
+    expect(time.className).toContain('tabular-nums')
+    const order = [
+      'thought-row-time',
+      'row-type',
+      'row-thread',
+      'row-edit',
+      'thought-row-related-toggle',
+    ].map((id) => line.querySelector(`[data-testid="${id}"]`) as Element)
+    order.forEach((el) => expect(el).not.toBeNull())
+    for (let i = 0; i < order.length - 1; i++) expect(follows(order[i], order[i + 1])).toBe(true)
   })
 
-  it('without a pageLabel the unfolded row offers no page link (threads: in the flow only)', async () => {
-    render(ThoughtRow, baseProps)
-    await page.getByRole('button', { name: 'Open this thought' }).click()
-    await expect.element(page.getByTestId('thought-row-page')).not.toBeInTheDocument()
-  })
-
-  it('the open control is a chevron that turns over when the row unfolds', async () => {
-    render(ThoughtRow, baseProps)
-    const chevron = page.getByTestId('thought-row-chevron').element() as SVGElement
+  it('the related-thoughts pill toggles the list in flow below the pill line; items link to their thought page', async () => {
+    render(ThoughtRow, { ...baseProps, relatedLabel: 'Related thoughts', related })
+    const toggle = page.getByTestId('thought-row-related-toggle')
+    await expect.element(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect.element(page.getByTestId('thought-row-related')).not.toBeInTheDocument()
+    const chevron = page.getByTestId('thought-row-related-chevron').element()
     expect(chevron.getAttribute('class')).not.toContain('rotate-180')
-    await page.getByRole('button', { name: 'Open this thought' }).click()
+
+    await toggle.click()
+    await expect.element(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(chevron.getAttribute('class')).toContain('rotate-180')
+    const list = page.getByTestId('thought-row-related').element()
+    const line = page.getByTestId('thought-row-pills').element()
+    expect(line.contains(list)).toBe(false)
+    expect(follows(line, list)).toBe(true)
+    expect(page.getByTestId('thought-t1').element().contains(list)).toBe(true)
+    const items = Array.from(list.querySelectorAll('a'))
+    expect(items.map((a) => a.getAttribute('href'))).toEqual(['/thought/r1', '/thought/r2'])
+    expect(items[0].textContent).toContain('Book the studio')
+    expect(items[0].textContent).toContain('Yesterday')
+
+    await toggle.click()
+    await expect.element(page.getByTestId('thought-row-related')).not.toBeInTheDocument()
   })
 
-  it('shows the kind chip and the thread name when given', async () => {
+  it('has no related-thoughts pill when there are none', async () => {
+    render(ThoughtRow, { ...baseProps, relatedLabel: 'Related thoughts', related: [] })
+    await expect.element(page.getByTestId('thought-row-related-toggle')).not.toBeInTheDocument()
+  })
+
+  it('only the type pill is uppercase; time, thread, edit and related are normal case', async () => {
+    render(ThoughtRow, {
+      ...baseProps,
+      kindLabel: 'Task',
+      threadLabel: 'New studio',
+      relatedLabel: 'Related thoughts',
+      related,
+    })
+    const [type, thread] = Array.from(document.querySelectorAll('[data-testid="thought-row-pill"]'))
+    expect(type.className).toContain('uppercase')
+    for (const el of [
+      thread,
+      page.getByTestId('thought-row-time').element(),
+      page.getByTestId('thought-row-related-toggle').element(),
+    ]) {
+      expect(el.className).not.toContain('uppercase')
+      expect(el.className).not.toContain('tracking-')
+    }
+  })
+
+  it('without an editor, type and thread show as plain data pills after the time', async () => {
     render(ThoughtRow, { ...baseProps, kindLabel: 'Task', threadLabel: 'New studio' })
-
-    await expect.element(page.getByText('Task')).toBeInTheDocument()
-    await expect.element(page.getByText('New studio')).toBeInTheDocument()
+    const pills = Array.from(document.querySelectorAll('[data-testid="thought-row-pill"]'))
+    expect(pills.map((p) => p.textContent)).toEqual(['Task', 'New studio'])
+    expect(pills[0].className).toContain('uppercase')
+    expect(follows(page.getByTestId('thought-row-time').element(), pills[0])).toBe(true)
   })
 
-  it('omits chip, thread and tick when they are not given', async () => {
-    render(ThoughtRow, { ...baseProps })
-
-    await expect.element(page.getByText('Task')).not.toBeInTheDocument()
-    await expect.element(page.getByText('New studio')).not.toBeInTheDocument()
-    await expect.element(page.getByRole('button', { name: 'Mark done' })).not.toBeInTheDocument()
+  it('with an editor, the plain type/thread pills are not duplicated', async () => {
+    render(ThoughtRow, { ...baseProps, kindLabel: 'Task', threadLabel: 'New studio', editor })
+    await expect.element(page.getByTestId('thought-row-pill')).not.toBeInTheDocument()
+    await expect.element(page.getByTestId('row-type')).toBeInTheDocument()
   })
 
   it('gives to-dos a tick ring whose pressed state follows done', async () => {
@@ -103,46 +145,35 @@ describe('thought-row.svelte', () => {
     })
 
     const tick = page.getByRole('button', { name: 'Mark done' })
-    await expect.element(tick).toBeInTheDocument()
     await expect.element(tick).toHaveAttribute('aria-pressed', 'false')
-
     await tick.click()
     expect(ontoggle).toHaveBeenCalledTimes(1)
     unmount()
 
-    render(ThoughtRow, {
-      ...baseProps,
-      showTick: true,
-      done: true,
-      tickLabel: 'Mark done',
-      ontoggle,
-    })
+    render(ThoughtRow, { ...baseProps, showTick: true, done: true, tickLabel: 'Mark done' })
     await expect
       .element(page.getByRole('button', { name: 'Mark done' }))
       .toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('marks fresh rows so the signal dot can light, and done rows crossed out', async () => {
+  it('omits the tick for non-to-dos', async () => {
+    render(ThoughtRow, { ...baseProps })
+    await expect.element(page.getByRole('button', { name: 'Mark done' })).not.toBeInTheDocument()
+  })
+
+  it('fresh rows light the signal dot inside the time pill; done rows are crossed out', async () => {
     const { unmount } = render(ThoughtRow, { ...baseProps, fresh: true })
     await expect.element(page.getByTestId('thought-t1')).toHaveClass('is-fresh')
+    const time = page.getByTestId('thought-row-time').element()
+    expect(time.contains(page.getByTestId('thought-row-fresh').element())).toBe(true)
     unmount()
 
     render(ThoughtRow, { ...baseProps, showTick: true, done: true, tickLabel: 'Mark done' })
     await expect.element(page.getByTestId('thought-t1')).toHaveClass('is-done')
   })
 
-  it('marks dated rows (a thread shows the day, not the clock) and shows the day label', async () => {
-    render(ThoughtRow, { ...baseProps, timeLabel: 'Yesterday', dated: true })
-
-    await expect.element(page.getByTestId('thought-t1')).toHaveClass('dated')
-    await expect.element(page.getByText('Yesterday')).toBeInTheDocument()
-  })
-
-  it('an unfolded row shows its editor in place (change the thought where you read it); folded, it does not', async () => {
-    const editor = createRawSnippet(() => ({ render: () => '<div data-testid="row-editor">editor</div>' }))
-    render(ThoughtRow, { ...baseProps, editor })
-    await expect.element(page.getByTestId('row-editor')).not.toBeInTheDocument()
-    await page.getByRole('button', { name: 'Open this thought' }).click()
-    await expect.element(page.getByTestId('row-editor')).toBeInTheDocument()
+  it('shows a day label in the time pill when the caller passes one (threads)', async () => {
+    render(ThoughtRow, { ...baseProps, timeLabel: 'Yesterday' })
+    await expect.element(page.getByTestId('thought-row-time')).toHaveTextContent('Yesterday')
   })
 })

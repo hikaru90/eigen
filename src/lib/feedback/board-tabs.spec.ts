@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   BOARD_TABS,
   STAGE_DOTS,
+  boardEmptyVariant,
   inTab,
   matchesBoardQuery,
   mostWantedId,
@@ -136,5 +137,20 @@ describe('board tabs', () => {
     expect(matchesBoardQuery(row, 'reproduce')).toBe(true)
     expect(matchesBoardQuery(row, 'yarn')).toBe(false)
     expect(matchesBoardQuery(idea({ id: 'b', title: 'Plain' }), 'reproduce')).toBe(false)
+  })
+})
+
+describe('boardEmptyVariant', () => {
+  const base = { loaded: true, query: '', visibleCount: 0, totalCount: 0 }
+  it('shows the whole-board state only when loaded, not searching, and nothing exists', () => {
+    expect(boardEmptyVariant(base)).toBe('board')
+  })
+  it('shows the tab state when other tabs have ideas', () => {
+    expect(boardEmptyVariant({ ...base, totalCount: 3 })).toBe('tab')
+  })
+  it('shows nothing while loading, searching, or when rows are visible', () => {
+    expect(boardEmptyVariant({ ...base, loaded: false })).toBeNull()
+    expect(boardEmptyVariant({ ...base, query: ' x ', totalCount: 3 })).toBeNull()
+    expect(boardEmptyVariant({ ...base, visibleCount: 2, totalCount: 2 })).toBeNull()
   })
 })

@@ -8,6 +8,7 @@
    * Prop-driven, no `$effect`; the menu is a shadcn Popover (translucent paper).
    */
   import { categoryLabel } from '$lib/capture/reading-state'
+  import { pillTypeButton } from '$lib/components/mesh/pill-classes'
   import * as Popover from '$lib/components/ui/popover'
   import { m } from '$lib/paraglide/messages.js'
 
@@ -20,6 +21,7 @@
     busy = false,
     onOpenChange,
     onPick,
+    pill = false,
   }: {
     kinds: Kind[]
     /** The thought's persisted category key. */
@@ -29,6 +31,8 @@
     busy?: boolean
     onOpenChange?: (open: boolean) => void
     onPick?: (key: string) => void
+    /** Render the trigger as a pill (the thought row's info line) instead of an underlined word. */
+    pill?: boolean
   } = $props()
 
   /** The kind's name; a key outside the active catalog still reads as a word. */
@@ -39,7 +43,9 @@
 
 <Popover.Root {open} onOpenChange={(o) => onOpenChange?.(o)}>
   <Popover.Trigger
-    class="border-0 p-0 bg-transparent [font:inherit] text-ink-2 underline decoration-dashed decoration-ink-4 underline-offset-[3px] [transition:color_0.3s,text-decoration-color_0.3s] disabled:text-ink-3 cursor-pointer pointer-fine:hover:enabled:text-ink pointer-fine:hover:enabled:decoration-signal"
+    class={pill
+      ? pillTypeButton
+      : 'border-0 p-0 bg-transparent [font:inherit] text-ink-2 underline decoration-dashed decoration-ink-4 underline-offset-[3px] [transition:color_0.3s,text-decoration-color_0.3s] disabled:text-ink-3 cursor-pointer pointer-fine:hover:enabled:text-ink pointer-fine:hover:enabled:decoration-signal'}
     data-testid="thought-type"
     aria-haspopup="menu"
     aria-expanded={open}
@@ -59,7 +65,7 @@
         role="menuitemradio"
         aria-checked={kind.key === current}
         class={[
-          "flex items-start gap-3 w-full px-3 py-2 border-0 rounded-[10px] bg-transparent [font:inherit] text-left text-ink-2 cursor-pointer transition-[background,color] duration-200 pointer-fine:hover:bg-paper-2 pointer-fine:hover:text-ink",
+          'flex items-start gap-3 w-full px-3 py-2 border-0 rounded-[10px] bg-transparent [font:inherit] text-left text-ink-2 cursor-pointer transition-[background,color] duration-200 pointer-fine:hover:bg-paper-2 pointer-fine:hover:text-ink',
           kind.key === current && 'text-ink',
         ]}
         data-testid={'thought-type-' + kind.key}
@@ -79,4 +85,3 @@
     {/each}
   </Popover.Content>
 </Popover.Root>
-
