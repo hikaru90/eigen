@@ -23,7 +23,7 @@
     {sideOffset}
     {align}
     class={cn(
-      'paper-sheet sheet-motion text-ink-2 flex flex-col gap-2.5 p-2.5 text-sm z-50 w-72 origin-(--transform-origin) outline-hidden',
+      'paper-sheet sheet-motion text-ink-2 flex flex-col gap-2.5 p-2.5 text-sm z-50 w-72 origin-(--transform-origin) outline-hidden max-h-(--bits-popover-content-available-height) overflow-y-auto overscroll-contain',
       className,
     )}
     {...restProps}

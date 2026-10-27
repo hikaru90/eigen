@@ -98,6 +98,7 @@ export default defineConfig({
       'src/lib/feedback/share-composer.svelte.spec.ts',
       'src/lib/components/mesh/thought-row.svelte.spec.ts',
       'src/lib/components/thought-thread-menu.svelte.spec.ts',
+      'src/lib/components/ui/overlay-scroll.svelte.spec.ts',
     ],
     exclude: ['src/routes/demo/playwright/**/*.ts', '**/*.e2e.ts'],
     fileParallelism: false,

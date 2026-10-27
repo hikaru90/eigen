@@ -27,7 +27,7 @@
     {preventScroll}
     data-slot="select-content"
     class={cn(
-      'paper-sheet sheet-motion text-ink-2 min-w-36 relative isolate z-50 overflow-x-hidden overflow-y-auto',
+      'paper-sheet sheet-motion text-ink-2 min-w-36 relative isolate z-50 max-h-(--bits-select-content-available-height) overflow-x-hidden overflow-y-auto overscroll-contain',
       className,
     )}
     {...restProps}
