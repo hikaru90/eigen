@@ -18,9 +18,11 @@
     shareIdea,
     voteOnIdea,
   } from '$lib/feedback/board-client'
+  import BoardEmpty from '$lib/feedback/board-empty.svelte'
   import BoardRow from '$lib/feedback/board-row.svelte'
   import {
     BOARD_TABS,
+    boardEmptyVariant,
     matchesBoardQuery,
     mostWantedId,
     sortForTab,
@@ -85,6 +87,14 @@
   const rows = $derived(sortForTab(ideas, shownTab))
   const visibleRows = $derived(rows.filter((r) => matchesBoardQuery(r, search.query)))
   const noMatches = $derived(search.query.trim().length > 0 && visibleRows.length === 0)
+  const emptyVariant = $derived(
+    boardEmptyVariant({
+      loaded,
+      query: search.query,
+      visibleCount: visibleRows.length,
+      totalCount: ideas.length,
+    }),
+  )
   const mostWanted = $derived(mostWantedId(rows, shownTab))
 
   // ——— the note: inline at the top, never a pop-up ———
@@ -513,6 +523,9 @@
     {/each}
     {#if noMatches}
       <p class="mt-7 mb-0 text-sm text-ink-3">{m.yarn_no_matches()}</p>
+    {/if}
+    {#if emptyVariant}
+      <BoardEmpty variant={emptyVariant} onsuggest={() => composer?.focus()} />
     {/if}
   </div>
 </div>

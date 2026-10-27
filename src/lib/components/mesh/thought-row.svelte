@@ -1,46 +1,50 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import type { ResolvedPathname } from '$app/types'
+  import {
+    pillAction,
+    pillData,
+    pillThreadText,
+    pillTypeText,
+  } from '$lib/components/mesh/pill-classes'
 
   /**
-   * One thought on the strand — shared by Yarn now, Threads and the thought
-   * page later (ei redesign, wave 2.2). Ported from ei app.js:737-742 and ei
-   * styles.css `.thought`.
+   * One thought on the strand — shared by Yarn and Threads. A design-studio
+   * "project index" row: the words on their own (tick ring for to-dos, three
+   * lines at most), and under them one wrapping line of pill-shaped objects
+   * beside a thin bar: time → type → thread → edit → related thoughts. The
+   * related-thoughts pill (only when there are some) toggles a list of them in
+   * the flow right under the pill line; each links to its own thought page.
    *
    * Prop-driven and dependency-light on purpose: no `$app/*`, no paraglide —
-   * the caller formats labels and owns what the controls do. Rows never open
-   * on tap (DESIGN.md "Lists are for reading"); the open control is the one
-   * way in, and the tick ring appears only for to-dos. Unfolded, a row shows its
-   * `editor` under the words — the thought is changed where it is read.
+   * the caller formats labels and owns what the controls do. The `editor`
+   * snippet renders inside the pill line (type, thread and "edit words" pills;
+   * its words field opens on its own line under the pills) and replaces the
+   * plain `kindLabel` / `threadLabel` data pills, which only rows without an
+   * editor show.
    */
   type Props = {
     thoughtId: string
     text: string
-    /** Locale-formatted local clock time (HH:MM) — preformatted by the caller. */
+    /** Preformatted by the caller: a clock (HH:MM) on Yarn, a day label in a thread. */
     timeLabel: string
-    /**
-     * Dated rows (ei app.js:737 `dated`): inside a thread the time column holds
-     * a day ("Yesterday", "2 Oct") instead of a clock, so it gets more room.
-     */
-    dated?: boolean
     /** Stagger position for the settle-in rise, capped at 14 like ei. */
     index?: number
-    /** Fresh signal dot: a thought captured moments ago. */
+    /** Fresh signal dot, inside the time pill: a thought captured moments ago. */
     fresh?: boolean
     /** Crossed out — the thought's lifecycle is completed. */
     done?: boolean
     /** To-dos only: the small ring in front of the words. */
     showTick?: boolean
     tickLabel?: string
-    /** Aria label for the explicit open control (a chevron that unfolds the row). */
-    openLabel: string
-    /** Label for the full-page link inside an unfolded row (thought page: edit, echoes). */
-    pageLabel?: string | null
+    /** Label of the "related thoughts" pill (shown only when `related` is non-empty). */
+    relatedLabel?: string
+    /** Nearest thoughts, already formatted by the caller: text, a muted date, a link. */
+    related?: { id: string; text: string; dateLabel: string; href: ResolvedPathname }[]
     kindLabel?: string | null
     threadLabel?: string | null
     ontoggle?: () => void
-    /** The full-page link's action; only offered with `pageLabel`. */
-    onopen?: () => void
-    /** Shown under the words while the row is unfolded: change the thought in place. */
+    /** The type, thread and edit-words pills (and the words field), inline in the pill line. */
     editor?: Snippet
   }
 
@@ -48,62 +52,33 @@
     thoughtId,
     text,
     timeLabel,
-    dated = false,
     index = 0,
     fresh = false,
     done = false,
     showTick = false,
     tickLabel = '',
-    openLabel,
-    pageLabel = null,
+    relatedLabel = '',
+    related = [],
     kindLabel = null,
     threadLabel = null,
     ontoggle,
-    onopen,
     editor,
   }: Props = $props()
 
-  /** The open control unfolds the row in place — reading without losing the screen. */
-  let expanded = $state(false)
-
-  /* ei grid: time · words · meta · open (dated rows widen the time column). */
-  const rowGrid = $derived(
-    dated
-      ? 'grid-cols-[70px_minmax(0,1fr)_auto_auto] max-[640px]:grid-cols-[minmax(0,1fr)_auto]'
-      : 'grid-cols-[46px_minmax(0,1fr)_auto_auto] max-[640px]:grid-cols-[minmax(0,1fr)_auto]',
-  )
+  let relatedOpen = $state(false)
 </script>
 
-<!--
-  The negative margins widen the row's paint area inside the padded stream,
-  exactly like the prototype.
--->
 <article
-  class={[
-    'relative grid w-[calc(100%+28px)] -mx-3.5 items-baseline gap-x-[18px] rounded-[14px] p-3.5 animate-[rise_0.8s_var(--ease)_both] [animation-delay:calc(var(--i,0)*28ms)]',
-    rowGrid,
-  ]}
+  class="relative py-1 animate-[rise_0.8s_var(--ease)_both] [animation-delay:calc(var(--i,0)*28ms)]"
   class:is-fresh={fresh}
   class:is-done={done}
-  class:dated
   data-thought-id={thoughtId}
   data-testid={'thought-' + thoughtId}
   style:--i={Math.min(index, 14)}
 >
-  <time
-    class={[
-      'relative col-start-1 text-sm text-ink-3 [font-variant-numeric:tabular-nums]',
-      fresh &&
-        'before:absolute before:-left-[13px] before:top-1/2 before:mt-[-3px] before:size-[5px] before:rounded-full before:bg-signal before:content-[""] before:[animation:fade_0.6s_var(--ease)_both_reverse_4s]',
-    ]}
-    >{timeLabel}</time
-  >
-
-  <!-- the full thought unfolds in place; only folded rows clamp to three lines -->
   <p
-    class="font-you text-[23px] leading-[1.27] tracking-[-0.006em] text-pretty [overflow-wrap:anywhere] transition-colors duration-500 ease-settle max-[640px]:col-start-1"
+    class="font-you text-[23px] leading-[1.15] tracking-[-0.006em] text-pretty [overflow-wrap:anywhere] transition-colors duration-500 ease-settle line-clamp-3"
     data-testid="thought-row-text"
-    class:line-clamp-3={!expanded}
     class:text-ink-3={done}
     class:line-through={done}
     class:decoration-ink-4={done}
@@ -125,50 +100,68 @@
     {/if}
     {text}
   </p>
-  {#if kindLabel || threadLabel}
-    <span
-      class="inline-flex items-baseline gap-2.5 font-you text-base text-ink-3 whitespace-nowrap max-[640px]:col-start-1 max-[640px]:justify-self-start max-[640px]:mt-1"
-    >
-      {#if kindLabel}
-        <span
-          class="font-mesh text-sm text-ink-3 before:mr-1.5 before:mb-0.5 before:inline-block before:size-1 before:rounded-full before:bg-signal before:content-['']"
-          >{kindLabel}</span
-        >
-      {/if}
-      {#if threadLabel}<span class="thread">{threadLabel}</span>{/if}
-    </span>
-  {/if}
-  {#if expanded && editor}
-    <div class="col-start-2 mt-2 max-[640px]:col-start-1 max-[640px]:col-span-2" data-testid="thought-row-editor">
-      {@render editor()}
-    </div>
-  {/if}
-  {#if expanded && pageLabel}
-    <!-- the full page (edit, echoes) stays one tap away from inside the unfolded row -->
-    <button
-      class="col-start-2 justify-self-start mt-1 px-0 py-0 border-0 bg-transparent font-mesh text-sm text-ink-3 [transition:color_0.3s_var(--ease)] cursor-pointer pointer-fine:hover:text-ink max-[640px]:col-start-1"
-      type="button"
-      data-testid="thought-row-page"
-      onclick={() => onopen?.()}
-    >
-      {pageLabel}
-    </button>
-  {/if}
-  <button
-    class="relative grid size-6 place-items-center -mt-px -mr-1 rounded-full self-start text-ink-3 transition-colors duration-300 ease-settle before:absolute before:-inset-2 before:content-[''] pointer-fine:hover:text-ink max-[640px]:col-start-2 max-[640px]:row-start-1 max-[640px]:justify-self-end"
-    type="button"
-    aria-label={openLabel}
-    aria-expanded={expanded}
-    onclick={() => (expanded = !expanded)}
+  <div
+    class="mt-1 flex flex-wrap items-center gap-1 border-l-[3px] border-ink-4 py-[2px] pl-2"
+    data-testid="thought-row-pills"
   >
-    <svg
-      class="size-[13px] fill-none stroke-current [stroke-width:1.3] [stroke-linecap:round] [stroke-linejoin:round] [transition:transform_0.4s_var(--ease)]"
-      class:rotate-180={expanded}
-      viewBox="0 0 16 16"
-      aria-hidden="true"
-      data-testid="thought-row-chevron"
+    <time class={[pillData, 'font-you tabular-nums']} data-testid="thought-row-time">
+      {#if fresh}<span
+          class="size-[5px] rounded-full bg-signal [animation:fade_0.6s_var(--ease)_both_reverse_4s]"
+          data-testid="thought-row-fresh"
+          aria-hidden="true"
+        ></span>{/if}{timeLabel}</time
     >
-      <path d="M4 6.25 8 10.25l4-4" />
-    </svg>
-  </button>
+    {#if editor}
+      {@render editor()}
+    {:else}
+      {#if kindLabel}<span class={pillTypeText} data-testid="thought-row-pill">{kindLabel}</span
+        >{/if}
+      {#if threadLabel}<span class={pillThreadText} data-testid="thought-row-pill"
+          >{threadLabel}</span
+        >{/if}
+    {/if}
+    {#if related.length > 0}
+      <button
+        class={pillAction}
+        type="button"
+        data-testid="thought-row-related-toggle"
+        aria-expanded={relatedOpen}
+        aria-controls={'related-' + thoughtId}
+        onclick={() => (relatedOpen = !relatedOpen)}
+      >
+        {relatedLabel}
+        <svg
+          class={[
+            'size-[9px] fill-none stroke-current [stroke-width:1.5] [stroke-linecap:round] [stroke-linejoin:round] [transition:transform_0.4s_var(--ease)]',
+            relatedOpen && 'rotate-180',
+          ]}
+          viewBox="0 0 16 16"
+          aria-hidden="true"
+          data-testid="thought-row-related-chevron"
+        >
+          <path d="M4 6.25 8 10.25l4-4" />
+        </svg>
+      </button>
+    {/if}
+  </div>
+  {#if relatedOpen && related.length > 0}
+    <ul
+      class="mt-2 flex list-none flex-col gap-2 p-0"
+      id={'related-' + thoughtId}
+      data-testid="thought-row-related"
+    >
+      {#each related as item (item.id)}
+        <li>
+          <a
+            class="block text-ink-2 no-underline [transition:color_0.3s_var(--ease)] pointer-fine:hover:text-ink"
+            href={item.href}
+            data-testid="thought-row-related-item"
+          >
+            <span class="line-clamp-2 font-you text-[16px] leading-[1.25]">{item.text}</span>
+            <small class="mt-0.5 block font-mesh text-[11px] text-ink-3">{item.dateLabel}</small>
+          </a>
+        </li>
+      {/each}
+    </ul>
+  {/if}
 </article>

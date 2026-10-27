@@ -5,6 +5,7 @@ import { getDb } from '$lib/server/db'
 import { canonicalEntity, thought, thoughtEntity, type MemoryAuthor } from '$lib/server/db/schema'
 import { resolveAuthorSqlCondition } from '$lib/server/memory/authorship'
 import { projectMembershipLinkCondition } from '$lib/server/memory/project-membership'
+import { loadRelatedThoughts, type RelatedThought } from '$lib/server/mesh/related-thoughts'
 
 /**
  * The Yarn journal's thought list, shared by the page server load (SSR seed)
@@ -33,6 +34,8 @@ export type YarnThought = {
   isTodo: boolean
   threadLabel: string | null
   threadEntityId: string | null
+  /** Nearest thoughts by stored embedding (max 3, above the similarity floor). */
+  related: RelatedThought[]
 }
 
 /** Author scope for the strand — 'all' means the whole tenant (you + agents). */
@@ -126,6 +129,7 @@ export async function loadYarnThoughts(
           )
           .orderBy(desc(thoughtEntity.salience))
       : []
+  const relatedByThought = await loadRelatedThoughts(userId, thoughtIds)
   const threadByThought = new Map<string, { entityId: string; label: string }>()
   for (const link of linkRows) {
     if (!threadByThought.has(link.thoughtId)) {
@@ -167,6 +171,7 @@ export async function loadYarnThoughts(
           isTodo: isTodoCategory(row.category),
           threadLabel: thread?.label ?? null,
           threadEntityId: thread?.entityId ?? null,
+          related: relatedByThought.get(row.id) ?? [],
         } satisfies YarnThought
       }),
     )

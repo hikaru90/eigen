@@ -31,11 +31,11 @@ describe('capture-reading.svelte', () => {
     await expect.element(page.getByText('Sounds like')).not.toBeInTheDocument()
   })
 
-  it('shows three hopping squares and "Interpreting" while the mesh reads', async () => {
+  it('shows the scrambling "Interpreting" line while the mesh reads', async () => {
     render(CaptureReading, { draft: null, waiting: true, error: null })
     const line = page.getByTestId('capture-reading-interpreting')
-    await expect.element(line).toHaveTextContent('Interpreting')
-    expect(line.element().querySelectorAll('[aria-hidden="true"] > span')).toHaveLength(3)
+    await expect.element(line).toBeInTheDocument()
+    await expect.element(line.getByRole('status')).toHaveAttribute('aria-label', 'Interpreting')
   })
 
   it('marks the type and project as pickable with a chevron', async () => {

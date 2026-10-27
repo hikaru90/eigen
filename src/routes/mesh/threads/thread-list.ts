@@ -56,6 +56,8 @@ export type ThreadThought = {
   createdAt: string
   category: string
   status: 'open' | 'completed' | 'archived'
+  /** Nearest thoughts (max 3); empty where the source has none (loose list, questions). */
+  related: { id: string; text: string; createdAtIso: string }[]
 }
 
 export type ThreadMilestone = {
@@ -82,6 +84,7 @@ export function toThreadThought(item: {
   createdAt: string
   thoughtCategory: string
   thoughtStatus: 'open' | 'completed' | 'archived'
+  related?: ThreadThought['related']
 }): ThreadThought {
   return {
     thoughtId: item.thoughtId,
@@ -89,6 +92,7 @@ export function toThreadThought(item: {
     createdAt: item.createdAt,
     category: item.thoughtCategory,
     status: item.thoughtStatus,
+    related: item.related ?? [],
   }
 }
 

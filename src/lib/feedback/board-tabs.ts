@@ -66,3 +66,18 @@ export function mostWantedId(sortedRows: readonly BoardIdea[], tab: BoardTab): s
 export function matchesBoardQuery(idea: BoardIdea, query: string): boolean {
   return rowMatchesQuery(`${idea.title}\n${idea.note ?? ''}`, query)
 }
+
+/**
+ * Which empty state the board shows: `board` when nobody has suggested anything,
+ * `tab` when only the current tab is empty, `null` while loading, searching, or
+ * whenever there are rows to show.
+ */
+export function boardEmptyVariant(state: {
+  loaded: boolean
+  query: string
+  visibleCount: number
+  totalCount: number
+}): 'board' | 'tab' | null {
+  if (!state.loaded || state.query.trim().length > 0 || state.visibleCount > 0) return null
+  return state.totalCount === 0 ? 'board' : 'tab'
+}

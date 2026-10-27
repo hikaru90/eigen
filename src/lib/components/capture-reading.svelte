@@ -6,7 +6,7 @@
     type ReadingDraft,
     type ThreadChoice,
   } from '$lib/capture/reading-state'
-  import WorkingDots from '$lib/components/brand/working-dots.svelte'
+  import GlyphScramble from '$lib/components/brand/glyph-scramble.svelte'
   import * as Popover from '$lib/components/ui/popover'
   import { m } from '$lib/paraglide/messages.js'
 
@@ -92,8 +92,8 @@
 >
   <div class="min-h-0 overflow-hidden pb-[0.12em] font-mesh text-[clamp(28px,3.9vw,42px)] leading-[1.22] tracking-[-0.034em] text-ink-3">
     {#if waiting}
-      <span data-testid="capture-reading-interpreting">
-        <WorkingDots label={m.capture_reading_interpreting()} />
+      <span class="font-you text-ink" data-testid="capture-reading-interpreting">
+        <GlyphScramble text={m.capture_reading_interpreting()} />
       </span>
     {:else if showWords && draft}
       <span class="animate-[fade_0.5s_var(--ease)_both] motion-reduce:[animation:none]">

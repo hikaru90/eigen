@@ -35,13 +35,6 @@ export type ThreadListScope = {
 }
 
 /**
- * Threads — the projects the user follows, in one data view (the header
- * dropdown). Built on loadUnifiedTimeline (timeline-unified.ts), whose
- * `projects` are exactly the promoted GTD projects for the same author scope
- * as its `items`; this only folds them into the list's shape. The page server
- * seeds the 'You' scope; GET /api/mesh/threads serves every other view.
- */
-/**
  * How many thoughts sit on each thread, and when the last one was added — from thread
  * membership, the rule the thread page lists by (a decision or a question counts, not
  * only the tasks the timeline carries).
@@ -84,6 +77,25 @@ async function loadThreadMembershipMeta(
   return out
 }
 
+/**
+ * Newest first by the thread's last added thought; a thread with no thoughts goes last.
+ * Array.sort is stable, so equal times (and the empty threads) keep the incoming order.
+ */
+function byLastAddedDesc(a: ThreadListEntry, b: ThreadListEntry): number {
+  if (a.lastAddedIso === b.lastAddedIso) return 0
+  if (a.lastAddedIso === null) return 1
+  if (b.lastAddedIso === null) return -1
+  return Date.parse(b.lastAddedIso) - Date.parse(a.lastAddedIso)
+}
+
+/**
+ * Threads — the projects the user follows, in one data view (the header
+ * dropdown). Built on loadUnifiedTimeline (timeline-unified.ts), whose
+ * `projects` are exactly the promoted GTD projects for the same author scope
+ * as its `items`; this only folds them into the list's shape, newest first by
+ * the last thought added to each thread. The page server seeds the 'You'
+ * scope; GET /api/mesh/threads serves every other view.
+ */
 export async function loadThreadList(userId: string, scope: ThreadListScope): Promise<ThreadList> {
   const { projects, items } = await loadUnifiedTimeline({
     userId,
@@ -116,6 +128,7 @@ export async function loadThreadList(userId: string, scope: ThreadListScope): Pr
       lastAddedIso: meta.lastAddedIso,
     }
   })
+  threads.sort(byLastAddedDesc)
 
   return { threads, loose: threadMeta(groups.loose) }
 }

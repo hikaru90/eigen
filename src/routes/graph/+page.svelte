@@ -8,6 +8,7 @@
   import { SvelteMap, SvelteSet } from 'svelte/reactivity'
   import { browser } from '$app/environment'
   import { afterNavigate, invalidateAll } from '$app/navigation'
+  import { resolve } from '$app/paths'
   import { page } from '$app/state'
   import type { ProgressEvent } from '$lib/capture/consume-capture-ndjson'
   import { pollUntilEnrichmentComplete } from '$lib/capture/poll-enrichment'
@@ -2138,6 +2139,11 @@
               class="pointer-events-none absolute top-14 right-4.5 left-4.5 z-50 flex items-start justify-end gap-3 md:top-16"
               aria-label={m.graph_aria_legend_filters()}
             >
+              <a
+                data-testid="graph-back"
+                class="pointer-events-auto mr-auto inline-flex items-center gap-2 rounded-full bg-background/85 px-3 py-1 text-sm text-ink-3 no-underline backdrop-blur transition-colors duration-300 pointer-fine:hover:text-ink"
+                href={resolve('/mesh/patterns')}>← {m.mesh_tabs_patterns()}</a
+              >
               <div
                 class="pointer-events-auto flex shrink-0 flex-col items-end justify-center gap-1 overscroll-contain"
                 onwheel={(e) => e.stopPropagation()}

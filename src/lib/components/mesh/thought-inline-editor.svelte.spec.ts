@@ -33,23 +33,43 @@ beforeEach(() => {
 })
 
 describe('thought-inline-editor.svelte (change a thought where you read it)', () => {
-  it('shows the three things you can change, in the row: the words, the type and the thread', async () => {
+  it('shows the three things you can change, in the row: the words (Edit), the type and the thread', async () => {
     render(ThoughtInlineEditor, { ...base, onchange: vi.fn() })
-    await expect.element(page.getByTestId('thought-inline-words')).toBeInTheDocument()
+    await expect.element(page.getByTestId('thought-inline-words')).toHaveTextContent('Edit')
     await expect.element(page.getByTestId('thought-type')).toHaveTextContent('Decision')
     await expect.element(page.getByTestId('thought-thread')).toHaveTextContent('Studio')
   })
 
+  it('the words field opens on its own full-width line, after the type, thread and edit-words pills', async () => {
+    render(ThoughtInlineEditor, { ...base, onchange: vi.fn() })
+    const type = page.getByTestId('thought-type').element()
+    const thread = page.getByTestId('thought-thread').element()
+    const words = page.getByTestId('thought-inline-words').element()
+    expect(type.compareDocumentPosition(thread) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(thread.compareDocumentPosition(words) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await page.getByTestId('thought-inline-words').click()
+    const line = page.getByTestId('thought-inline-words-editor').element()
+    expect(line.className).toContain('basis-full')
+    expect(line.className).toContain('order-last')
+    await expect.element(page.getByTestId('thought-inline-field')).toBeInTheDocument()
+  })
+
   it('edits the words in place: Save sends them, the row gets what the server kept', async () => {
     const onchange = vi.fn()
-    client.applyThoughtEdit.mockResolvedValue({ text: 'Call the studio Monday', category: 'decision' })
+    client.applyThoughtEdit.mockResolvedValue({
+      text: 'Call the studio Monday',
+      category: 'decision',
+    })
     render(ThoughtInlineEditor, { ...base, onchange })
     await page.getByTestId('thought-inline-words').click()
     const field = page.getByTestId('thought-inline-field')
     await userEvent.clear(field)
     await userEvent.type(field, 'Call the studio Monday')
     await page.getByTestId('thought-inline-save').click()
-    expect(client.applyThoughtEdit).toHaveBeenCalledWith('t1', expect.stringContaining('Call the studio Monday'))
+    expect(client.applyThoughtEdit).toHaveBeenCalledWith(
+      't1',
+      expect.stringContaining('Call the studio Monday'),
+    )
     await vi.waitFor(() =>
       expect(onchange).toHaveBeenCalledWith({
         text: 'Call the studio Monday',
