@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { envPaste, FAKE_SECRETS, guardWouldTrip, leaks } from '$lib/test/secret-fixtures'
 
 const {
   getDbMock,
@@ -302,103 +301,6 @@ describe('enrichQueuedThought', () => {
     // No partial persist: classify/embed never ran.
     expect(enrichThoughtMock).not.toHaveBeenCalled()
     errorSpy.mockRestore()
-  })
-
-  describe('secret hygiene (docs/planning/secret-hygiene.md)', () => {
-    /** Everything the pipeline hands to an LLM client, an embedding or a persisted index. */
-    function everythingDownstream(): string {
-      return JSON.stringify([
-        runDecisionModelMock.mock.calls,
-        applyCaptureContentSplitIfNeededMock.mock.calls,
-        loadEnrichmentContextMock.mock.calls,
-        createThoughtEmbeddingMock.mock.calls,
-        extractEnrichThoughtBundleMock.mock.calls.map(([arg]) => ({
-          capturedAt: (arg as { capturedAt: Date }).capturedAt,
-        })),
-        enrichThoughtMock.mock.calls.map((call) => call.slice(0, 3)),
-        encryptTenantValueMock.mock.calls,
-      ])
-    }
-
-    function secretDb(row: Record<string, unknown>) {
-      return makeDb([
-        [row],
-        [{ metadata: {}, metadataEncrypted: null }],
-        [{ n: 5 }],
-        [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-        [{ normalizedText: 'x', category: 'idea', enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-      ])
-    }
-
-    it('feeds the content_role decision, the split, the context, the embedding and enrich only redacted text', async () => {
-      resolveEnforceKindsMock.mockReturnValue(new Set(['content_role']))
-      resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
-      runDecisionModelMock
-        .mockResolvedValueOnce(
-          decisionResponse({
-            content_role: { choice: 'personal', probabilities: { personal: 0.9, reference: 0.1 } },
-          }),
-        )
-        .mockResolvedValueOnce(decisionResponse({ category: { choice: 'task', probabilities: { task: 0.7 } } }))
-      const raw = envPaste()
-      // normalized_text as queueCapture stores it (redacted); raw_text verbatim
-      getDbMock.mockReturnValue(
-        secretDb({
-          ...baseRow,
-          rawText: raw,
-          normalizedText:
-            'DATABASE_URL=postgres://user:[redacted secret]@localhost:5432/mydb LLM_API_KEY=[redacted secret] PORT=3000',
-        }),
-      )
-
-      await enrichQueuedThought('u1', 't1')
-
-      expect(leaks(everythingDownstream())).toBe(false)
-      expect(runDecisionModelMock).toHaveBeenCalled()
-      expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          rawText:
-            'DATABASE_URL=postgres://user:[redacted secret]@localhost:5432/mydb LLM_API_KEY=[redacted secret] PORT=3000',
-        }),
-      )
-      expect(loadEnrichmentContextMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          rawText: expect.stringContaining('[redacted secret]'),
-          normalizedText: expect.stringContaining('[redacted secret]'),
-        }),
-      )
-    })
-
-    it('also cleans a legacy row whose stored normalized_text still holds a secret', async () => {
-      const raw = `token ${FAKE_SECRETS.githubClassic} for deploy`
-      getDbMock.mockReturnValue(secretDb({ ...baseRow, rawText: raw, normalizedText: raw }))
-
-      await enrichQueuedThought('u1', 't1')
-
-      expect(leaks(everythingDownstream())).toBe(false)
-      expect(enrichThoughtMock).toHaveBeenCalledWith(
-        'u1',
-        't1',
-        'token [redacted secret] for deploy',
-        expect.anything(),
-      )
-    })
-
-    it('does not trip the gateway guard on the capture path (the boundary already redacted)', async () => {
-      const raw = envPaste()
-      getDbMock.mockReturnValue(secretDb({ ...baseRow, rawText: raw, normalizedText: raw }))
-
-      await enrichQueuedThought('u1', 't1')
-
-      const payloads = [
-        runDecisionModelMock.mock.calls,
-        applyCaptureContentSplitIfNeededMock.mock.calls,
-        loadEnrichmentContextMock.mock.calls,
-        createThoughtEmbeddingMock.mock.calls,
-        enrichThoughtMock.mock.calls.map((call) => call.slice(0, 3)),
-      ]
-      expect(guardWouldTrip(payloads)).toBe(false)
-    })
   })
 
   it('enforced content_role: the early call decides the role and the generation call receives it', async () => {

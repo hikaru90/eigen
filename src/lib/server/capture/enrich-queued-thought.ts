@@ -49,7 +49,6 @@ import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 import { validateEntityKindKeyForNewIngest } from '$lib/server/ontology-db/load-ontology'
 import type { ResolvedThoughtOntologyKind } from '$lib/server/ontology/classify-thought-category'
 import { InvalidThoughtCategoryError } from '$lib/server/ontology/validate-thought-category'
-import { redactedText } from '$lib/server/security/detect-secrets'
 
 export type EnrichQueuedThoughtOptions = {
   onProgress?: (event: CaptureProgressEvent) => Promise<void>
@@ -280,14 +279,7 @@ export async function enrichQueuedThought(
         throw new Error(`Queued thought not found: ${thoughtId}`)
       }
 
-      // Secret hygiene (docs/planning/secret-hygiene.md): `raw_text` stays the user's verbatim
-      // words in the database, but nothing below may see a credential — the content_role call,
-      // the Phase-A split spans, the enrichment prompts, the embedding and the cues all work
-      // from the redacted text. `normalized_text` is already redacted at capture; scanning it
-      // again keeps rows captured before secret hygiene (until the scrub script runs) clean too.
-      const stored = await decryptQueuedRow(userId, row)
-      const rawText = redactedText(stored.rawText)
-      const normalizedText = redactedText(stored.normalizedText)
+      const { rawText, normalizedText } = await decryptQueuedRow(userId, row)
 
       // Decision plane, enforced content_role (spec §6 P): one bounded call
       // BEFORE the split phase — its answer is the capture's role (personal |

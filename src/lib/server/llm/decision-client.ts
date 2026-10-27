@@ -17,7 +17,6 @@ import { resolveTenantUserId } from '$lib/server/billing/context'
 import { env } from '$lib/server/env/private-env'
 import { currentEvalLlmCache, evalLlmCacheFor } from '$lib/server/llm/eval-llm-cache'
 import { extractGatewayReportedCostUsd } from '$lib/server/llm/gateway-cost'
-import { guardOutgoingValue } from '$lib/server/security/gateway-guard'
 
 const DECISIONS_ENDPOINT = 'https://openrouter.ai/api/alpha/decisions'
 const DEFAULT_DECISION_TIMEOUT_MS = 10_000
@@ -256,10 +255,10 @@ export async function runDecisionModel(
   request: DecisionRequest,
   opts?: { timeoutMs?: number },
 ): Promise<DecisionResponse> {
-  // Decisions is a second LLM gateway: the same secret guard as llmChatCompletion applies
   const body = {
     model: config.model,
-    ...guardOutgoingValue({ state: request.state, questions: request.questions }, 'decision_model'),
+    state: request.state,
+    questions: request.questions,
   }
   const questionIds = Object.keys(request.questions)
   // eval response cache (harness tenants only): the tenant is the RLS user the eval harness set

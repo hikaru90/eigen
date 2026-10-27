@@ -112,15 +112,6 @@ Runs on a global nightly cron and via manual heartbeat (“Run now”). Not on t
 - **Queue status:** `awaiting_confirmation` on deviation drafts; confirm/dismiss/timeout (or stranded >5s sync) promotes to `pending` and schedules the enrich worker. UI: confirmation modal (not a dead list badge alone).
 - **Invariant:** `raw_text` never overwritten by interpret/confirm; only `normalized_text` / lexical / category / memoryType update on confirm (Dismiss sets `normalized_text` = raw).
 
-### Secret hygiene (credentials never become memory)
-
-- **Detector:** [`src/lib/server/security/detect-secrets.ts`](../../src/lib/server/security/detect-secrets.ts) — pure, format-based redaction (provider key shapes, JWT, PEM private-key blocks, `scheme://user:PASSWORD@host`, and `NAME=value` / `NAME: value` / JSON / `--flag value` where NAME is a credential name from the shared rule in [`redact-for-log.ts`](../../src/lib/server/observability/redact-for-log.ts) `isSensitiveFieldName`). Allowed without an LLM (redaction, AGENTS.md); no entropy guessing. Placeholder `[redacted secret]` keeps the non-secret name (`LLM_API_KEY=[redacted secret]`). Findings are `{kind, name, start, end}`, never a value.
-- **One canonical text at the boundary:** `queueCapture` redacts once; `raw_text` (and nothing else) keeps the user's verbatim words. `normalized_text`, lexical text, the capture-session audit row, the interpret/confirm/keep paths, `enrichQueuedThought` (content_role call, Phase-A split spans, enrichment prompts, embedding, cues), `editStoredThought`, the MCP `raw_text` replacement, note lexical text and **note passages** (the note body the user saved stays verbatim), `composeAnswer`/MCP questions and inbound webhook summaries all derive from the redacted text.
-- **Gateway guard (defence in depth):** [`gateway-guard.ts`](../../src/lib/server/security/gateway-guard.ts) in `llmChatCompletion` and the embedding client redacts any outgoing content and logs a `[security.gateway-guard]` warning with the call site (kinds and credential names, no value). The capture path never trips it.
-- **User feedback:** capture metadata records `secretsRedacted: [{kind, name}]` (encrypted metadata only); the capture page's kept strip shows a one-line notice.
-- **MCP / Ask:** `sanitizeMcpToolResult` redacts every string in a tool result (even a legacy row's `raw_text` in `detail: full`).
-- **Existing data:** `npm run scrub:stored-secrets` (dry-run by default; operator-run) re-derives the derived surfaces and drops entities whose label holds a secret — see [`scrub-stored-secrets.ts`](../../src/lib/server/security/scrub-stored-secrets.ts).
-
 ### Notes (text files)
 
 - **Purpose:** First-class Keep-style documents stored in `text_file` — shopping lists, notebooks, checklists, pasted reference. **Not** thoughts: no enrich queue, category, or graph pipeline — the body never feeds the graph. Notes are searchable by meaning through their **passages** (`note_passage`, below). UI: [`/memory/notes`](../../src/routes/memory/notes/+page.svelte).

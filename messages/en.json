@@ -403,7 +403,6 @@
   "capture_kept_linked": "Linked to {entities} entities · {thoughts} thoughts",
   "capture_kept_failed": "Kept — but indexing failed: {reason}",
   "capture_kept_slow": "Still indexing in the background",
-  "capture_kept_secrets_redacted": "Credentials in your words are not stored in memory — only your original text keeps them.",
   "capture_reading_sounds_like": "Sounds like",
   "capture_reading_loose": "no project",
   "capture_reading_new_thread": "New thread",

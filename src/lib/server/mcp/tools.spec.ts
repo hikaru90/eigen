@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { withEvalClock } from '$lib/server/llm/eval-clock'
-import { envPaste, FAKE_SECRETS, guardWouldTrip, leaks } from '$lib/test/secret-fixtures'
 import {
   runAnswerQuestionTool,
   runCaptureThoughtTool,
@@ -36,8 +35,6 @@ const {
   resolveDeleteTargetsMock,
   composeAnswerMock,
   createThoughtEmbeddingMock,
-  getDbUpdateMock,
-  loadThoughtCaptureResultMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   captureThoughtMock: vi.fn(),
@@ -62,8 +59,6 @@ const {
   resolveDeleteTargetsMock: vi.fn(),
   composeAnswerMock: vi.fn(),
   createThoughtEmbeddingMock: vi.fn(),
-  getDbUpdateMock: vi.fn(),
-  loadThoughtCaptureResultMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/qa/compose-answer', () => ({
@@ -145,10 +140,6 @@ vi.mock('$lib/server/capture/service', () => ({
   captureThought: captureThoughtMock,
   listThoughts: listThoughtsMock,
   editStoredThought: editStoredThoughtMock,
-  normalizeThoughtText: (raw: string) => ({
-    normalized: raw.trim().replace(/\s+/g, ' '),
-    metadata: { pipeline: 'ontology_llm_v1' },
-  }),
 }))
 
 vi.mock('$lib/server/memory/lifecycle', () => ({
@@ -158,21 +149,7 @@ vi.mock('$lib/server/memory/lifecycle', () => ({
 vi.mock('$lib/server/db', () => ({
   getDb: () => ({
     select: getDbSelectMock,
-    update: getDbUpdateMock,
   }),
-}))
-
-vi.mock('$lib/server/crypto/tenant-encryption', () => ({
-  encryptTenantValue: vi.fn(async ({ plaintext }: { plaintext: string }) => `enc:${plaintext}`),
-}))
-
-vi.mock('$lib/server/capture/capture-result', () => ({
-  loadThoughtCaptureResult: loadThoughtCaptureResultMock,
-}))
-
-vi.mock('$lib/server/agents/notify', () => ({ notifyThoughtUpdated: vi.fn() }))
-vi.mock('$lib/server/agents/project-context', () => ({
-  loadProjectContextForThought: vi.fn(async () => ({ projectEntityIds: [], projectLabels: [] })),
 }))
 
 vi.mock('$lib/server/llm/embedding', () => ({
@@ -1339,188 +1316,5 @@ describe('MCP tools', () => {
       runDeleteProjectTool({ userId: 'u1' }, { project_entity_id: 'p-nonexistent' }),
     ).rejects.toThrow(/Project not found/)
     expect(dismissProjectMock).not.toHaveBeenCalled()
-  })
-})
-
-describe('MCP tools secret hygiene (docs/planning/secret-hygiene.md)', () => {
-  const SECRET_RAW = `deploy ${envPaste()}`
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    loadTemporalContextByThoughtIdsMock.mockResolvedValue(new Map())
-    searchTextFilesMock.mockResolvedValue([])
-    createThoughtEmbeddingMock.mockResolvedValue(QUERY_EMBEDDING)
-    resolveMcpCaptureAuthorshipMock.mockResolvedValue({
-      author: 'user',
-      authorLabel: null,
-      authorKeyId: null,
-    })
-  })
-
-  it('capture_thought hands the original to the capture boundary and returns no secret value', async () => {
-    captureThoughtMock.mockResolvedValue({
-      id: 't1',
-      normalizedText: 'deploy DATABASE_URL=[redacted]',
-      queueStatus: 'pending',
-      enrichedAt: null,
-      // even a row that still carries the original (legacy / future bug) is scrubbed at the tool edge
-      rawText: SECRET_RAW,
-      metadata: { secretsRedacted: [{ kind: 'api_key', name: 'LLM_API_KEY' }] },
-    })
-
-    const out = await runCaptureThoughtTool({ userId: 'u1' }, { raw: SECRET_RAW })
-
-    expect(captureThoughtMock.mock.calls[0]![1]).toBe(SECRET_RAW)
-    expect(leaks(JSON.stringify(out))).toBe(false)
-    expect(out.secretsRedacted).toEqual([{ kind: 'api_key', name: 'LLM_API_KEY' }])
-    expect(out.thought.metadata).toEqual({
-      secretsRedacted: [{ kind: 'api_key', name: 'LLM_API_KEY' }],
-    })
-  })
-
-  it('retrieve_thoughts (full detail) returns no secret value from thoughts or notes', async () => {
-    searchThoughtsMock.mockResolvedValue([
-      {
-        id: 't1',
-        rawText: SECRET_RAW,
-        normalizedText: `key ${FAKE_SECRETS.githubClassic}`,
-        category: 'observation',
-        createdAt: new Date('2024-01-01'),
-        score: 0.9,
-      },
-    ])
-    searchTextFilesMock.mockResolvedValue([
-      {
-        id: 'f1',
-        title: 'Runbook',
-        preview: envPaste(),
-        excerpt: `set ${envPaste()}`,
-        matchedOrdinals: [0],
-        score: 0.5,
-        createdAt: '2026-03-01T00:00:00.000Z',
-        updatedAt: '2026-03-02T00:00:00.000Z',
-      },
-    ])
-
-    const out = await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'deploy', detail: 'full' })
-
-    expect(leaks(JSON.stringify(out))).toBe(false)
-    expect(JSON.stringify(out)).toContain('[redacted secret]')
-  })
-
-  it('retrieve_thoughts (snippet detail) and recent browse return no secret value', async () => {
-    searchThoughtsMock.mockResolvedValue([
-      {
-        id: 't1',
-        normalizedText: `key ${FAKE_SECRETS.githubClassic}`,
-        category: 'observation',
-        createdAt: new Date('2024-01-01'),
-        score: 0.9,
-      },
-    ])
-    expect(leaks(JSON.stringify(await runRetrieveThoughtsTool({ userId: 'u1' }, { query: 'key' })))).toBe(false)
-
-    listThoughtsMock.mockResolvedValue([
-      {
-        id: 't2',
-        rawText: SECRET_RAW,
-        normalizedText: SECRET_RAW,
-        category: 'observation',
-        createdAt: new Date('2024-01-01'),
-        askQuestion: `What is ${FAKE_SECRETS.githubClassic}?`,
-      },
-    ])
-    for (const detail of ['snippet', 'full']) {
-      const out = await runRetrieveThoughtsTool({ userId: 'u1' }, { detail })
-      expect(leaks(JSON.stringify(out))).toBe(false)
-    }
-  })
-
-  it('retrieve_thoughts embeds and searches a redacted query', async () => {
-    searchThoughtsMock.mockResolvedValue([])
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-
-    await runRetrieveThoughtsTool({ userId: 'u1' }, { query: `where is ${FAKE_SECRETS.githubClassic}` })
-
-    expect(leaks(JSON.stringify(createThoughtEmbeddingMock.mock.calls))).toBe(false)
-    expect(leaks(JSON.stringify(searchThoughtsMock.mock.calls))).toBe(false)
-    expect(leaks(JSON.stringify(searchTextFilesMock.mock.calls))).toBe(false)
-    expect(leaks(JSON.stringify(info.mock.calls))).toBe(false)
-    info.mockRestore()
-  })
-
-  it('answer_question composes from a redacted question and returns no secret value', async () => {
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-    composeAnswerMock.mockResolvedValue({
-      answer: `Your key is ${FAKE_SECRETS.openai}`,
-      citations: [{ thoughtId: 't1', snippet: SECRET_RAW }],
-      retrieved: [{ id: 't1', rawText: SECRET_RAW, normalizedText: SECRET_RAW }],
-    })
-
-    const out = await runAnswerQuestionTool(
-      { userId: 'u1' },
-      { question: `is ${FAKE_SECRETS.openai} still valid?` },
-    )
-
-    expect(guardWouldTrip(composeAnswerMock.mock.calls)).toBe(false)
-    expect(leaks(JSON.stringify(composeAnswerMock.mock.calls))).toBe(false)
-    expect(leaks(JSON.stringify(out))).toBe(false)
-    expect(leaks(JSON.stringify(info.mock.calls))).toBe(false)
-    info.mockRestore()
-  })
-
-  it('search_text_files and get/list note tools return no secret value', async () => {
-    searchTextFilesMock.mockResolvedValue([
-      { id: 'f1', title: 'Runbook', preview: SECRET_RAW, excerpt: SECRET_RAW, score: 0.5 },
-    ])
-    const out = await runSearchTextFilesTool({ userId: 'u1' }, { query: `find ${FAKE_SECRETS.openai}` })
-    expect(leaks(JSON.stringify(out))).toBe(false)
-    expect(leaks(JSON.stringify(searchTextFilesMock.mock.calls))).toBe(false)
-  })
-
-  it('create_text_file hands the verbatim body to the service (which indexes the redacted text) but returns it redacted', async () => {
-    createTextFileMock.mockResolvedValue({ id: 'f1', title: 'Runbook', body: SECRET_RAW })
-
-    const out = await runCreateTextFileTool({ userId: 'u1' }, { title: 'Runbook', body: SECRET_RAW })
-
-    expect(createTextFileMock.mock.calls[0]![1]).toMatchObject({ body: SECRET_RAW })
-    expect(leaks(JSON.stringify(out))).toBe(false)
-  })
-
-  it('edit_thought raw_text replacement derives normalized and lexical text from the redacted text, logs and returns no secret', async () => {
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-    mockThoughtRow({
-      id: 't1',
-      rawText: SECRET_RAW,
-      normalizedText: SECRET_RAW,
-      category: 'task',
-      metadata: {},
-    })
-    const set = vi.fn(() => ({
-      where: vi.fn(() => ({ returning: vi.fn(async () => [{ id: 't1' }]) })),
-    }))
-    getDbUpdateMock.mockReturnValue({ set })
-    loadThoughtCaptureResultMock.mockResolvedValue({
-      id: 't1',
-      normalizedText: 'replaced',
-      category: 'task',
-      metadata: {},
-    })
-
-    const out = await runEditThoughtTool(
-      { userId: 'u1' },
-      { thought_id: 't1', raw_text: `new ${envPaste()}` },
-    )
-
-    const written = (set.mock.calls[0] as unknown as [Record<string, string>])[0]
-    expect(leaks(written.normalizedText)).toBe(false)
-    expect(leaks(written.normalizedTextEncrypted)).toBe(false)
-    expect(leaks(written.lexicalText)).toBe(false)
-    // the user's replacement words stay verbatim in raw_text
-    expect(written.rawText).toBe(`new ${envPaste()}`)
-    // the response shows the thought as it was before (original text) — scrubbed at the tool edge
-    expect(leaks(JSON.stringify(out))).toBe(false)
-    expect(leaks(JSON.stringify(info.mock.calls))).toBe(false)
-    info.mockRestore()
   })
 })

@@ -56,7 +56,6 @@ import {
   fetchTemporalEventSeedsForHints,
   type TemporalSeedsFetchResult,
 } from '$lib/server/retrieval/temporal'
-import { redactedText } from '$lib/server/security/detect-secrets'
 import { searchTextFiles, type TextFileSearchHit } from '$lib/server/text-files/service'
 
 /** Reserved citation id for explicit user grounding profile facts in compose prompts. */
@@ -538,9 +537,7 @@ async function hydrateTemporalContextForThoughts(input: {
 }
 
 export async function composeAnswer(input: ComposeAnswerInput): Promise<ComposedAnswer> {
-  // Secret hygiene (docs/planning/secret-hygiene.md): a credential typed into a question is
-  // never classified, embedded, keyword-searched, put in the compose prompt or logged.
-  const trimmedQuestion = redactedText(input.question.trim())
+  const trimmedQuestion = input.question.trim()
   if (trimmedQuestion.length === 0) {
     throw new Error('composeAnswer: question must be non-empty')
   }
@@ -548,9 +545,7 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
   const overallStart = Date.now()
   const now = input.referenceTime ?? new Date()
   const weights = input.weights ?? CONTEXT_WEIGHTS.default
-  const retrievalQuery = input.retrievalQuery?.trim()
-    ? redactedText(input.retrievalQuery.trim())
-    : trimmedQuestion
+  const retrievalQuery = input.retrievalQuery?.trim() || trimmedQuestion
   const queryIntent = await classifyQueryIntent({ userId: input.userId, query: trimmedQuestion })
   const entityHints = mergeQuestionEntityHints(queryIntent.entityHints)
   const scope = queryIntent.scope

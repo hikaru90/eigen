@@ -24,11 +24,6 @@ import {
 } from '$lib/server/memory/authorship'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
-import {
-  redactSecrets,
-  summarizeRedactedSecrets,
-  type RedactedSecretSummary,
-} from '$lib/server/security/detect-secrets'
 
 /** Placeholder category until background worker classifies. */
 export const QUEUE_PLACEHOLDER_CATEGORY = 'observation'
@@ -62,8 +57,6 @@ export type QueueCaptureResult = {
   thoughtId: string
   status: 'queued'
   normalizedText: string
-  /** Credentials found in the input and kept out of every derived surface (kind + name, never the value). */
-  secretsRedacted?: RedactedSecretSummary[]
 }
 
 export type QueueCaptureOptions = {
@@ -96,10 +89,6 @@ async function resolvePlaceholderOntologyKindId(userId: string): Promise<string>
 
 /**
  * Insert one thought row (full text, no LLM). Returns immediately.
- *
- * Secret hygiene (docs/planning/secret-hygiene.md): the input is redacted ONCE here. `raw_text`
- * and the capture session keep the user's verbatim words; `normalized_text`, the lexical surface,
- * the preview and everything the enrich pipeline later reads derive from the redacted text.
  */
 export async function queueCapture(
   userId: string,
@@ -107,9 +96,7 @@ export async function queueCapture(
   options?: QueueCaptureOptions,
 ): Promise<QueueCaptureResult> {
   await assertCapturePipelineAffordable(userId)
-  const { text: safeInput, findings } = redactSecrets(rawInput)
-  const secretsRedacted = summarizeRedactedSecrets(findings)
-  const { normalized, metadata } = normalizeThoughtText(safeInput)
+  const { normalized, metadata } = normalizeThoughtText(rawInput)
   const lexicalText = computeLexicalText(normalized)
   const ontologyEntityKindId = await resolvePlaceholderOntologyKindId(userId)
   const source = options?.source ?? 'api'
@@ -126,8 +113,7 @@ export async function queueCapture(
         userId,
         table: 'capture_session',
         column: 'raw_input',
-        // write-only audit row: the verbatim original lives in thought.raw_text alone
-        plaintext: safeInput,
+        plaintext: rawInput,
       }),
       encryptTenantValue({
         userId,
@@ -158,7 +144,6 @@ export async function queueCapture(
       ...metadata,
       queueTier,
       ...(awaitConfirmation ? { confirmationGate: true } : {}),
-      ...(secretsRedacted.length > 0 ? { secretsRedacted } : {}),
     }),
   })
 
@@ -171,7 +156,7 @@ export async function queueCapture(
       .values({
         userId,
         status: 'accepted',
-        rawInput: safeInput,
+        rawInput,
         rawInputEncrypted,
         normalizedPreview: normalized,
         normalizedPreviewEncrypted,
@@ -258,7 +243,6 @@ export async function queueCapture(
     thoughtId: stored.id,
     status: 'queued',
     normalizedText: normalized,
-    ...(secretsRedacted.length > 0 ? { secretsRedacted } : {}),
   }
 }
 

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 
 const {
   llmChatCompletionMock,
@@ -552,29 +551,6 @@ describe('agentChat', () => {
       expect.objectContaining({ operation: 'tool_error.retrieve_thoughts' }),
     )
     expect(result.response).toBe('Recovered after tool error.')
-  })
-
-  it('the tool-call activity log never keeps a credential prefix from the tool arguments (secret hygiene)', async () => {
-    retrieveThoughtsMock.mockRejectedValue(new Error('db unavailable'))
-    llmChatCompletionMock
-      .mockResolvedValueOnce(
-        llmJson({
-          tool: 'retrieve_thoughts',
-          arguments: { query: `LLM_API_KEY=${FAKE_SECRETS.openai}` },
-        }),
-      )
-      .mockResolvedValueOnce(llmJson({ answer: 'ok' }))
-
-    await agentChat({ userId: 'u1', messages: [{ role: 'user', content: 'find it' }] })
-
-    const contexts = logActivityCallMock.mock.calls
-      .map((call) => (call[2] as { context?: string }).context ?? '')
-      .filter((context) => context.includes('query'))
-    expect(contexts.length).toBeGreaterThan(0)
-    for (const context of contexts) {
-      expect(context).not.toContain('sk-')
-      expect(leaks(context)).toBe(false)
-    }
   })
 
   it('returns the max-iteration fallback after too many tool loops', async () => {

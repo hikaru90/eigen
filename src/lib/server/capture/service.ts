@@ -31,7 +31,6 @@ import { queueCapture } from '$lib/server/capture/queue-capture'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import type { CaptureSource, MemoryAuthor } from '$lib/server/db/schema'
 import { resolveAuthorSqlCondition } from '$lib/server/memory/authorship'
-import { redactedText } from '$lib/server/security/detect-secrets'
 
 /** Deterministic text shaping only; kind key + FK come from `resolveThoughtCategory`. */
 export function normalizeThoughtText(raw: string): {
@@ -180,10 +179,7 @@ export async function editStoredThought(
   const onProgress = options?.onProgress
   const logCtx = { userId, thoughtId }
   const timer = createEditPhaseTimer(logCtx)
-  // Secret hygiene (docs/planning/secret-hygiene.md): the edit LLM, the logs and the stored
-  // edit request see the redacted request; a credential typed into an edit is never kept.
-  const safeEditRequest = redactedText(editRequest)
-  const editRequestPreview = truncateEditPreview(safeEditRequest)
+  const editRequestPreview = truncateEditPreview(editRequest)
 
   console.info('[capture.edit] start', { ...logCtx, editRequestPreview })
 
@@ -211,7 +207,7 @@ export async function editStoredThought(
       decryptThoughtRow(userId, existing),
     )
 
-    const lifecycleStatus = parseLifecycleEditRequest(safeEditRequest)
+    const lifecycleStatus = parseLifecycleEditRequest(editRequest)
     if (lifecycleStatus) {
       console.info('[capture.edit] lifecycle fast path', { ...logCtx, lifecycleStatus })
       const lifecycleResult = await timer.time('lifecycle_status', async () =>
@@ -241,26 +237,21 @@ export async function editStoredThought(
       }
     }
 
-    // The LLM edits the redacted thought, so "no change" comes back as the redacted text:
-    // compare against that, or an untouched thought would have its verbatim original
-    // overwritten with placeholders.
-    const existingRedactedRaw = redactedText(decryptedExisting.rawText)
     const applied = await timer.time('llm_apply_edit', async () =>
       applyThoughtEditRequest({
         userId,
-        existingRawText: existingRedactedRaw,
-        existingNormalizedText: redactedText(decryptedExisting.normalizedText),
+        existingRawText: decryptedExisting.rawText,
+        existingNormalizedText: decryptedExisting.normalizedText,
         category: decryptedExisting.category,
-        editRequest: safeEditRequest,
+        editRequest,
       }),
     )
 
     const priorMeta = (decryptedExisting.metadata as Record<string, unknown>) ?? {}
     const editedRaw = applied.rawText
-    const rawTextChanged = editedRaw !== existingRedactedRaw
+    const rawTextChanged = editedRaw !== decryptedExisting.rawText
     const normalizedUnchanged =
-      normalizeThoughtText(redactedText(editedRaw)).normalized ===
-      redactedText(decryptedExisting.normalizedText)
+      normalizeThoughtText(editedRaw).normalized === decryptedExisting.normalizedText
     const priorStatus = typeof priorMeta.status === 'string' ? priorMeta.status : 'open'
     const nextStatus = applied.status ?? priorStatus
     const statusOnlyChange = nextStatus !== priorStatus && normalizedUnchanged
@@ -283,7 +274,7 @@ export async function editStoredThought(
 
     const metadataPatch: Record<string, unknown> = {
       ...priorMeta,
-      lastEditRequest: safeEditRequest.trim(),
+      lastEditRequest: editRequest.trim(),
       lastEditSummary: applied.summary,
       status: nextStatus,
       ...(nextStatus === 'completed' ? { completedAt: new Date().toISOString() } : {}),
@@ -374,7 +365,7 @@ export async function editStoredThought(
     }
 
     const { normalized, metadata: baseMeta } = await timer.time('normalize_text', async () =>
-      normalizeThoughtText(redactedText(editedRaw)),
+      normalizeThoughtText(editedRaw),
     )
     await emitProgress(onProgress, 'ontology')
     const {
@@ -387,7 +378,7 @@ export async function editStoredThought(
       resolveThoughtCategory({
         userId,
         normalized,
-        rawText: redactedText(editedRaw),
+        rawText: editedRaw,
       }),
     )
     const metadata = {
@@ -588,8 +579,7 @@ export async function relinkThoughtGraph(
     category: existing.category,
   })
 
-  // a row captured before secret hygiene may still hold a credential in normalized_text
-  await reenrichThought(userId, decryptedExisting.id, redactedText(decryptedExisting.normalizedText), {
+  await reenrichThought(userId, decryptedExisting.id, decryptedExisting.normalizedText, {
     onProgress,
   })
 

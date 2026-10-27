@@ -58,7 +58,6 @@
     "measure:ingest": "vite-node --config evals/vite.config.ts scripts/measure-ingest-timing.ts",
     "measure:jev": "vite-node --config evals/vite.config.ts scripts/measure-jev-benchmark.ts",
     "backfill:note-passages": "vite-node --config evals/vite.config.ts scripts/backfill-note-passages.ts",
-    "scrub:stored-secrets": "vite-node --config evals/vite.config.ts scripts/scrub-stored-secrets.ts",
     "posthog:upload-sourcemaps": "node --env-file-if-exists=.env scripts/upload-posthog-sourcemaps.mjs"
   },
   "devDependencies": {

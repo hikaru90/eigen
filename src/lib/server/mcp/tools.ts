@@ -46,7 +46,6 @@ import {
 import { retrieveThoughtRowsForDeleteRequest } from '$lib/server/retrieval/retrieve-for-delete'
 import { normalizeRetrievalScore } from '$lib/server/retrieval/rrf-scoring'
 import { searchThoughts } from '$lib/server/retrieval/service'
-import { readSecretsRedacted, redactedText } from '$lib/server/security/detect-secrets'
 import {
   appendTextFile,
   createTextFile,
@@ -228,22 +227,18 @@ export async function runCaptureThoughtTool(context: McpToolContext, args: unkno
     authorKeyId: authorship.authorKeyId,
     ...(capturedAt ? { capturedAt } : {}),
   })
-  const secretsRedacted = readSecretsRedacted(stored.metadata)
   return sanitizeMcpToolResult({
     thoughtId: stored.id,
     status: stored.queueStatus ?? 'queued',
     // Capture-time category may be revised by the queued enrichment pass.
     categoryProvisional: stored.enrichedAt === null,
-    // credentials kept out of memory (kind + name, never the value)
-    ...(secretsRedacted.length > 0 ? { secretsRedacted } : {}),
     thought: stored,
   })
 }
 
 export async function runRetrieveThoughtsTool(context: McpToolContext, args: unknown) {
   const body = asObject(args)
-  // a credential typed into a query is never embedded, searched or logged
-  const query = typeof body.query === 'string' ? redactedText(body.query.trim()) : ''
+  const query = typeof body.query === 'string' ? body.query.trim() : ''
   const order = parseRetrieveOrder(body)
   const topK = typeof body.top_k === 'number' ? body.top_k : undefined
   const threshold = typeof body.threshold === 'number' ? body.threshold : undefined
@@ -366,7 +361,7 @@ export async function runRetrieveThoughtsTool(context: McpToolContext, args: unk
 
 export async function runAnswerQuestionTool(context: McpToolContext, args: unknown) {
   const body = asObject(args)
-  const question = typeof body.question === 'string' ? redactedText(body.question.trim()) : ''
+  const question = typeof body.question === 'string' ? body.question.trim() : ''
   if (!question) {
     throw new Error('question is required')
   }
@@ -426,7 +421,7 @@ const DELETE_REQUEST_MAX_LENGTH = 500
  */
 export async function runDeleteThoughtsByRequestTool(context: McpToolContext, args: unknown) {
   const body = asObject(args)
-  const request = typeof body.request === 'string' ? redactedText(body.request.trim()) : ''
+  const request = typeof body.request === 'string' ? body.request.trim() : ''
   if (!request) {
     throw new Error('request is required')
   }
@@ -494,10 +489,9 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
   console.info('[mcp.edit_thought] start', {
     userId: context.userId,
     thoughtId,
-    editRequestPreview: redactedText(editRequest).slice(0, 120),
+    editRequestPreview: editRequest.slice(0, 120),
     hasRawText: rawTextReplacement !== undefined,
-    rawTextPreview:
-      rawTextReplacement === undefined ? undefined : redactedText(rawTextReplacement).slice(0, 100),
+    rawTextPreview: rawTextReplacement?.slice(0, 100),
   })
 
   try {
@@ -531,11 +525,10 @@ export async function runEditThoughtTool(context: McpToolContext, args: unknown)
     if (rawTextReplacement !== undefined) {
       // Direct text replacement bypassing LLM
       const { normalizeThoughtText } = await import('$lib/server/capture/service')
-      // raw_text keeps the replacement verbatim; normalized/lexical text derive from the redacted text
-      const { normalized } = normalizeThoughtText(redactedText(rawTextReplacement))
+      const { normalized } = normalizeThoughtText(rawTextReplacement)
       const metadataPatch: Record<string, unknown> = {
         ...priorMeta,
-        lastEditRequest: redactedText(editRequest) || 'raw_text replacement',
+        lastEditRequest: editRequest || 'raw_text replacement',
         lastEditSummary: 'Text replaced directly',
       }
       const metadataEncrypted = await encryptTenantValue({
@@ -717,7 +710,7 @@ export async function runDeleteTextFileTool(context: McpToolContext, args: unkno
 
 export async function runSearchTextFilesTool(context: McpToolContext, args: unknown) {
   const body = asObject(args)
-  const query = typeof body.query === 'string' ? redactedText(body.query.trim()) : ''
+  const query = typeof body.query === 'string' ? body.query.trim() : ''
   if (!query) throw new Error('query is required')
   const topK = typeof body.top_k === 'number' ? body.top_k : undefined
   const authorFilter = parseAuthorScope(body)

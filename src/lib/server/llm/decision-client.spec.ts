@@ -4,7 +4,6 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tenantUserAsyncLocal } from '$lib/server/billing/context'
 import { createEvalLlmCache, withEvalLlmCache, type EvalLlmCache } from './eval-llm-cache'
-import { envPaste, FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 import {
   resolveDecisionEnforceKinds,
   resolveDecisionShadowConfig,
@@ -212,40 +211,6 @@ describe('runDecisionModel', () => {
         category: { type: 'choice', instructions: 'Pick one', criteria: { task: 'Tasks', idea: 'Ideas' } },
       },
     })
-  })
-
-  it('never sends a credential to the decisions gateway: state and question text are redacted and the call is warned about', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    await runDecisionModel(config, {
-      state: `deploy ${envPaste()}`,
-      questions: {
-        category: {
-          type: 'choice',
-          instructions: `Which type is the mention "${FAKE_SECRETS.githubClassic}"?`,
-          criteria: { a: 'A' },
-        },
-      },
-    })
-    const [, init] = vi.mocked(globalThis.fetch).mock.calls[0]
-    const sent = String(init?.body)
-    expect(leaks(sent)).toBe(false)
-    expect(sent).toContain('LLM_API_KEY=[redacted secret]')
-    expect(warn).toHaveBeenCalledWith(
-      '[security.gateway-guard] redacted a secret before an outgoing call',
-      expect.objectContaining({ callSite: 'decision_model' }),
-    )
-    expect(leaks(JSON.stringify(warn.mock.calls))).toBe(false)
-    warn.mockRestore()
-  })
-
-  it('stays silent for a clean request', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    await runDecisionModel(config, {
-      state: 'commit 9f3a2c1',
-      questions: { category: { type: 'choice', instructions: 'i', criteria: { a: 'A' } } },
-    })
-    expect(warn).not.toHaveBeenCalled()
-    warn.mockRestore()
   })
 
   it('returns the parsed choice answer including provider-reported cost', async () => {

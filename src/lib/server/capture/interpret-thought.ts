@@ -26,7 +26,6 @@ import {
   resolveCategoryFromLlmOutput,
   type ResolvedThoughtCategory,
 } from '$lib/server/ontology/validate-thought-category'
-import { redactedText, redactSecretsDeep } from '$lib/server/security/detect-secrets'
 
 export type CapturePreviewEntity = {
   surface: string
@@ -106,15 +105,10 @@ export async function interpretThoughtPreview(input: {
   priorPreview?: CapturePreviewBundle
   correction?: string
 }): Promise<CapturePreviewBundle> {
-  const trimmedRaw = input.rawText.trim()
-  if (!trimmedRaw) {
+  const rawText = input.rawText.trim()
+  if (!rawText) {
     throw new Error('raw text is required')
   }
-  // secret hygiene (docs/planning/secret-hygiene.md): the interpreter, the category decision and
-  // the strict retry only ever see the redacted capture, correction and prior preview
-  const rawText = redactedText(trimmedRaw)
-  const correction = input.correction === undefined ? undefined : redactedText(input.correction)
-  const priorPreview = input.priorPreview ? redactSecretsDeep(input.priorPreview) : undefined
 
   await ensureUserOntologySeeded(getDb(), input.userId)
   const ontology = await loadOntologyForUser(getDb(), input.userId)
@@ -151,11 +145,11 @@ export async function interpretThoughtPreview(input: {
     },
     {
       role: 'user',
-      content: priorPreview
+      content: input.priorPreview
         ? [
             `Raw capture:\n${rawText}`,
-            `priorPreview:\n${JSON.stringify(priorPreview)}`,
-            `Correction: ${correction?.trim() || '(none)'}`,
+            `priorPreview:\n${JSON.stringify(input.priorPreview)}`,
+            `Correction: ${input.correction?.trim() || '(none)'}`,
           ].join('\n\n')
         : `Raw capture:\n${rawText}`,
     },

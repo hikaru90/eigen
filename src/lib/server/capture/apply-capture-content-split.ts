@@ -14,11 +14,10 @@ import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenan
 import { getDb } from '$lib/server/db'
 import { thought, type MemoryAuthor } from '$lib/server/db/schema'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import { redactedText } from '$lib/server/security/detect-secrets'
 import { createTextFile, linkTextFileToThought } from '$lib/server/text-files/service'
 
 export type AppliedCaptureContentSplit = {
-  /** The capture text the split worked on (secret-redacted); `thought.raw_text` is never overwritten by content-split. */
+  /** Always the original capture text — never overwritten by content-split. */
   rawText: string
   /**
    * The "original raw text" this thought's enrichment may see. The capture itself when nothing
@@ -128,7 +127,7 @@ export async function applyCaptureContentSplitIfNeeded(input: {
   userId: string
   thoughtId: string
   rawText: string
-  /** The thought's current `normalized_text` (tier-1 normalized, or the accepted interpretation) — already redacted by capture. */
+  /** The thought's current `normalized_text` (tier-1 normalized, or the accepted interpretation). */
   existingNormalizedText: string
   /**
    * Decision-model authoritative content_role (DECISION_ENFORCE_KINDS): the role is
@@ -136,11 +135,7 @@ export async function applyCaptureContentSplitIfNeeded(input: {
    */
   decidedRole?: ContentRole
 }): Promise<AppliedCaptureContentSplit> {
-  const { userId, thoughtId, existingNormalizedText } = input
-  // Secret hygiene (docs/planning/secret-hygiene.md): the split works on the redacted capture —
-  // spans, children, the pointer and the note body are all cut from it. The user's verbatim
-  // original stays in `thought.raw_text`, which this function never touches.
-  const rawText = redactedText(input.rawText)
+  const { userId, thoughtId, rawText, existingNormalizedText } = input
   const parent = await loadParent(userId, thoughtId)
   const state = readCaptureSplitState(parent.metadata)
 

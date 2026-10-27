@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearQueryEmbeddingCacheForTests } from '$lib/server/retrieval/embedding-cache'
-import { FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 import {
   createThoughtEmbedding,
   createThoughtEmbeddings,
@@ -184,49 +183,5 @@ describe('createThoughtEmbeddings', () => {
     await expect(createThoughtEmbeddings('u1', ['one', 'two'])).rejects.toThrow(
       /batch size mismatch/,
     )
-  })
-})
-
-describe('embedding secret guard', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    clearQueryEmbeddingCacheForTests()
-    llmCreateEmbeddingsMock.mockResolvedValue({
-      data: [
-        { embedding: Array.from({ length: 1536 }, () => 0.1) },
-        { embedding: Array.from({ length: 1536 }, () => 0.2) },
-      ],
-    })
-  })
-
-  it('embeds the placeholder, never the secret, for a single text', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    await createThoughtEmbedding('u1', `LLM_API_KEY=${FAKE_SECRETS.openai} and a note`)
-    const sent = JSON.stringify(llmCreateEmbeddingsMock.mock.calls)
-    expect(leaks(sent)).toBe(false)
-    expect(sent).toContain('redacted secret')
-    expect(warn).toHaveBeenCalledWith(
-      '[security.gateway-guard] redacted a secret before an outgoing call',
-      expect.objectContaining({ callSite: 'thought_embedding' }),
-    )
-    expect(leaks(JSON.stringify(warn.mock.calls))).toBe(false)
-    warn.mockRestore()
-  })
-
-  it('embeds the placeholder for every text of a batch', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    await createThoughtEmbeddings('u1', ['plain', `token ${FAKE_SECRETS.githubClassic}`])
-    expect(leaks(JSON.stringify(llmCreateEmbeddingsMock.mock.calls))).toBe(false)
-    warn.mockRestore()
-  })
-
-  it('does not cache the embedding of a secret-bearing text under the secret', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const text = `token ${FAKE_SECRETS.githubClassic}`
-    await createThoughtEmbedding('u1', text)
-    await createThoughtEmbedding('u1', text)
-    // the second call is served by the cache keyed on the redacted text: still one gateway call
-    expect(llmCreateEmbeddingsMock).toHaveBeenCalledTimes(1)
-    warn.mockRestore()
   })
 })

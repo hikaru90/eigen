@@ -25,10 +25,6 @@ import {
 } from '$lib/server/llm/gateway-cost'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
 import { sanitizeChatMessages } from '$lib/server/observability/strip-embeddings'
-import {
-  guardOutgoingEmbeddingInput,
-  guardOutgoingMessages,
-} from '$lib/server/security/gateway-guard'
 
 export type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string }
 export {
@@ -454,7 +450,7 @@ async function llmChatCompletionCached(
   const config = await loadLlmConfig(input.userId)
   const routing = await chatRoutingConfig(config)
   const logCtx = chatLogContext(input)
-  const messages = guardOutgoingMessages(sanitizeChatMessages(input.messages), logCtx)
+  const messages = sanitizeChatMessages(input.messages)
   const request = {
     endpoint: 'chat' as const,
     provider: config.provider,
@@ -516,8 +512,7 @@ async function llmChatCompletionInner(input: {
   const url = `${config.baseUrl}/chat/completions`
   const routing = await chatRoutingConfig(config)
   const logCtx = chatLogContext(input)
-  // gateway guard (secret-hygiene Design 3): nothing credential-shaped leaves, whoever the caller
-  const messages = guardOutgoingMessages(sanitizeChatMessages(input.messages), logCtx)
+  const messages = sanitizeChatMessages(input.messages)
   const aiSessionId = normalizeAiIdentifier(input.aiSessionId, `user-${input.userId}`)
   const aiTraceId = normalizeAiIdentifier(input.aiTraceId, randomUUID())
 
@@ -602,7 +597,7 @@ async function llmChatCompletionInner(input: {
       }
       logLlmChatResponse(logCtx, attempt, json)
       // Extract first user message for context preview
-      const firstUserMessage = messages.find((m) => m.role === 'user')?.content || ''
+      const firstUserMessage = input.messages.find((m) => m.role === 'user')?.content || ''
       await logActivityCall(db, input.userId, {
         provider: activityProvider,
         gatewayHost,
@@ -645,7 +640,7 @@ async function llmChatCompletionInner(input: {
         message: msg.slice(0, 500),
       })
       // Extract first user message for context preview
-      const firstUserMessage = messages.find((m) => m.role === 'user')?.content || ''
+      const firstUserMessage = input.messages.find((m) => m.role === 'user')?.content || ''
       await logActivityCall(db, input.userId, {
         provider: activityProvider,
         gatewayHost,
@@ -719,12 +714,11 @@ async function llmCreateEmbeddingsCached(
 ): Promise<unknown> {
   const config = await loadLlmConfig(input.userId)
   const routing = await embeddingRoutingConfig(config)
-  const embeddingInput = guardOutgoingEmbeddingInput(input.input, 'llm_embedding')
   const request = {
     endpoint: 'embeddings' as const,
     provider: config.provider,
     model: routing.model,
-    body: embeddingRequestBody(routing.model, embeddingInput),
+    body: embeddingRequestBody(routing.model, input.input),
   }
 
   const hit = cache.lookup(request)
@@ -734,7 +728,7 @@ async function llmCreateEmbeddingsCached(
       gatewayHost: gatewayHostFromBaseUrl(config.baseUrl),
       operation: 'llm.embedding.cache_hit',
       baseCostUsd: 0,
-      context: Array.isArray(embeddingInput) ? embeddingInput[0] : embeddingInput,
+      context: Array.isArray(input.input) ? input.input[0] : input.input,
       durationMs: 0,
       cached: true,
     })
@@ -768,7 +762,6 @@ async function llmCreateEmbeddingsInner(input: {
   const gatewayHost = gatewayHostFromBaseUrl(config.baseUrl)
   const url = `${config.baseUrl}/embeddings`
   const routing = await embeddingRoutingConfig(config)
-  const embeddingInput = guardOutgoingEmbeddingInput(input.input, 'llm_embedding')
 
   const maxAttempts = 3
   let lastError: unknown
@@ -777,7 +770,7 @@ async function llmCreateEmbeddingsInner(input: {
     const attemptStart = Date.now()
     const db = getDb()
     try {
-      logLlmEmbeddingRequest(attempt, embeddingInput)
+      logLlmEmbeddingRequest(attempt, input.input)
       await waitForLlmRateLimit(input.userId)
       const embAc = new AbortController()
       const embTimeoutMs = requestTimeoutMs()
@@ -794,7 +787,7 @@ async function llmCreateEmbeddingsInner(input: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${config.apiKey}`,
           },
-          body: JSON.stringify(embeddingRequestBody(routing.model, embeddingInput)),
+          body: JSON.stringify(embeddingRequestBody(routing.model, input.input)),
         })
       } finally {
         clearTimeout(embTimeoutHandle)
@@ -818,7 +811,7 @@ async function llmCreateEmbeddingsInner(input: {
 
       const baseCost = gatewayReportedCostUsdForLog(json)
       // Extract preview from embedding input
-      const embeddingPreview = Array.isArray(embeddingInput) ? embeddingInput[0] : embeddingInput
+      const embeddingPreview = Array.isArray(input.input) ? input.input[0] : input.input
       await logActivityCall(db, input.userId, {
         provider: activityProvider,
         gatewayHost,
@@ -833,7 +826,7 @@ async function llmCreateEmbeddingsInner(input: {
       lastError = err
       const message = err instanceof Error ? err.message : String(err)
       // Extract preview from embedding input
-      const embeddingPreview = Array.isArray(embeddingInput) ? embeddingInput[0] : embeddingInput
+      const embeddingPreview = Array.isArray(input.input) ? input.input[0] : input.input
       await logActivityCall(db, input.userId, {
         provider: activityProvider,
         gatewayHost,

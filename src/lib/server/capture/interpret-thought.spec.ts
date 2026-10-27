@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { envPaste, FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 import { interpretThoughtPreview } from './interpret-thought'
 
 const {
@@ -445,50 +444,5 @@ describe('interpretThoughtPreview', () => {
     expect(out.category.key).toBe('task')
     expect(runEnforcedBoundedDecisionsMock).not.toHaveBeenCalled()
     expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
-  })
-  describe('secret hygiene (docs/planning/secret-hygiene.md)', () => {
-    const interpretation = JSON.stringify({
-      interpretedText: 'Deploy notes with environment settings.',
-      category: { key: 'observation', confidence: 0.8, alternatives: [] },
-      entities: [],
-      deviatesFromVerbatim: false,
-    })
-
-    it('sends only the placeholder to the interpret LLM, in the first call and in a correction round', async () => {
-      mockLlmContent(interpretation)
-      const raw = `deploy notes ${envPaste()} and ${FAKE_SECRETS.githubClassic}`
-
-      await interpretThoughtPreview({ userId: 'u1', rawText: raw })
-      await interpretThoughtPreview({
-        userId: 'u1',
-        rawText: raw,
-        priorPreview: {
-          interpretedText: 'prior',
-          category: { key: 'observation', confidence: 0.5, alternatives: [] },
-          entities: [],
-          deviatesFromVerbatim: false,
-        },
-        correction: `no, the token is ${FAKE_SECRETS.githubClassic}`,
-      })
-
-      const sent = JSON.stringify(llmChatCompletionMock.mock.calls)
-      expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
-      expect(leaks(sent)).toBe(false)
-      expect(sent).toContain('LLM_API_KEY=[redacted secret]')
-    })
-
-    it('the enforced category decision sees the redacted capture too', async () => {
-      resolveEnforceKindsMock.mockReturnValue(new Set(['category']))
-      runEnforcedBoundedDecisionsMock.mockResolvedValue(
-        new Map([['category', { choice: 'observation', probabilities: { observation: 0.9, task: 0.1 } }]]),
-      )
-      mockLlmContent(interpretation)
-
-      await interpretThoughtPreview({ userId: 'u1', rawText: `notes ${envPaste()}` })
-
-      const decisionInput = runEnforcedBoundedDecisionsMock.mock.calls[0]![0] as { state: string }
-      expect(leaks(decisionInput.state)).toBe(false)
-      expect(decisionInput.state).toContain('[redacted secret]')
-    })
   })
 })

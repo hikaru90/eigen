@@ -16,12 +16,6 @@ import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import { assignThoughtToProject } from '$lib/server/memory/assign-thought-project'
 import { findGtdProjectForUser } from '$lib/server/memory/project-membership'
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
-import {
-  readSecretsRedacted,
-  redactedText,
-  redactSecretsDeep,
-  type RedactedSecretSummary,
-} from '$lib/server/security/detect-secrets'
 
 export type { CapturePreviewBundle }
 
@@ -54,7 +48,6 @@ export type CaptureInterpretResult =
       rawText: string
       preview: CapturePreviewBundle
       queueStatus: 'awaiting_confirmation'
-      secretsRedacted?: RedactedSecretSummary[]
     }
   | {
       status: 'ingested'
@@ -64,7 +57,6 @@ export type CaptureInterpretResult =
       queueStatus: 'pending'
       normalizedText: string
       category: string
-      secretsRedacted?: RedactedSecretSummary[]
     }
 
 /** @deprecated Prefer CaptureInterpretResult — kept for older callers expecting queueStatus. */
@@ -80,15 +72,6 @@ export type ConfirmCaptureResult = {
   category: string
   queueStatus: 'pending'
   preview: CapturePreviewBundle
-  /** Credentials the capture kept out of memory (kind + name, never the value). */
-  secretsRedacted?: RedactedSecretSummary[]
-}
-
-/** `secretsRedacted` as an optional result field: present only when the capture redacted something. */
-function secretsRedactedField(
-  list: RedactedSecretSummary[] | undefined,
-): { secretsRedacted: RedactedSecretSummary[] } | Record<string, never> {
-  return list && list.length > 0 ? { secretsRedacted: list } : {}
 }
 
 async function loadConfirmationDraft(userId: string, thoughtId: string) {
@@ -156,7 +139,6 @@ function alreadyConfirmedResult(
       category: draft.category,
       queueStatus: 'pending',
       preview,
-      ...secretsRedactedField(readSecretsRedacted(draft.metadata)),
     }
   } catch {
     return null
@@ -168,8 +150,7 @@ function readPreview(metadata: Record<string, unknown>): CapturePreviewBundle {
   if (!preview || typeof preview !== 'object') {
     throw new Error('Draft is missing confirmation preview metadata')
   }
-  // a stored preview was drafted from redacted text; scanning again keeps older drafts clean too
-  return redactSecretsDeep(preview as CapturePreviewBundle)
+  return preview as CapturePreviewBundle
 }
 
 async function persistPreviewMetadata(
@@ -253,10 +234,7 @@ export function parseAcceptedReading(input: unknown): AcceptedReading {
     throw new Error('reading must be an object')
   }
   const obj = input as Record<string, unknown>
-  // client input is not trusted to be clean: this text becomes normalized_text
-  const interpretedText = redactedText(
-    requireNonEmptyString(obj.interpretedText, 'reading.interpretedText'),
-  )
+  const interpretedText = requireNonEmptyString(obj.interpretedText, 'reading.interpretedText')
 
   const category = obj.category
   if (!category || typeof category !== 'object' || Array.isArray(category)) {
@@ -418,7 +396,6 @@ export async function interpretAndQueueCapture(
       queueStatus: 'pending',
       normalizedText: confirmed.normalizedText,
       category: confirmed.category,
-      ...secretsRedactedField(queued.secretsRedacted),
     }
   }
 
@@ -428,7 +405,6 @@ export async function interpretAndQueueCapture(
     rawText: rawInput,
     preview,
     queueStatus: 'awaiting_confirmation',
-    ...secretsRedactedField(queued.secretsRedacted),
   }
 }
 
@@ -453,9 +429,7 @@ export async function confirmCapturePreview(
 
   const preview = readPreview(draft.metadata)
 
-  // verbatim means "no LLM rewrite", not "store the secret": raw_text keeps the user's words,
-  // normalized_text (and everything derived from it) is the redacted text
-  const normalizedText = redactedText(verbatim ? draft.rawText : preview.interpretedText)
+  const normalizedText = verbatim ? draft.rawText : preview.interpretedText
   const lexicalText = computeLexicalText(normalizedText)
   const categoryKey = verbatim ? QUEUE_PLACEHOLDER_CATEGORY : preview.category.key
   const ontologyEntityKindId = await resolveCategoryKindId(userId, categoryKey)
@@ -537,7 +511,6 @@ export async function confirmCapturePreview(
     category: categoryKey,
     queueStatus: 'pending',
     preview,
-    ...secretsRedactedField(readSecretsRedacted(draft.metadata)),
   }
 }
 
