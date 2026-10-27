@@ -95,7 +95,7 @@ async function audit(
   const parts = [...review.parts.filter((p) => p.engine === 'jev_decision'), ...auditParts]
   const score = computeReviewScore(parts)
   if (score === null) {
-    throw new CaptureAuditError('scoring', new Error('the review has no parts to score'))
+    throw new CaptureAuditError('scoring', new Error('the review has no scored parts'))
   }
 
   const applied = await inStep('saving_result', () =>

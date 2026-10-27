@@ -114,9 +114,15 @@ in the user's own tenant.
   never silent. The capture itself stays as stored.
 
 ### 5. Score and threshold
-- `score` = the lowest probability over all parts: the weakest link.
-  - For a Jev decision, that is the probability of its choice.
+- `score` = the lowest probability over the parts **the user sees on the stored thought**: the
+  weakest link among those. The scored parts (`SCORED_PARTS`) are the `category` decision and every
+  audit part: `wording`, `name`, `missing_names`, `date`, `missing_dates`, `piece`, `pieces_cover`.
+  - For the category, that is the probability of Jev's choice.
   - For an audit item, it is P(right) (or P(none_missing)).
+  - `entity_type`, `temporal_kind` and `content_role` stay recorded in `parts` for the operator's
+    per-part numbers, but never move the score: the user does not see them. A live smoke showed the
+    score dominated by such parts (a name typed "artifact" for "train", a time of kind "deadline"),
+    a median of 0.59 although everything visible was right.
 - `CAPTURE_REVIEW_THRESHOLD = 0.7` is a product constant, like `FORGET_CONFIDENCE_MIN`. It only
   splits the operator's numbers into "weak" and "sure" captures; the user never sees the score.
   It gets recalibrated from 👍/👎 data in C5.
@@ -235,6 +241,9 @@ in the user's own tenant.
     question (`"{event}" — {phrase}`, joined with `; `, `none` when nothing was stored), so a
     clock-time date that enrichment lost ("Dentist on Friday at 9am", nothing stored) shows up as
     `something_missing` and pulls the score down.
+  - **Score** counts only what the user sees (`SCORED_PARTS`, §5), changed after the first live
+    smoke: the score was the minimum over all parts, and hidden parts (name types, kinds of time)
+    dominated it.
   - **Time zone** is `getUserPreferredTimezone`, the same call enrichment makes for temporal
     extraction (it falls back to `TEMPORAL_ANCHOR_TZ`, then Europe/Berlin, as enrichment does).
   - **Audit logging.** New decision kind `capture_audit` and surface `capture_review`. The ticker only

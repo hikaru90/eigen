@@ -157,6 +157,39 @@ describe('runCaptureReviewAudit: the audit', () => {
     )
   })
 
+  it('does not count the decisions the user never sees, but keeps them in the written parts', async () => {
+    const entityType: CaptureReviewPart = {
+      part: 'entity_type',
+      ref: 'm1',
+      engine: 'jev_decision',
+      label: 'artifact',
+      probability: 0.12,
+    }
+    const temporalKind: CaptureReviewPart = {
+      part: 'temporal_kind',
+      ref: 't1',
+      engine: 'jev_decision',
+      label: 'deadline',
+      probability: 0.3,
+    }
+    mocks.loadCaptureReviewForAudit.mockResolvedValue({
+      status: 'pending_audit',
+      parts: [decisionPart, entityType, temporalKind],
+    })
+    await run()
+    const done = mocks.completeCaptureReviewAudit.mock.calls[0][0] as {
+      score: number
+      parts: CaptureReviewPart[]
+    }
+    // The category (0.55) is the weakest thing the user sees; 0.12 and 0.3 are hidden.
+    expect(done.score).toBe(0.55)
+    expect(done.parts.filter((p) => p.engine === 'jev_decision')).toEqual([
+      decisionPart,
+      entityType,
+      temporalKind,
+    ])
+  })
+
   it('scores a review that has no Jev decision parts from the audit parts alone', async () => {
     mocks.loadCaptureReviewForAudit.mockResolvedValue({ status: 'pending_audit', parts: [] })
     await run()

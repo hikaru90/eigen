@@ -3,6 +3,7 @@ import {
   CAPTURE_REVIEW_THRESHOLD,
   REVIEW_AUDIT_PARTS,
   REVIEW_DECISION_KINDS,
+  SCORED_PARTS,
   captureReviewPartSchema,
   computeReviewScore,
   decisionsToParts,
@@ -189,8 +190,34 @@ describe('decisionsToParts', () => {
   })
 })
 
+describe('SCORED_PARTS', () => {
+  it('is what the user sees on the stored thought: the category and every audited part', () => {
+    expect([...SCORED_PARTS]).toEqual([
+      'category',
+      'wording',
+      'name',
+      'missing_names',
+      'date',
+      'missing_dates',
+      'piece',
+      'pieces_cover',
+    ])
+  })
+
+  it('leaves out the decisions the user never sees', () => {
+    for (const hidden of ['entity_type', 'temporal_kind', 'content_role']) {
+      expect(SCORED_PARTS).not.toContain(hidden)
+    }
+  })
+
+  it('holds only known part kinds', () => {
+    const known: string[] = [...REVIEW_DECISION_KINDS, ...REVIEW_AUDIT_PARTS]
+    for (const scored of SCORED_PARTS) expect(known).toContain(scored)
+  })
+})
+
 describe('computeReviewScore', () => {
-  it('is the lowest probability over all parts, decision and audit alike', () => {
+  it('is the lowest probability over the scored parts, the category and audit parts alike', () => {
     expect(computeReviewScore([decisionPart, auditPart])).toBe(0.55)
     expect(
       computeReviewScore([
@@ -200,7 +227,67 @@ describe('computeReviewScore', () => {
     ).toBe(0.31)
   })
 
-  it('is null with no parts at all', () => {
+  it('counts every audit part kind', () => {
+    for (const part of REVIEW_AUDIT_PARTS) {
+      expect(
+        computeReviewScore([
+          { ...decisionPart, probability: 0.99 },
+          { ...auditPart, part, ref: `${part}:x`, probability: 0.42 },
+        ]),
+      ).toBe(0.42)
+    }
+  })
+
+  it.each(['entity_type', 'temporal_kind', 'content_role'] as const)(
+    'does not count a %s part, which the user never sees',
+    (part) => {
+      const hidden: CaptureReviewPart = {
+        part,
+        ref: 'x1',
+        engine: 'jev_decision',
+        label: 'artifact',
+        probability: 0.12,
+      }
+      expect(computeReviewScore([hidden, { ...decisionPart, probability: 0.9 }, auditPart])).toBe(
+        0.9,
+      )
+    },
+  )
+
+  it('is not pulled down by hidden parts when everything visible is right', () => {
+    const parts: CaptureReviewPart[] = [
+      { ...decisionPart, probability: 0.95 },
+      {
+        part: 'entity_type',
+        ref: 'm1',
+        engine: 'jev_decision',
+        label: 'artifact',
+        probability: 0.4,
+      },
+      {
+        part: 'temporal_kind',
+        ref: 't1',
+        engine: 'jev_decision',
+        label: 'deadline',
+        probability: 0.5,
+      },
+      { ...auditPart, probability: 0.97 },
+    ]
+    expect(computeReviewScore(parts)).toBe(0.95)
+  })
+
+  it('is null when no scored part is there (hidden parts alone do not make a score)', () => {
     expect(computeReviewScore([])).toBeNull()
+    expect(
+      computeReviewScore([
+        {
+          part: 'entity_type',
+          ref: 'm1',
+          engine: 'jev_decision',
+          label: 'person',
+          probability: 0.5,
+        },
+      ]),
+    ).toBeNull()
   })
 })

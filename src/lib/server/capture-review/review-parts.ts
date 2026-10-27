@@ -42,6 +42,15 @@ export const REVIEW_AUDIT_PARTS = [
 export type ReviewAuditPart = (typeof REVIEW_AUDIT_PARTS)[number]
 
 /**
+ * The parts the score counts: what the user sees on the stored thought. That is the category (the
+ * label on the thought) and every audited part (the wording, the names, the dates, the pieces).
+ * The other decisions (entity type, kind of time, content role) stay recorded in `parts` for the
+ * operator's numbers but never move the score: the user does not see them, and a wrong "artifact"
+ * for "train" is not a wrong capture.
+ */
+export const SCORED_PARTS = ['category', ...REVIEW_AUDIT_PARTS] as const
+
+/**
  * A capture whose score is below this is "weak"; at or above it is "sure". A product constant, like
  * FORGET_CONFIDENCE_MIN: it only splits the operator's numbers (C4) into weak and sure captures.
  * The user never sees the score, and nothing asks them about a weak capture. It is recalibrated
@@ -53,6 +62,7 @@ const REVIEW_ENGINES = ['jev_decision', 'jev_audit'] as const
 
 const decisionKindSet: ReadonlySet<string> = new Set(REVIEW_DECISION_KINDS)
 const auditPartSet: ReadonlySet<string> = new Set(REVIEW_AUDIT_PARTS)
+const scoredPartSet: ReadonlySet<string> = new Set(SCORED_PARTS)
 
 export const captureReviewPartSchema = z
   .strictObject({
@@ -116,8 +126,12 @@ export function decisionsToParts(decisions: RecordedDecision[]): CaptureReviewPa
   return [...byItem.values()]
 }
 
-/** The weakest link: the lowest probability over all parts. Null when there are no parts. */
+/**
+ * The weakest link among the parts the user sees (SCORED_PARTS): the lowest probability. Parts
+ * outside that list are ignored. Null when no scored part is there.
+ */
 export function computeReviewScore(parts: CaptureReviewPart[]): number | null {
-  if (parts.length === 0) return null
-  return Math.min(...parts.map((p) => p.probability))
+  const scored = parts.filter((p) => scoredPartSet.has(p.part))
+  if (scored.length === 0) return null
+  return Math.min(...scored.map((p) => p.probability))
 }
