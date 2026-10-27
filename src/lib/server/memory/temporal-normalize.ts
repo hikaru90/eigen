@@ -41,22 +41,51 @@ const ALLOWED_QUADRANTS = new Set<TemporalPriorityQuadrant>([
   'neither',
 ])
 
-const ALLOWED_KINDS = new Set<TemporalEventKind>([
-  'deadline',
-  'appointment',
-  'milestone',
-  'period',
-  'reminder',
-  'inferred_event',
-])
+/**
+ * The meaning of every `kind` a temporal element may carry. Keyed by the schema enum
+ * (`satisfies`), so a kind added to the schema fails to compile until it is described here.
+ * Both LLM prompts and the parser below are built from this one object.
+ */
+export const TEMPORAL_KIND_MEANINGS = {
+  deadline: 'something that must be done by a time ("by Friday", "until the end of November")',
+  appointment: 'something scheduled at a time ("dentist on Friday at 9am", "yoga every Tuesday")',
+  milestone: 'something that happened or is reached at a time (arrived, finished, booked, started)',
+  period: 'a span of days, weeks or months rather than a point in time',
+  reminder: 'something to be reminded of or checked at a time, without a hard commitment',
+  inferred_event: 'a date or time the text implies rather than states',
+} as const satisfies Record<TemporalEventKind, string>
 
-const ALLOWED_PRECISIONS = new Set<TemporalTimePrecision>([
-  'exact',
-  'day',
-  'week',
-  'month',
-  'fuzzy',
-])
+/** The meaning of every `timePrecision` (see TEMPORAL_KIND_MEANINGS for why it is keyed this way). */
+export const TEMPORAL_PRECISION_MEANINGS = {
+  exact: 'a clock time is given ("9am", "19:00") — use this for ANY mention with a time of day',
+  day: 'only a calendar day is given, no clock time ("on Friday", "March 15th")',
+  week: 'only a week is given ("next week")',
+  month: 'only a month is given ("in March")',
+  fuzzy: 'roughly, no firm day ("soon", "around Easter")',
+} as const satisfies Record<TemporalTimePrecision, string>
+
+const ALLOWED_KINDS: ReadonlySet<string> = new Set(Object.keys(TEMPORAL_KIND_MEANINGS))
+const ALLOWED_PRECISIONS: ReadonlySet<string> = new Set(Object.keys(TEMPORAL_PRECISION_MEANINGS))
+
+/** `deadline|appointment|…` — for the JSON templates in the prompts and for error messages. */
+export const TEMPORAL_KIND_KEYS = [...ALLOWED_KINDS].join('|')
+/** `exact|day|week|month|fuzzy`. */
+export const TEMPORAL_PRECISION_KEYS = [...ALLOWED_PRECISIONS].join('|')
+
+/**
+ * The temporal element contract, as prompt text. ONE copy: the enrich bundle prompt and the
+ * standalone temporal extraction prompt both embed it, so the two cannot drift apart, and it is
+ * generated from the same catalogs `parseTemporalMentions` validates against. A reply that
+ * breaks it makes the parse throw (the ingest retry ladder asks again); nothing is dropped.
+ */
+export const TEMPORAL_ELEMENT_CONTRACT = [
+  'Temporal element contract. Every element needs these required fields: surface, kind, startAt, timePrecision, timezone (plus isAllDay, confidence and semanticSummary).',
+  'kind must be exactly one of:',
+  ...Object.entries(TEMPORAL_KIND_MEANINGS).map(([key, meaning]) => `- ${key}: ${meaning}`),
+  'timePrecision must be exactly one of:',
+  ...Object.entries(TEMPORAL_PRECISION_MEANINGS).map(([key, meaning]) => `- ${key}: ${meaning}`),
+  'Any other kind or timePrecision (for example "hour" or "minute") makes the whole reply invalid and it is asked again — a clock time is still timePrecision "exact".',
+].join('\n')
 
 /** Build a Postgres `tsrange` literal from normalized bounds. */
 export function buildActivePeriodLiteral(start: Date, end: Date): string {
@@ -112,101 +141,129 @@ export function resolveTemporalBounds(mention: ExtractedTemporalMention): {
   }
 }
 
+function describeReceived(value: unknown): string {
+  return value === undefined ? 'nothing (the field is missing)' : JSON.stringify(value)
+}
+
+/** A required string field: present, a string, non-empty after trim. Throws naming field and value. */
+function requireString(entry: Record<string, unknown>, field: string, at: string): string {
+  const value = entry[field]
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  throw new Error(`${at}.${field} must be a non-empty string, received ${describeReceived(value)}`)
+}
+
+/** A required string field that must be one of `allowed` (the catalog keys, joined with `|` in `list`). */
+function requireOneOf<T extends string>(
+  entry: Record<string, unknown>,
+  field: string,
+  at: string,
+  allowed: ReadonlySet<string>,
+  list: string,
+): T {
+  const value = entry[field]
+  const trimmed = typeof value === 'string' ? value.trim() : undefined
+  if (trimmed !== undefined && allowed.has(trimmed)) return trimmed as T
+  throw new Error(`${at}.${field} must be one of ${list}, received ${describeReceived(value)}`)
+}
+
+/**
+ * Parse the temporal elements of an LLM reply. An element that breaks the contract
+ * (TEMPORAL_ELEMENT_CONTRACT) makes the whole parse THROW with the element index, the field and
+ * the received value — never a dropped element, never a defaulted field: a dropped mention is a
+ * date the user said and Eigen silently lost. The error holds no capture text. Callers parse
+ * inside their reject/retry path so the bad reply is evicted and asked again.
+ */
 export function parseTemporalMentions(content: string): ExtractedTemporalMention[] {
   const parsed = JSON.parse(content) as unknown
   if (!Array.isArray(parsed)) {
     throw new Error('Temporal extraction output must be a JSON array')
   }
 
-  return parsed.flatMap((entry): ExtractedTemporalMention[] => {
-    if (!entry || typeof entry !== 'object') return []
-    const surface =
-      typeof (entry as { surface?: unknown }).surface === 'string'
-        ? (entry as { surface: string }).surface.trim()
-        : ''
-    const kindRaw =
-      typeof (entry as { kind?: unknown }).kind === 'string'
-        ? (entry as { kind: string }).kind.trim()
-        : ''
-    const startAt =
-      typeof (entry as { startAt?: unknown }).startAt === 'string'
-        ? (entry as { startAt: string }).startAt.trim()
-        : ''
-    const endAtRaw = (entry as { endAt?: unknown }).endAt
+  return parsed.map((raw, index): ExtractedTemporalMention => {
+    const at = `Temporal element [${index}]`
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`${at} must be an object, received ${describeReceived(raw)}`)
+    }
+    const entry = raw as Record<string, unknown>
+
+    const surface = requireString(entry, 'surface', at)
+    const kind = requireOneOf<TemporalEventKind>(
+      entry,
+      'kind',
+      at,
+      ALLOWED_KINDS,
+      TEMPORAL_KIND_KEYS,
+    )
+    const startAt = requireString(entry, 'startAt', at)
+    const timePrecision = requireOneOf<TemporalTimePrecision>(
+      entry,
+      'timePrecision',
+      at,
+      ALLOWED_PRECISIONS,
+      TEMPORAL_PRECISION_KEYS,
+    )
+    const timezone = requireString(entry, 'timezone', at)
+
+    const endAtRaw = entry.endAt
     const endAt = typeof endAtRaw === 'string' && endAtRaw.trim() ? endAtRaw.trim() : undefined
-    const timePrecisionRaw =
-      typeof (entry as { timePrecision?: unknown }).timePrecision === 'string'
-        ? (entry as { timePrecision: string }).timePrecision.trim()
-        : 'fuzzy'
-    const timezone =
-      typeof (entry as { timezone?: unknown }).timezone === 'string'
-        ? (entry as { timezone: string }).timezone.trim()
-        : 'UTC'
-    const isAllDay = (entry as { isAllDay?: unknown }).isAllDay === true
-    const recurrenceRuleRaw = (entry as { recurrenceRule?: unknown }).recurrenceRule
+    const isAllDay = entry.isAllDay === true
+    const recurrenceRuleRaw = entry.recurrenceRule
     const recurrenceRule =
       typeof recurrenceRuleRaw === 'string' && recurrenceRuleRaw.trim()
         ? recurrenceRuleRaw.trim()
         : undefined
-    const confidenceRaw = (entry as { confidence?: unknown }).confidence
+    const confidenceRaw = entry.confidence
     const confidence =
       typeof confidenceRaw === 'number' && !Number.isNaN(confidenceRaw)
         ? Math.min(1, Math.max(0, confidenceRaw))
         : 0
     const semanticSummary =
-      typeof (entry as { semanticSummary?: unknown }).semanticSummary === 'string'
-        ? (entry as { semanticSummary: string }).semanticSummary.trim()
-        : surface
-    const relativeSpec = parseRelativeSpec((entry as { relativeSpec?: unknown }).relativeSpec)
-    const durationRaw = (entry as { durationMinutes?: unknown }).durationMinutes
+      typeof entry.semanticSummary === 'string' ? entry.semanticSummary.trim() : surface
+    const relativeSpec = parseRelativeSpec(entry.relativeSpec)
+    const durationRaw = entry.durationMinutes
     const durationMinutes =
       typeof durationRaw === 'number' && durationRaw > 0 ? Math.round(durationRaw) : undefined
-    const energyRaw = (entry as { energyLevel?: unknown }).energyLevel
+    const energyRaw = entry.energyLevel
     const energyLevel =
       typeof energyRaw === 'string' && ALLOWED_ENERGY.has(energyRaw as TemporalEnergyLevel)
         ? (energyRaw as TemporalEnergyLevel)
         : undefined
-    const quadrantRaw = (entry as { priorityQuadrant?: unknown }).priorityQuadrant
+    const quadrantRaw = entry.priorityQuadrant
     const priorityQuadrant =
       typeof quadrantRaw === 'string' &&
       ALLOWED_QUADRANTS.has(quadrantRaw as TemporalPriorityQuadrant)
         ? (quadrantRaw as TemporalPriorityQuadrant)
         : undefined
-    const contextTagsRaw = (entry as { contextTags?: unknown }).contextTags
+    const contextTagsRaw = entry.contextTags
     const contextTags = Array.isArray(contextTagsRaw)
       ? contextTagsRaw
           .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
           .map((t) => t.trim())
       : undefined
-    const parentSurfaceRaw = (entry as { parentSurface?: unknown }).parentSurface
+    const parentSurfaceRaw = entry.parentSurface
     const parentSurface =
       typeof parentSurfaceRaw === 'string' && parentSurfaceRaw.trim()
         ? parentSurfaceRaw.trim()
         : undefined
 
-    if (!surface || !startAt || !ALLOWED_KINDS.has(kindRaw as TemporalEventKind)) return []
-    if (!ALLOWED_PRECISIONS.has(timePrecisionRaw as TemporalTimePrecision)) return []
-
-    return [
-      {
-        surface,
-        kind: kindRaw as TemporalEventKind,
-        startAt,
-        ...(endAt ? { endAt } : {}),
-        timePrecision: timePrecisionRaw as TemporalTimePrecision,
-        timezone,
-        isAllDay,
-        ...(recurrenceRule ? { recurrenceRule } : {}),
-        confidence,
-        semanticSummary: semanticSummary || surface,
-        ...(relativeSpec ? { relativeSpec } : {}),
-        ...(durationMinutes != null ? { durationMinutes } : {}),
-        ...(energyLevel ? { energyLevel } : {}),
-        ...(priorityQuadrant ? { priorityQuadrant } : {}),
-        ...(contextTags && contextTags.length > 0 ? { contextTags } : {}),
-        ...(parentSurface ? { parentSurface } : {}),
-      },
-    ]
+    return {
+      surface,
+      kind,
+      startAt,
+      ...(endAt ? { endAt } : {}),
+      timePrecision,
+      timezone,
+      isAllDay,
+      ...(recurrenceRule ? { recurrenceRule } : {}),
+      confidence,
+      semanticSummary: semanticSummary || surface,
+      ...(relativeSpec ? { relativeSpec } : {}),
+      ...(durationMinutes != null ? { durationMinutes } : {}),
+      ...(energyLevel ? { energyLevel } : {}),
+      ...(priorityQuadrant ? { priorityQuadrant } : {}),
+      ...(contextTags && contextTags.length > 0 ? { contextTags } : {}),
+      ...(parentSurface ? { parentSurface } : {}),
+    }
   })
 }
 

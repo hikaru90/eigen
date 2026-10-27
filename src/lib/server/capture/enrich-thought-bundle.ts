@@ -45,6 +45,7 @@ import { parseSearchCues } from '$lib/server/memory/search-cues'
 import {
   applyCaptureAnchoredMentions,
   parseTemporalMentions,
+  TEMPORAL_ELEMENT_CONTRACT,
   type ExtractedTemporalMention,
 } from '$lib/server/memory/temporal-normalize'
 import { isGraphScaleQuiet } from '$lib/server/observability/graph-scale-quiet'
@@ -137,7 +138,8 @@ export function buildEnrichThoughtBundlePrompt(input: {
     '',
     `temporalMentions: array of temporal objects for dates/deadlines in the capture; use [] when none.`,
     `Capture anchor: ${capturedIso}, timezone ${timezone}. Set timezone to "${timezone}" unless text names another.`,
-    'Each temporal element: surface, kind (deadline|appointment|milestone|period|reminder|inferred_event), startAt (ISO-8601), timePrecision, timezone, isAllDay, confidence, semanticSummary; optional relativeSpec for relative phrases.',
+    'Each temporal element: surface, kind, startAt (ISO-8601), timePrecision, timezone, isAllDay, confidence, semanticSummary; optional relativeSpec for relative phrases.',
+    TEMPORAL_ELEMENT_CONTRACT,
     '',
     `mentions: 0–12 items; entityType must be one of: ${entityKeyUnion}.`,
     'Extract surfaces exactly as written. person is ONLY for human beings.',
@@ -179,8 +181,17 @@ function parseEntityGraphFromBundle(
   return { mentions, triples }
 }
 
+/**
+ * `temporalMentions` is a required key of the bundle ([] when the capture has no date). A missing
+ * or non-array value throws like an element that breaks the contract: both are replies that would
+ * silently lose a date, and both are re-asked by the ingest retry ladder.
+ */
 function parseTemporalFromBundle(raw: unknown, capturedAt: Date): ExtractedTemporalMention[] {
-  if (!Array.isArray(raw)) return []
+  if (!Array.isArray(raw)) {
+    throw new Error(
+      `enrichThoughtBundle: temporalMentions must be a JSON array ([] when the capture has no date), received ${raw === undefined ? 'nothing (the key is missing)' : JSON.stringify(raw)}`,
+    )
+  }
   return applyCaptureAnchoredMentions(parseTemporalMentions(JSON.stringify(raw)), capturedAt)
 }
 

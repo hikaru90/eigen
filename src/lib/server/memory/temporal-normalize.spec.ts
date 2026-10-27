@@ -1,17 +1,54 @@
 import { describe, expect, it } from 'vitest'
+import { temporalEventKindEnum, temporalTimePrecisionEnum } from '$lib/server/db/brain.schema'
 import {
   applyCaptureAnchoredMentions,
   buildActivePeriodLiteral,
   parseTemporalMentions,
   resolveTemporalBounds,
+  TEMPORAL_ELEMENT_CONTRACT,
+  TEMPORAL_KIND_MEANINGS,
+  TEMPORAL_PRECISION_MEANINGS,
 } from './temporal-normalize'
 
+const VALID = {
+  surface: 'Friday at 9am',
+  kind: 'appointment',
+  startAt: '2026-10-30T09:00:00+01:00',
+  timePrecision: 'exact',
+  timezone: 'Europe/Berlin',
+  isAllDay: false,
+  confidence: 0.9,
+  semanticSummary: 'Dentist appointment on Friday at 9am',
+}
+
+/** A reply array holding one element: VALID with `overrides` applied (a key set to undefined is removed). */
+function reply(overrides: Record<string, unknown> = {}): string {
+  const element: Record<string, unknown> = { ...VALID, ...overrides }
+  for (const key of Object.keys(element)) if (element[key] === undefined) delete element[key]
+  return JSON.stringify([element])
+}
+
 describe('parseTemporalMentions', () => {
-  it('parses valid temporal mentions and filters invalid kinds', () => {
+  it('parses a mention with a clock time (timePrecision exact)', () => {
+    const out = parseTemporalMentions(reply())
+    expect(out).toEqual([
+      {
+        surface: 'Friday at 9am',
+        kind: 'appointment',
+        startAt: '2026-10-30T09:00:00+01:00',
+        timePrecision: 'exact',
+        timezone: 'Europe/Berlin',
+        isAllDay: false,
+        confidence: 0.9,
+        semanticSummary: 'Dentist appointment on Friday at 9am',
+      },
+    ])
+  })
+
+  it('parses valid temporal mentions', () => {
     const out = parseTemporalMentions(
       `[
-				{"surface":"due Friday","kind":"deadline","startAt":"2026-05-22T00:00:00.000Z","timePrecision":"day","timezone":"UTC","isAllDay":true,"confidence":0.9,"semanticSummary":"Report due Friday"},
-				{"surface":"bad","kind":"not_a_kind","startAt":"2026-05-22T00:00:00.000Z","timePrecision":"day","timezone":"UTC","confidence":1,"semanticSummary":"x"}
+				{"surface":"due Friday","kind":"deadline","startAt":"2026-05-22T00:00:00.000Z","timePrecision":"day","timezone":"UTC","isAllDay":true,"confidence":0.9,"semanticSummary":"Report due Friday"}
 			]`,
     )
     expect(out).toHaveLength(1)
@@ -21,6 +58,117 @@ describe('parseTemporalMentions', () => {
 
   it('throws when JSON is not an array', () => {
     expect(() => parseTemporalMentions('{}')).toThrow(/must be a JSON array/)
+  })
+
+  it('throws on timePrecision "hour" (the dentist reply), naming the field and the received value', () => {
+    // The live reply for "Dentist appointment on Friday at 9am": right date, off-catalog precision.
+    // It used to be dropped silently, so every capture with a clock time lost its date.
+    expect(() => parseTemporalMentions(reply({ timePrecision: 'hour' }))).toThrow(
+      /timePrecision.*"hour"/,
+    )
+  })
+
+  it('names the element index and lists the allowed precisions', () => {
+    const content = JSON.stringify([
+      JSON.parse(reply())[0],
+      JSON.parse(reply({ timePrecision: 'minute' }))[0],
+    ])
+    expect(() => parseTemporalMentions(content)).toThrow(
+      /\[1\]\.timePrecision.*exact\|day\|week\|month\|fuzzy.*"minute"/,
+    )
+  })
+
+  it('throws on an off-catalog kind, naming the field and the received value', () => {
+    expect(() => parseTemporalMentions(reply({ kind: 'meeting' }))).toThrow(/kind.*"meeting"/)
+  })
+
+  it('does not echo the capture text in the error', () => {
+    let message = ''
+    try {
+      parseTemporalMentions(reply({ timePrecision: 'hour' }))
+    } catch (err) {
+      message = (err as Error).message
+    }
+    expect(message).toMatch(/timePrecision/)
+    expect(message).not.toMatch(/Friday|Dentist/)
+  })
+
+  it.each(['surface', 'startAt', 'timePrecision', 'timezone', 'kind'])(
+    'throws when %s is missing, naming the field',
+    (field) => {
+      expect(() => parseTemporalMentions(reply({ [field]: undefined }))).toThrow(
+        new RegExp(`${field}.*missing`),
+      )
+    },
+  )
+
+  it.each(['surface', 'startAt', 'timePrecision', 'timezone'])(
+    'throws when %s is blank or not a string, with the received value',
+    (field) => {
+      expect(() => parseTemporalMentions(reply({ [field]: '   ' }))).toThrow(
+        new RegExp(`${field}.*"   "`),
+      )
+      expect(() => parseTemporalMentions(reply({ [field]: 7 }))).toThrow(
+        new RegExp(`${field}.*received 7`),
+      )
+      expect(() => parseTemporalMentions(reply({ [field]: null }))).toThrow(
+        new RegExp(`${field}.*received null`),
+      )
+    },
+  )
+
+  it('throws on an element that is not an object', () => {
+    expect(() => parseTemporalMentions('[null]')).toThrow(/\[0\] must be an object.*null/)
+    expect(() => parseTemporalMentions('["not-an-object"]')).toThrow(/\[0\] must be an object/)
+    expect(() => parseTemporalMentions('[[1]]')).toThrow(/\[0\] must be an object/)
+  })
+
+  it('one bad element fails the whole parse (no partial result)', () => {
+    const good = JSON.parse(reply())[0]
+    const bad = JSON.parse(reply({ timePrecision: 'hour' }))[0]
+    expect(() => parseTemporalMentions(JSON.stringify([good, bad]))).toThrow(/timePrecision/)
+  })
+
+  it('returns [] for an empty array (no temporal content is a valid answer)', () => {
+    expect(parseTemporalMentions('[]')).toEqual([])
+  })
+
+  it.each([...temporalEventKindEnum])('accepts kind %s', (kind) => {
+    expect(parseTemporalMentions(reply({ kind }))[0]?.kind).toBe(kind)
+  })
+
+  it.each([...temporalTimePrecisionEnum])('accepts timePrecision %s', (timePrecision) => {
+    expect(parseTemporalMentions(reply({ timePrecision }))[0]?.timePrecision).toBe(timePrecision)
+  })
+})
+
+describe('temporal element contract (shared by the bundle and the standalone prompt)', () => {
+  it('has a meaning for exactly the kinds and precisions the schema allows', () => {
+    expect(Object.keys(TEMPORAL_KIND_MEANINGS).sort()).toEqual([...temporalEventKindEnum].sort())
+    expect(Object.keys(TEMPORAL_PRECISION_MEANINGS).sort()).toEqual(
+      [...temporalTimePrecisionEnum].sort(),
+    )
+  })
+
+  it('lists every allowed kind and precision with its meaning', () => {
+    for (const [kind, meaning] of Object.entries(TEMPORAL_KIND_MEANINGS)) {
+      expect(TEMPORAL_ELEMENT_CONTRACT).toContain(`${kind}: ${meaning}`)
+    }
+    for (const [precision, meaning] of Object.entries(TEMPORAL_PRECISION_MEANINGS)) {
+      expect(TEMPORAL_ELEMENT_CONTRACT).toContain(`${precision}: ${meaning}`)
+    }
+  })
+
+  it('says a clock time is "exact" and that other values invalidate the reply', () => {
+    expect(TEMPORAL_PRECISION_MEANINGS.exact).toMatch(/clock time/)
+    expect(TEMPORAL_ELEMENT_CONTRACT).toMatch(/"hour"/)
+    expect(TEMPORAL_ELEMENT_CONTRACT).toMatch(/required/i)
+  })
+
+  it('names every required field', () => {
+    for (const field of ['surface', 'kind', 'startAt', 'timePrecision', 'timezone']) {
+      expect(TEMPORAL_ELEMENT_CONTRACT).toContain(field)
+    }
   })
 })
 
@@ -141,40 +289,37 @@ describe('applyCaptureAnchoredMentions', () => {
 })
 
 describe('parseTemporalMentions edge cases', () => {
-  it('filters null entries and clamps confidence', () => {
+  it('trims strings and clamps confidence', () => {
     const out = parseTemporalMentions(
-      `[
-				null,
-				{"surface":"  lunch  ","kind":"appointment","startAt":"2026-06-01T12:00:00.000Z","timePrecision":"exact","timezone":"UTC","confidence":4,"semanticSummary":"  Lunch meeting  "},
-				{"surface":"x","kind":"appointment","startAt":"2026-06-01T12:00:00.000Z","timePrecision":"bad","timezone":"UTC","confidence":1,"semanticSummary":"x"}
-			]`,
+      reply({
+        surface: '  lunch  ',
+        kind: ' appointment ',
+        timePrecision: ' exact ',
+        timezone: ' UTC ',
+        confidence: 4,
+        semanticSummary: '  Lunch meeting  ',
+      }),
     )
     expect(out).toHaveLength(1)
-    expect(out[0]?.surface).toBe('lunch')
-    expect(out[0]?.confidence).toBe(1)
-    expect(out[0]?.semanticSummary).toBe('Lunch meeting')
+    expect(out[0]).toMatchObject({
+      surface: 'lunch',
+      kind: 'appointment',
+      timePrecision: 'exact',
+      timezone: 'UTC',
+      confidence: 1,
+      semanticSummary: 'Lunch meeting',
+    })
   })
 
-  it('filters non-object entries and rows missing required fields', () => {
-    const out = parseTemporalMentions(
-      `[
-				"not-an-object",
-				42,
-				{"surface":"","kind":"deadline","startAt":"2026-06-01T00:00:00.000Z","timePrecision":"day"},
-				{"surface":"no start","kind":"deadline","startAt":"","timePrecision":"day"},
-				{"surface":"no kind","startAt":"2026-06-01T00:00:00.000Z","timePrecision":"day"}
-			]`,
-    )
-    expect(out).toEqual([])
-  })
-
-  it('applies defaults for optional fields and parses recurrenceRule', () => {
+  it('keeps optional fields optional and parses recurrenceRule', () => {
     const out = parseTemporalMentions(
       `[
 				{
 					"surface":"standup",
 					"kind":"appointment",
 					"startAt":"2026-06-01T09:00:00.000Z",
+					"timePrecision":"exact",
+					"timezone":"Europe/Berlin",
 					"endAt":"   ",
 					"recurrenceRule":" FREQ=WEEKLY ",
 					"confidence":"not-a-number"
@@ -187,8 +332,8 @@ describe('parseTemporalMentions edge cases', () => {
         kind: 'appointment',
         startAt: '2026-06-01T09:00:00.000Z',
         endAt: undefined,
-        timePrecision: 'fuzzy',
-        timezone: 'UTC',
+        timePrecision: 'exact',
+        timezone: 'Europe/Berlin',
         isAllDay: false,
         recurrenceRule: 'FREQ=WEEKLY',
         confidence: 0,
@@ -197,29 +342,23 @@ describe('parseTemporalMentions edge cases', () => {
     ])
   })
 
+  it('does not default timePrecision or timezone when the reply leaves them out', () => {
+    // Both used to fall back silently ('fuzzy', 'UTC'): the stored date then looked right and was not.
+    expect(() =>
+      parseTemporalMentions(
+        `[{"surface":"standup","kind":"appointment","startAt":"2026-06-01T09:00:00.000Z","timezone":"UTC"}]`,
+      ),
+    ).toThrow(/timePrecision/)
+    expect(() =>
+      parseTemporalMentions(
+        `[{"surface":"standup","kind":"appointment","startAt":"2026-06-01T09:00:00.000Z","timePrecision":"exact"}]`,
+      ),
+    ).toThrow(/timezone/)
+  })
+
   it('falls back semanticSummary to surface when summary is blank', () => {
-    const out = parseTemporalMentions(
-      `[{"surface":"milestone day","kind":"milestone","startAt":"2026-06-15T00:00:00.000Z","timePrecision":"day","semanticSummary":"   "}]`,
-    )
-    expect(out[0]?.semanticSummary).toBe('milestone day')
-  })
-
-  it('accepts all allowed kinds and rejects invalid precision', () => {
-    const out = parseTemporalMentions(
-      `[
-				{"surface":"a","kind":"period","startAt":"2026-06-01T00:00:00.000Z","timePrecision":"week"},
-				{"surface":"b","kind":"inferred_event","startAt":"2026-06-02T00:00:00.000Z","timePrecision":"month"},
-				{"surface":"c","kind":"appointment","startAt":"2026-06-03T00:00:00.000Z","timePrecision":"invalid"}
-			]`,
-    )
-    expect(out.map((m) => m.kind)).toEqual(['period', 'inferred_event'])
-  })
-
-  it('treats non-string surface and startAt as empty', () => {
-    const out = parseTemporalMentions(
-      `[{"surface":123,"kind":"deadline","startAt":null,"timePrecision":"day"}]`,
-    )
-    expect(out).toEqual([])
+    const out = parseTemporalMentions(reply({ semanticSummary: '   ' }))
+    expect(out[0]?.semanticSummary).toBe('Friday at 9am')
   })
 })
 

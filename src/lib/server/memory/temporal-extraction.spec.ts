@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { extractTemporalMentions } from './temporal-extraction'
+import { TEMPORAL_ELEMENT_CONTRACT } from './temporal-normalize'
 
 const { llmChatCompletionMock, evictMock } = vi.hoisted(() => ({
   llmChatCompletionMock: vi.fn(),
@@ -120,6 +121,19 @@ describe('extractTemporalMentions', () => {
     },
   )
 
+  it('a clock-time reply with an off-catalog timePrecision fails loud, names the field, and is evicted', async () => {
+    // The dentist reply: right date, precision "hour". It used to be dropped, so the date was lost.
+    const response = llmContent(
+      '{"mentions":[{"surface":"Friday at 9am","kind":"appointment","startAt":"2026-10-30T09:00:00+01:00","timePrecision":"hour","timezone":"Europe/Berlin","isAllDay":false,"confidence":0.9,"semanticSummary":"Dentist"}]}',
+    )
+    llmChatCompletionMock.mockResolvedValue(response)
+
+    await expect(extractTemporalMentions(input)).rejects.toThrow(/timePrecision.*"hour"/)
+
+    expect(evictMock).toHaveBeenCalledTimes(1)
+    expect(evictMock).toHaveBeenCalledWith(response)
+  })
+
   it('does not evict a response it could parse', async () => {
     llmChatCompletionMock.mockResolvedValue(llmContent('{"mentions":[]}'))
     await extractTemporalMentions(input)
@@ -137,6 +151,19 @@ describe('extractTemporalMentions', () => {
         timezone: 'UTC',
       }),
     ).rejects.toThrow(/no choices/)
+  })
+
+  it('the prompt carries the shared temporal element contract with the allowed values', async () => {
+    llmChatCompletionMock.mockResolvedValue(llmContent('{"mentions":[]}'))
+
+    await extractTemporalMentions(input)
+
+    const prompt = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string
+    expect(prompt).toContain(TEMPORAL_ELEMENT_CONTRACT)
+    expect(prompt).toContain(
+      '"kind": "deadline|appointment|milestone|period|reminder|inferred_event"',
+    )
+    expect(prompt).toContain('"timePrecision": "exact|day|week|month|fuzzy"')
   })
 
   it('prompt prefers acquisition milestone over pre-order for devices', async () => {

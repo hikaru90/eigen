@@ -239,7 +239,9 @@ describe('enrichQueuedThought', () => {
     enqueueUserJobMock.mockResolvedValue({ enqueued: true, jobId: 'job-1' })
   })
 
-  function decisionResponse(answers: Record<string, { choice: string; probabilities: Record<string, number> }>) {
+  function decisionResponse(
+    answers: Record<string, { choice: string; probabilities: Record<string, number> }>,
+  ) {
     return {
       model: 'typesafe/jev-1.13',
       answers: Object.fromEntries(
@@ -323,7 +325,10 @@ describe('enrichQueuedThought', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow(/made_up_key/)
-    expect(markEnrichQueueFailedMock).toHaveBeenCalledWith('t1', expect.stringContaining('made_up_key'))
+    expect(markEnrichQueueFailedMock).toHaveBeenCalledWith(
+      't1',
+      expect.stringContaining('made_up_key'),
+    )
     // No partial persist: classify/embed never ran.
     expect(enrichThoughtMock).not.toHaveBeenCalled()
     errorSpy.mockRestore()
@@ -369,7 +374,10 @@ describe('enrichQueuedThought', () => {
     runDecisionModelMock
       .mockResolvedValueOnce(
         decisionResponse({
-          content_role: { choice: 'thought_only', probabilities: { thought_only: 0.8, split: 0.2 } },
+          content_role: {
+            choice: 'thought_only',
+            probabilities: { thought_only: 0.8, split: 0.2 },
+          },
         }),
       )
       .mockResolvedValueOnce(
@@ -450,7 +458,10 @@ describe('enrichQueuedThought', () => {
         ],
       },
     })
-    loadEntityGraphEnrichmentContextMock.mockResolvedValue({ communityExcerpts: [], graphEntities: [] })
+    loadEntityGraphEnrichmentContextMock.mockResolvedValue({
+      communityExcerpts: [],
+      graphEntities: [],
+    })
     extractEnrichThoughtBundleMock.mockResolvedValue({
       ...baseBundle,
       entityGraph: {
@@ -486,7 +497,10 @@ describe('enrichQueuedThought', () => {
     const perItemCall = runDecisionModelMock.mock.calls.find((c) =>
       Object.keys(c[1].questions).some((id) => id.startsWith('entity_type:')),
     )
-    expect(Object.keys(perItemCall?.[1].questions ?? {})).toEqual(['entity_type:m1', 'entity_type:m2'])
+    expect(Object.keys(perItemCall?.[1].questions ?? {})).toEqual([
+      'entity_type:m1',
+      'entity_type:m2',
+    ])
     expect(perItemCall?.[1].questions['entity_type:m1'].criteria).toEqual({
       person: 'Person: A human being',
       organization: 'Organization: A company or group',
@@ -502,7 +516,11 @@ describe('enrichQueuedThought', () => {
     for (const row of entityRows) {
       expect(row.authoritativeEngine).toBe('decision_model')
     }
-    expect(entityRows[0]).toMatchObject({ llmChoice: 'person', decisionChoice: 'person', agree: true })
+    expect(entityRows[0]).toMatchObject({
+      llmChoice: 'person',
+      decisionChoice: 'person',
+      agree: true,
+    })
     expect(entityRows[1]).toMatchObject({
       llmChoice: 'concept',
       decisionChoice: 'organization',
@@ -853,6 +871,61 @@ describe('enrichQueuedThought', () => {
     expect(notifyThoughtEnrichedMock).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'u1', thoughtId: 't1', category: 'task' }),
     )
+  })
+
+  it('a bundle reply that broke the temporal contract is asked again, and the good mention is handed to the temporal step', async () => {
+    const mention = {
+      surface: 'Friday at 9am',
+      kind: 'appointment',
+      startAt: '2026-10-30T09:00:00+01:00',
+      timePrecision: 'exact',
+      timezone: 'Europe/Berlin',
+      isAllDay: false,
+      confidence: 0.9,
+      semanticSummary: 'Dentist appointment on Friday at 9am',
+    }
+    extractEnrichThoughtBundleMock
+      .mockRejectedValueOnce(
+        new Error(
+          'Temporal element [0].timePrecision must be one of exact|day|week|month|fuzzy, received "hour"',
+        ),
+      )
+      .mockResolvedValueOnce({ ...baseBundle, temporalMentions: [mention] })
+    // The real ladder retries any non-fatal error: the first attempt throws, the second goes through.
+    runIngestWithRetriesMock.mockImplementation(async (op: () => Promise<unknown>) => {
+      try {
+        return await op()
+      } catch {
+        return op()
+      }
+    })
+    const db = makeDb([
+      [baseRow],
+      [baseRow],
+      [{ metadata: {}, metadataEncrypted: null }],
+      [{ n: 5 }],
+      [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
+      [
+        {
+          normalizedText: 'raw input',
+          category: 'task',
+          enrichedAt: new Date('2026-06-01T00:05:00.000Z'),
+        },
+      ],
+    ])
+    getDbMock.mockReturnValue(db)
+
+    await enrichQueuedThought('u1', 't1')
+
+    expect(extractEnrichThoughtBundleMock).toHaveBeenCalledTimes(2)
+    expect(enrichThoughtMock).toHaveBeenCalledTimes(1)
+    expect(enrichThoughtMock).toHaveBeenCalledWith(
+      'u1',
+      't1',
+      'raw input',
+      expect.objectContaining({ precomputedTemporalMentions: [mention] }),
+    )
+    expect(markEnrichQueueFailedMock).not.toHaveBeenCalled()
   })
 
   it('decrypts encrypted raw/normalized text before enriching', async () => {
