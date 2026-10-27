@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, type Locator, type Page } from '@playwright/test'
+import { expect, type Locator, type Page, type Route } from '@playwright/test'
 
 const VOICE_FIXTURE_PATH = path.join(import.meta.dirname, 'fixtures', 'release-voice.wav')
 
@@ -103,10 +103,14 @@ export async function installVoiceMocks(page: Page): Promise<void> {
   )
 }
 
-export type TranscribeMock = {
+/** What a transcribe endpoint (mocked or real) was sent: the request bodies and their content types. */
+export type TranscribeLog = {
   /** Every request body the endpoint received (the whole clip each time). */
   bodies: Buffer[]
   contentTypes: string[]
+}
+
+export type TranscribeMock = TranscribeLog & {
   /** The next request fails with this status and message; later ones succeed again. */
   failNext(status: number, error: string): void
 }
@@ -147,20 +151,62 @@ export async function mockTranscribeEndpoint(
   return mock
 }
 
+export type TranscribeSpy = TranscribeLog & {
+  /** What the real endpoint answered, for each request it answered with a transcript. */
+  transcripts: string[]
+  /** Takes the spy away again. */
+  stop(): Promise<void>
+}
+
+/**
+ * Watches `POST /api/capture/transcribe` without answering for it: the request goes to the
+ * real server (and its provider), and the page gets the real answer back.
+ */
+export async function spyOnTranscribeEndpoint(page: Page): Promise<TranscribeSpy> {
+  const spy: TranscribeSpy = {
+    bodies: [],
+    contentTypes: [],
+    transcripts: [],
+    stop: () => page.unroute('**/api/capture/transcribe', watch),
+  }
+  async function watch(route: Route): Promise<void> {
+    const request = route.request()
+    const body = request.postDataBuffer()
+    if (body) spy.bodies.push(body)
+    spy.contentTypes.push(request.headers()['content-type'] ?? '')
+    const response = await route.fetch()
+    if (response.ok()) {
+      const answer = (await response.json().catch(() => null)) as { transcript?: unknown } | null
+      if (typeof answer?.transcript === 'string') spy.transcripts.push(answer.transcript)
+    }
+    await route.fulfill({ response })
+  }
+  await page.route('**/api/capture/transcribe', watch)
+  return spy
+}
+
 /**
  * Keeps Capture off the model: the live read (`/api/capture/read`, an LLM call while typing)
  * is refused, and a submit is answered with an error instead of storing and enriching a
  * thought. The specs only look at what the page sends, never at what the server does with it.
+ * Returns the function that takes the refusals away again.
  */
-export async function mockCaptureWithoutLlm(page: Page): Promise<void> {
-  await page.route('**/api/capture/read', (route) => route.abort('failed'))
-  await page.route(/\/api\/capture\/(submit|keep)$/, (route) =>
+export async function mockCaptureWithoutLlm(page: Page): Promise<() => Promise<void>> {
+  const refuseRead = (route: Route) => route.abort('failed')
+  const refuseStore = (route: Route) =>
     route.fulfill({
       status: 503,
       contentType: 'application/json',
       body: JSON.stringify({ error: 'not under test' }),
-    }),
-  )
+    })
+  const storePaths = /\/api\/capture\/(submit|keep)$/
+  await page.route('**/api/capture/read', refuseRead)
+  await page.route(storePaths, refuseStore)
+  // hands Capture back to the real server, for specs that go on using the page
+  return async () => {
+    await page.unroute('**/api/capture/read', refuseRead)
+    await page.unroute(storePaths, refuseStore)
+  }
 }
 
 /** Authenticated POST of the release fixture to the real `/api/capture/transcribe` (live provider). */
@@ -218,7 +264,7 @@ function voiceMockCounters(page: Page) {
  * Taps the mic and waits for the voice bar: a moving waveform and a running timer
  * replace the field, and no transcribe request has been made yet.
  */
-export async function startVoiceMessage(page: Page, transcribe: TranscribeMock): Promise<Locator> {
+export async function startVoiceMessage(page: Page, transcribe: TranscribeLog): Promise<Locator> {
   const mic = page.getByTestId('voice-mic')
   await expect(mic).toBeEnabled({ timeout: 15_000 })
   const requestsBefore = transcribe.bodies.length
@@ -248,7 +294,7 @@ export async function startVoiceMessage(page: Page, transcribe: TranscribeMock):
 }
 
 /** After Send: exactly one request carried the whole fixture clip. */
-export function expectWholeClipUploaded(transcribe: TranscribeMock, uploads: number): void {
+export function expectWholeClipUploaded(transcribe: TranscribeLog, uploads: number): void {
   expect(transcribe.bodies, 'one upload per send/retry').toHaveLength(uploads)
   const fixture = readReleaseVoiceFixture()
   for (const body of transcribe.bodies) {
@@ -262,4 +308,64 @@ export async function expectNoMicrophoneHeld(page: Page): Promise<void> {
   await expect
     .poll(async () => (await voiceMockCounters(page)).tracksStopped, { timeout: 10_000 })
     .toBeGreaterThan(0)
+}
+
+/** Capture with the mic ready: no onboarding dialog, the field shown, the page hydrated. */
+export async function openCaptureForVoice(page: Page): Promise<void> {
+  await page.goto('/capture')
+  await expect(
+    page.getByRole('dialog', { name: /Your memory, not theirs\.|Just drop it in\./ }),
+  ).toBeHidden({ timeout: 15_000 })
+  await expect(page.getByTestId('capture-input')).toBeVisible()
+  // the mic is rendered disabled until the page hydrates: enabled means a fill is not wiped by hydration
+  await expect(page.getByTestId('voice-mic')).toBeEnabled({ timeout: 15_000 })
+}
+
+/** The words the release clip says; the real provider's transcript must carry some of them. */
+const RELEASE_CLIP_WORDS = /release|voice|smoke|capture|test/i
+
+/**
+ * The release smoke's voice step, on Capture, against the REAL transcribe endpoint (live
+ * provider): mic -> voice bar (moving waveform, running timer, no request yet) -> send -> exactly
+ * one request carries the whole WAV clip -> the provider's transcript is submitted through
+ * Capture's normal send. Only the microphone is replaced (call `installVoiceMocks` before this
+ * navigates); Capture itself is kept off the model and the store, so the smoke stores no
+ * extra thought: the refused submit leaves the transcript in Capture's own queue, and the step
+ * takes it out again, so nothing is stored later either.
+ */
+export async function exerciseVoiceCaptureUi(
+  page: Page,
+  options?: { timeoutMs?: number },
+): Promise<void> {
+  const timeoutMs = options?.timeoutMs ?? 120_000
+  const transcribe = await spyOnTranscribeEndpoint(page)
+  const letCaptureStoreAgain = await mockCaptureWithoutLlm(page)
+  try {
+    await openCaptureForVoice(page)
+    await startVoiceMessage(page, transcribe)
+
+    const submitted = page.waitForRequest(
+      (req) =>
+        req.method() === 'POST' &&
+        /\/api\/capture\/(submit|keep)$/.test(new URL(req.url()).pathname) &&
+        RELEASE_CLIP_WORDS.test(req.postData() ?? ''),
+      { timeout: timeoutMs },
+    )
+    await page.getByTestId('voice-send').click()
+    await submitted
+
+    expectWholeClipUploaded(transcribe, 1)
+    expect(transcribe.transcripts, 'the provider answered with the clip words').toHaveLength(1)
+    expect(transcribe.transcripts[0]).toMatch(RELEASE_CLIP_WORDS)
+    await expect(page.getByTestId('voice-bar')).toBeHidden()
+    await expect(page.getByTestId('voice-error')).toBeHidden()
+    await expectNoMicrophoneHeld(page)
+
+    // the refused submit sits in Capture's queue with its error: take it out
+    await page.getByRole('button', { name: 'Delete', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(0)
+  } finally {
+    await letCaptureStoreAgain()
+    await transcribe.stop()
+  }
 }

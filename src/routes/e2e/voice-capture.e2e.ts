@@ -7,6 +7,7 @@ import {
   installVoiceMocks,
   mockCaptureWithoutLlm,
   mockTranscribeEndpoint,
+  openCaptureForVoice,
   startVoiceMessage,
   VOICE_TRANSCRIPT,
 } from './voice-capture-helpers'
@@ -37,7 +38,7 @@ test.describe('Voice messages @release', () => {
     const transcribe = await mockTranscribeEndpoint(page)
 
     await test.step('Capture: send submits the transcript through the normal capture path', async () => {
-      await openCapture(page)
+      await openCaptureForVoice(page)
       await startVoiceMessage(page, transcribe)
       const captured = page.waitForRequest(
         (req) =>
@@ -112,7 +113,7 @@ test.describe('Voice messages @release', () => {
     await mockCaptureWithoutLlm(page)
     const transcribe = await mockTranscribeEndpoint(page)
 
-    await openCapture(page)
+    await openCaptureForVoice(page)
     const input = page.getByTestId('capture-input')
     await input.fill('half a thought')
     await startVoiceMessage(page, transcribe)
@@ -141,7 +142,7 @@ test.describe('Voice messages @release', () => {
     const transcribe = await mockTranscribeEndpoint(page)
     transcribe.failNext(502, 'Transcription failed')
 
-    await openCapture(page)
+    await openCaptureForVoice(page)
     await startVoiceMessage(page, transcribe)
     const submitted = trackCaptureSubmits(page)
     await page.getByTestId('voice-send').click()
@@ -182,16 +183,6 @@ test.describe('Voice messages @release', () => {
     await assertVoiceTranscribeApi(page)
   })
 })
-
-async function openCapture(page: Page): Promise<void> {
-  await page.goto('/capture')
-  await expect(
-    page.getByRole('dialog', { name: /Your memory, not theirs\.|Just drop it in\./ }),
-  ).toBeHidden({ timeout: 15_000 })
-  await expect(page.getByTestId('capture-input')).toBeVisible()
-  // the mic is rendered disabled until the page hydrates: enabled means a fill is not wiped by hydration
-  await expect(page.getByTestId('voice-mic')).toBeEnabled({ timeout: 15_000 })
-}
 
 /** Capture submit calls seen so far (the keep / queue endpoints persist a thought). */
 function trackCaptureSubmits(page: Page): () => string[] {

@@ -22,7 +22,7 @@ import {
 import {
   assertVoiceTranscribeApi,
   exerciseVoiceCaptureUi,
-  installVoiceCaptureMocks,
+  installVoiceMocks,
 } from './voice-capture-helpers'
 
 // Playwright workers may not inherit .env from the parent shell; load explicitly for preflight.
@@ -2034,8 +2034,9 @@ async function exerciseGraphFilters(page: Page): Promise<void> {
 
 async function exerciseCaptureUi(page: Page): Promise<void> {
   await assertVoiceTranscribeApi(page, { timeoutMs: RELEASE_WAIT_MS })
-  await installVoiceCaptureMocks(page)
-  await exerciseVoiceCaptureUi(page, { timeoutMs: RELEASE_WAIT_MS })
+  await installVoiceMocks(page)
+  // the real provider transcribes the clip: wait as long as for the other background work
+  await exerciseVoiceCaptureUi(page, { timeoutMs: RELEASE_INDEXING_WAIT_MS })
   // Capture no longer lists recent thoughts (Yarn owns the journal) — nothing to expand here.
 }
 

@@ -3,24 +3,29 @@ import { expect, type Page } from '@playwright/test'
 /** Real chrome/CSS with deterministic chat responses: no LLM or billing calls. */
 export async function assertNavigationAndAskLayout(page: Page, touch = false): Promise<void> {
   await page.goto('/capture')
-  const burger = page.locator('.me-btn')
+  // the You menu: the header's hamburger opens a non-modal menu and toggles it closed again
+  const burger = page.getByRole('button', { name: 'Profile · Settings' })
+  const menu = page.getByRole('menu', { name: 'Profile · Settings' })
+  await expect(burger).toBeVisible()
   await burger.click()
+  await expect(menu).toBeVisible()
   await burger.click()
-  await expect(page.getByTestId('you-menu')).toBeHidden()
+  await expect(menu).toBeHidden()
   for (const [label, path] of [
-    ['Profile', '/settings'],
+    ['Preferences', '/settings'],
     ['API keys', '/api-keys'],
     ['Usage', '/activity'],
   ]) {
     await burger.click()
-    const item = page.getByRole('menuitem', { name: label, exact: true })
+    await expect(menu).toBeVisible()
+    const item = page.getByRole('menuitem', { name: label })
     if (touch) await item.tap()
     else await item.click()
     await expect(page).toHaveURL(new RegExp(`${path}$`))
-    await expect(page.getByTestId('you-menu')).toBeHidden()
+    await expect(menu).toBeHidden()
   }
   await page.goto('/mesh/yarn')
-  const tabs = page.locator('.tabrow')
+  const tabs = page.getByRole('navigation', { name: 'Mesh', exact: true })
   await expect(tabs).toBeVisible()
   await expect.poll(async () => (await tabs.boundingBox())?.y ?? Infinity).toBeLessThan(100)
 
@@ -42,6 +47,12 @@ export async function assertNavigationAndAskLayout(page: Page, touch = false): P
     const input = page.getByTestId('ask-input')
     const writer = page.getByTestId('glass-writer')
     await expect(input).toBeVisible()
+    // a keyboard sends with Enter; on touch (coarse pointer) Enter is a line break and only the
+    // send button sends (glass-writer.svelte, fda4469b)
+    const send = async (): Promise<void> => {
+      if (touch) await page.getByTestId('ask-submit').tap()
+      else await input.press('Enter')
+    }
     // the shared writer is docked at the bottom from the start, outside the masked <main>
     const viewport = page.viewportSize()
     await expect
@@ -53,7 +64,7 @@ export async function assertNavigationAndAskLayout(page: Page, touch = false): P
     await input.press('Enter')
     expect(requests).toBe(0)
     await input.fill('Show me the things I remember.')
-    await input.press('Enter')
+    await send()
     await expect(input).toBeEnabled()
     await expect(page.getByRole('log', { name: 'Chat messages' })).toContainText('Paragraph 45:')
     const dock = await writer.boundingBox()
@@ -67,7 +78,7 @@ export async function assertNavigationAndAskLayout(page: Page, touch = false): P
     await expect.poll(() => scroll.evaluate((el) => el.scrollTop)).toBeLessThan(beforeScroll - 100)
     await expect.poll(async () => (await writer.boundingBox())?.y).toBeCloseTo(dock!.y, 0)
     await input.fill('And what else?')
-    await input.press('Enter')
+    await send()
     await expect.poll(() => requests).toBe(2)
     await expect(input).toBeEnabled()
     await expect(input).toBeInViewport()

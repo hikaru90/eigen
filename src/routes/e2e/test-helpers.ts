@@ -33,16 +33,19 @@ export async function registerUser(
   const emailInput = page.locator('#email')
   const passwordInput = page.locator('#password')
 
-  // Fill email/password first, then names last — early fills can be cleared by Svelte hydration.
-  await emailInput.fill(email)
-  await passwordInput.fill(TEST_PASSWORD)
-  await firstNameInput.fill(firstName)
-  await lastNameInput.fill(lastName)
+  // Early fills can be cleared by Svelte hydration (on a cold dev server it lands whenever the
+  // client bundle has loaded): fill every field and check that all of them stayed, until they do.
+  await expect(async () => {
+    await emailInput.fill(email)
+    await passwordInput.fill(TEST_PASSWORD)
+    await firstNameInput.fill(firstName)
+    await lastNameInput.fill(lastName)
 
-  await expect(firstNameInput).toHaveValue(firstName)
-  await expect(lastNameInput).toHaveValue(lastName)
-  await expect(emailInput).toHaveValue(email)
-  await expect(passwordInput).toHaveValue(TEST_PASSWORD)
+    await expect(firstNameInput).toHaveValue(firstName, { timeout: 1000 })
+    await expect(lastNameInput).toHaveValue(lastName, { timeout: 1000 })
+    await expect(emailInput).toHaveValue(email, { timeout: 1000 })
+    await expect(passwordInput).toHaveValue(TEST_PASSWORD, { timeout: 1000 })
+  }).toPass({ timeout: 30_000 })
 
   const terms = page.getByRole('checkbox', { name: /Terms of Service|AGB/i })
   await terms.check()
