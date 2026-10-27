@@ -3,8 +3,8 @@ import { registerUser } from './test-helpers'
 
 /**
  * Capture feedback C2 (docs/planning/capture-feedback.md §6): the owner can vote 👍 / 👎 on a
- * stored thought in exactly two places — the strip right after Capture, and the unfolded Mesh
- * row (Yarn and threads). Eigen never asks. A 👎 with a reason applies the reason as an edit and
+ * stored thought in exactly two places — the strip right after Capture, and the Mesh row (Yarn
+ * and threads; a row is an index, its pill line carries the vote). Eigen never asks. A 👎 with a reason applies the reason as an edit and
  * the row takes what the server kept; a 👎 with no text stores the verdict only. Nothing is
  * mocked: real keep, real vote endpoint, real edit, real Jev label.
  *
@@ -79,11 +79,10 @@ test('vote on a stored thought: 👍 in the strip, the same 👍 on the Yarn row
   expect(upAnswer).toMatchObject({ verdict: 'up', editApplied: false, reasonKind: null })
   await expect(stripUp).toHaveAttribute('aria-pressed', 'true')
 
-  // ——— Yarn: the unfolded row shows the stored 👍 ———
+  // ——— Yarn: the row's pill line shows the stored 👍 ———
   await page.goto('/mesh/yarn')
   const row = page.getByTestId(`thought-${thoughtId}`)
   await expect(row).toBeVisible({ timeout: 30_000 })
-  await row.locator('button[aria-expanded]').last().click()
   const vote = row.getByTestId('capture-vote')
   await expect(vote).toBeVisible()
   await expect(vote.getByRole('button', { name: 'Stored right' })).toHaveAttribute(
@@ -124,7 +123,6 @@ test('vote on a stored thought: 👍 in the strip, the same 👍 on the Yarn row
   await page.reload()
   const reloaded = page.getByTestId(`thought-${thoughtId}`)
   await expect(reloaded).toBeVisible({ timeout: 30_000 })
-  await reloaded.locator('button[aria-expanded]').last().click()
   await expect(
     reloaded.getByTestId('capture-vote').getByRole('button', { name: 'Stored wrong' }),
   ).toHaveAttribute('aria-pressed', 'true')
