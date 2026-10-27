@@ -53,8 +53,8 @@ function arrange(statement: string, over: Record<string, unknown> = {}) {
   return rec
 }
 
-const run = (forgetRequest = 'Please forget that I drink coffee') =>
-  removeDetailFromFact({ userId: 'u1', factId: FACT, forgetRequest })
+const run = (detail = 'that I drink coffee') =>
+  removeDetailFromFact({ userId: 'u1', factId: FACT, detail })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -75,7 +75,7 @@ describe('removeDetailFromFact (forget: remove_detail on a fact)', () => {
     expect(call.temperature).toBe(0)
     expect(call.logContext).toBe('forget_fact_edit')
     expect(call.messages[0].content).toBe(REMOVE_FACT_DETAIL_PROMPT)
-    expect(call.messages[1].content).toContain('Forget request: Please forget that I drink coffee')
+    expect(call.messages[1].content).toContain('that I drink coffee')
     expect(call.messages[1].content).toContain('Drinks coffee and swims at the local pool')
 
     expect(m.embedMock).toHaveBeenCalledWith('u1', 'Swims at the local pool')
@@ -89,12 +89,6 @@ describe('removeDetailFromFact (forget: remove_detail on a fact)', () => {
     })
     expect(m.encrypted.get('cipher-1')).toBe('Swims at the local pool')
     expect(m.forgetMock).not.toHaveBeenCalled()
-  })
-
-  it('the prompt tells the model what to forget by the user\'s own forget request, in any language', () => {
-    expect(REMOVE_FACT_DETAIL_PROMPT).toMatch(/forget request/i)
-    expect(REMOVE_FACT_DETAIL_PROMPT).toMatch(/any language/i)
-    expect(REMOVE_FACT_DETAIL_PROMPT).not.toMatch(/Detail to remove/)
   })
 
   it('a fact that is only the detail is forgotten (no statement left)', async () => {

@@ -5,9 +5,7 @@
  * so most removals are `remove_all` (the fact is forgotten); this covers the statement that also
  * says something else the user did not ask to forget.
  *
- * What counts as the forgotten detail is the model's judgement from the user's forget request, by
- * meaning in any language (whether the fact is edited at all was Jev's decision, `forget_action`).
- * The model sees
+ * What counts as "the detail" is the model's judgement, by meaning in any language. The model sees
  * the statement in display form — an identifier fact shows `[secure value]`, never its reference
  * id or the value. Code only checks the contract: the reply is a string or null, the placeholder
  * count fits the fact, the statement changed.
@@ -30,12 +28,12 @@ import { forgetUserFacts } from './user-fact-lifecycle'
 import { loadActiveFactForRewrite, saveRewrittenFact } from './user-fact-store'
 
 export const REMOVE_FACT_DETAIL_PROMPT = [
-  "You edit one stored fact (a short statement about a person) so that what the user asked to forget is removed. You get the user's forget request and the fact's statement. Return JSON only — no markdown fences.",
+  "You edit one stored fact (a short statement about a person) so that one detail is forgotten. You get the detail to remove and the fact's statement. Return JSON only — no markdown fences.",
   '',
   'Return exactly: {"statement": "<the statement without the detail>"} or {"statement": null} when nothing of the fact is left once the detail is gone.',
   '',
-  'Remove only what the request asks to forget and keep everything else of the statement: its language, its wording, who it is about. Do not add, summarise, translate or comment. Judge what the request covers by meaning in any language.',
-  `If the statement contains ${SECURE_VALUE_PLACEHOLDER} (a personal identifier stored elsewhere), keep it exactly as written unless the identifier itself is what the request asks to forget; then leave it out.`,
+  'Remove only the forgotten detail and keep everything else of the statement: its language, its wording, who it is about. Do not add, summarise, translate or comment. Judge what the detail covers by meaning in any language.',
+  `If the statement contains ${SECURE_VALUE_PLACEHOLDER} (a personal identifier stored elsewhere), keep it exactly as written unless the identifier itself is the detail to forget; then leave it out.`,
 ].join('\n')
 
 /** edited = the statement was rewritten · forgotten = nothing was left · gone = no active fact with that id. */
@@ -62,8 +60,7 @@ function parseRewrittenStatement(text: string): string | null {
 export async function removeDetailFromFact(input: {
   userId: string
   factId: string
-  /** The user's forget request: what to remove from the statement. */
-  forgetRequest: string
+  detail: string
 }): Promise<RemoveFactDetailOutcome> {
   const { userId, factId } = input
   const fact = await loadActiveFactForRewrite(userId, factId)
@@ -72,7 +69,7 @@ export async function removeDetailFromFact(input: {
   const display = statementForIndex(fact.statement)
   const messages: ChatMessage[] = [
     { role: 'system', content: REMOVE_FACT_DETAIL_PROMPT },
-    { role: 'user', content: `Forget request: ${input.forgetRequest}\n\nFact: ${display}` },
+    { role: 'user', content: `Detail to remove: ${input.detail}\n\nFact: ${display}` },
   ]
   const raw = await llmChatCompletion({
     userId,
@@ -87,7 +84,7 @@ export async function removeDetailFromFact(input: {
     const statement = parseRewrittenStatement(content)
     if (statement === null) return null
     if (statement === display) {
-      // the forgotten thing would still be remembered: fail loud, the retry ladder asks the model again
+      // the detail would still be remembered: fail loud, the retry ladder asks the model again
       throw new Error(`forget: edit left fact ${factId} unchanged`)
     }
     if (redactSecrets(statement).findings.length > 0) {

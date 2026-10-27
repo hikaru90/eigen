@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { EVIDENCE_POOL, normalizeLexicalRank, retrieveEvidence } from './retrieve-evidence'
+import { normalizeLexicalRank, retrieveEvidence } from './retrieve-evidence'
 
 const {
   createThoughtEmbeddingMock,
   getDbMock,
   lexicalSearchMock,
   matchCanonicalEntitiesByEmbeddingMock,
-  judgeEvidenceRelevanceMock,
+  rerankCandidatesMock,
   decryptTenantValueMock,
   isTemporalQueryMock,
   filterTemporalEventsMock,
@@ -16,7 +16,7 @@ const {
   getDbMock: vi.fn(),
   lexicalSearchMock: vi.fn(),
   matchCanonicalEntitiesByEmbeddingMock: vi.fn(),
-  judgeEvidenceRelevanceMock: vi.fn(),
+  rerankCandidatesMock: vi.fn(),
   decryptTenantValueMock: vi.fn(),
   isTemporalQueryMock: vi.fn(),
   filterTemporalEventsMock: vi.fn(),
@@ -43,10 +43,9 @@ vi.mock('$lib/server/memory/entity-resolution', () => ({
   matchCanonicalEntitiesByEmbedding: matchCanonicalEntitiesByEmbeddingMock,
 }))
 
-// The thought search judges no relevance itself: Jev's evidence_relevance is the caller's step
-// (retrieve-answer-evidence.ts), over thoughts, notes and facts together. Any call here is a bug.
 vi.mock('$lib/server/retrieval/reranker', () => ({
-  judgeEvidenceRelevance: judgeEvidenceRelevanceMock,
+  rerankCandidates: rerankCandidatesMock,
+  shouldSkipRerank: () => false,
 }))
 
 vi.mock('$lib/server/crypto/tenant-encryption', () => ({
@@ -120,6 +119,7 @@ describe('retrieveEvidence', () => {
     isTemporalQueryMock.mockReturnValue(false)
     filterTemporalEventsMock.mockResolvedValue([])
     fetchExpansionCandidatesMock.mockResolvedValue([])
+    rerankCandidatesMock.mockImplementation(async (_u, _q, c) => c)
     decryptTenantValueMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
       Promise.resolve(ciphertext),
     )
@@ -174,41 +174,7 @@ describe('retrieveEvidence', () => {
         category: 'thought',
       }),
     )
-    // fusion order, no relevance judgement inside the search
-    expect(judgeEvidenceRelevanceMock).not.toHaveBeenCalled()
-  })
-
-  it(`returns at most the evidence pool (${15}) however large topK is, in fusion order, judging nothing`, async () => {
-    expect(EVIDENCE_POOL).toBe(15)
-    const ids = Array.from({ length: 20 }, (_, i) => `v${String(i).padStart(2, '0')}`)
-    getDbMock.mockReturnValue(
-      makeSequentialDb([
-        ids.map((id, i) => ({ id, distance: 0.1 + i / 100 })),
-        [],
-        [],
-        ids.map((id) => ({ ...thoughtRow, id })),
-      ]),
-    )
-
-    const result = await retrieveEvidence({ userId: 'u1', query: 'q', topK: 40 })
-
-    expect(result).toHaveLength(EVIDENCE_POOL)
-    expect(result.map((r) => r.id)).toEqual(ids.slice(0, EVIDENCE_POOL))
-    expect(judgeEvidenceRelevanceMock).not.toHaveBeenCalled()
-  })
-
-  it('topK cuts the pool: the first topK thoughts in fusion order', async () => {
-    const ids = Array.from({ length: 10 }, (_, i) => `v${i}`)
-    getDbMock.mockReturnValue(
-      makeSequentialDb([
-        ids.map((id, i) => ({ id, distance: 0.1 + i / 100 })),
-        [],
-        [],
-        ids.map((id) => ({ ...thoughtRow, id })),
-      ]),
-    )
-    const result = await retrieveEvidence({ userId: 'u1', query: 'q', topK: 3 })
-    expect(result.map((r) => r.id)).toEqual(['v0', 'v1', 'v2'])
+    expect(rerankCandidatesMock).toHaveBeenCalled()
   })
 
   it('decrypts encrypted thought fields and sets graph provenance', async () => {
@@ -541,6 +507,7 @@ describe('retrieveEvidence with personalization expansions', () => {
     isTemporalQueryMock.mockReturnValue(false)
     filterTemporalEventsMock.mockResolvedValue([])
     fetchExpansionCandidatesMock.mockResolvedValue([])
+    rerankCandidatesMock.mockImplementation(async (_u, _q, c) => c)
     decryptTenantValueMock.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
       Promise.resolve(ciphertext),
     )
@@ -569,7 +536,7 @@ describe('retrieveEvidence with personalization expansions', () => {
     expect(createThoughtEmbeddingMock).not.toHaveBeenCalled()
   })
 
-  it('merges original and sub-query rankings by reciprocal rank, deduplicated', async () => {
+  it('merges original and sub-query rankings by reciprocal rank, deduplicated, before rerank', async () => {
     fetchExpansionCandidatesMock.mockImplementation(async ({ query }: { query: string }) =>
       query === 'foods the user avoids'
         ? [
@@ -595,10 +562,12 @@ describe('retrieveEvidence with personalization expansions', () => {
 
     // t2 is found by both sub-queries, t1 by the original and one sub-query, t3 by one.
     expect(result.map((r) => r.id)).toEqual(['t2', 't1', 't3'])
-    expect(judgeEvidenceRelevanceMock).not.toHaveBeenCalled()
+    const [, rerankQuery, rerankInput] = rerankCandidatesMock.mock.calls[0]!
+    expect(rerankQuery).toBe('What should I eat?')
+    expect((rerankInput as Array<{ id: string }>).map((c) => c.id)).toEqual(['t2', 't1', 't3'])
   })
 
-  it('keeps the merged pool inside the evidence pool and the top-K budget', async () => {
+  it('keeps the merged pool inside the rerank pool and the top-K budget', async () => {
     const subIds = Array.from({ length: 15 }, (_, i) => `s${i}`)
     fetchExpansionCandidatesMock.mockResolvedValue(
       subIds.map((id, i) => ({ id, vectorDistance: 0.2 + i / 100 })),
@@ -615,6 +584,8 @@ describe('retrieveEvidence with personalization expansions', () => {
       topK: 4,
     })
 
+    const rerankInput = rerankCandidatesMock.mock.calls[0]![2] as unknown[]
+    expect(rerankInput.length).toBeLessThanOrEqual(15)
     expect(result).toHaveLength(4)
     expect(new Set(result.map((r) => r.id)).size).toBe(4)
   })

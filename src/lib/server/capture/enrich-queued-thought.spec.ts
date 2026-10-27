@@ -222,13 +222,7 @@ describe('enrichQueuedThought', () => {
     resolveEnforceKindsMock.mockReturnValue(new Set())
     resolveShadowConfigMock.mockReturnValue(null)
     logActivityCallMock.mockResolvedValue(undefined)
-    deriveUserFactsMock.mockResolvedValue({
-      added: 0,
-      superseded: 0,
-      confirmed: 0,
-      droppedByJudge: 0,
-      droppedLowConfidence: 0,
-    })
+    deriveUserFactsMock.mockResolvedValue({ added: 0, superseded: 0, confirmed: 0, droppedLowConfidence: 0 })
   })
 
   function decisionResponse(answers: Record<string, { choice: string; probabilities: Record<string, number> }>) {
@@ -1077,8 +1071,9 @@ describe('enrichQueuedThought', () => {
         text: 'Email to Prof. Lee about the keynote',
         attachedFileId: 'file-1',
         capturedAt: baseRow.createdAt,
+        queryEmbedding: [0.1, 0.2],
       })
-      // after enrichment, so the proposer can see the people the graph linked to this thought
+      // after enrichment, so the extractor can see the people the graph linked to this thought
       expect(enrichThoughtMock.mock.invocationCallOrder[0]).toBeLessThan(
         deriveUserFactsMock.mock.invocationCallOrder[0]!,
       )

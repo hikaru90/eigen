@@ -1,184 +1,178 @@
+import type { RerankCandidate } from './reranker'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { RerankError, rerankCandidates, resolveRankedIds, shouldSkipRerank } from './reranker'
 
-const { runEnforcedPerItemDecisionsMock, llmChatCompletionMock } = vi.hoisted(() => ({
-  runEnforcedPerItemDecisionsMock: vi.fn(),
+const { llmChatCompletionMock } = vi.hoisted(() => ({
   llmChatCompletionMock: vi.fn(),
 }))
 
-// Relevance is Jev's decision, asked through the plane; the chat gateway must never be reached.
-vi.mock('$lib/server/llm/decision-plane', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('$lib/server/llm/decision-plane')>()
-  return { ...actual, runEnforcedPerItemDecisions: runEnforcedPerItemDecisionsMock }
-})
-vi.mock('$lib/server/llm/llm-client', () => ({ llmChatCompletion: llmChatCompletionMock }))
+vi.mock('$lib/server/llm/llm-client', () => ({
+  llmChatCompletion: llmChatCompletionMock,
+}))
 
-import {
-  EVIDENCE_ITEM_MAX_CHARS,
-  EVIDENCE_RELEVANCE_CRITERIA,
-  judgeEvidenceRelevance,
-  rankByRelevance,
-  type EvidenceVerdict,
-} from './reranker'
-
-function answer(choice: string, probabilities: Record<string, number>) {
-  return {
-    choice,
-    probability: probabilities[choice]!,
-    alternatives: Object.fromEntries(Object.entries(probabilities).filter(([k]) => k !== choice)),
-  }
+function makeResponse(content: string) {
+  return { choices: [{ message: { content } }] }
 }
 
-const candidates = [
-  { ref: 't1', label: 'Stored thought, 2026-05-01', text: 'Mild myopia, wears glasses at the desk' },
-  { ref: 'n1', label: 'Excerpt of the note "Diary", 2026-04-02', text: 'Went to the market on Saturday' },
-  { ref: 'f1', label: 'Known fact about Mia (friend) (health, as of 2026-03-03)', text: 'Mia gets headaches' },
+const candidates: RerankCandidate[] = [
+  { id: 'a', normalizedText: 'Anna pushed back on Q3 pricing', score: 0.9 },
+  { id: 'b', normalizedText: 'Marcus sent the contract yesterday', score: 0.8 },
+  { id: 'c', normalizedText: 'Meeting notes from Monday standup', score: 0.7 },
 ]
 
-beforeEach(() => {
-  vi.clearAllMocks()
-  runEnforcedPerItemDecisionsMock.mockResolvedValue(
-    new Map([
-      ['t1', answer('relevant', { relevant: 0.9, partly: 0.08, not: 0.02 })],
-      ['n1', answer('not', { not: 0.8, partly: 0.15, relevant: 0.05 })],
-      ['f1', answer('partly', { partly: 0.6, relevant: 0.2, not: 0.2 })],
-    ]),
-  )
-})
+describe('rerankCandidates', () => {
+  beforeEach(() => vi.clearAllMocks())
 
-describe('judgeEvidenceRelevance (evidence_relevance, Jev)', () => {
-  it('asks Jev ONE batched call: the question as state, one question per candidate, no chat comparison', async () => {
-    await judgeEvidenceRelevance({
-      userId: 'u1',
-      question: 'Any tips against eye strain?',
-      candidates,
-    })
+  it('reorders candidates according to LLM ranked IDs', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('{"ids": ["c", "a", "b"]}'))
 
-    expect(runEnforcedPerItemDecisionsMock).toHaveBeenCalledTimes(1)
-    const call = runEnforcedPerItemDecisionsMock.mock.calls[0]![0] as {
-      userId: string
-      surface: string
-      kind: string
-      state: string
-      criteria: Record<string, string>
-      items: Array<{ ref: string; instructions: string; llmChoice: string | null }>
-    }
-    expect(call.userId).toBe('u1')
-    expect(call.surface).toBe('evidence')
-    expect(call.kind).toBe('evidence_relevance')
-    expect(call.state).toBe('Question: Any tips against eye strain?')
-    expect(call.criteria).toBe(EVIDENCE_RELEVANCE_CRITERIA)
-    expect(call.items.map((i) => i.ref)).toEqual(['t1', 'n1', 'f1'])
-    for (const item of call.items) expect(item.llmChoice).toBeNull()
-    expect(call.items[0]!.instructions).toContain('Stored thought, 2026-05-01')
-    expect(call.items[0]!.instructions).toContain('Mild myopia, wears glasses at the desk')
-    expect(call.items[2]!.instructions).toContain('Known fact about Mia (friend)')
+    const result = await rerankCandidates('u1', 'standup notes', candidates)
+    expect(result.map((r) => r.id)).toEqual(['c', 'a', 'b'])
   })
 
-  it('the criteria are a closed relevant / partly / not set, defined by what the answer needs', () => {
-    expect(Object.keys(EVIDENCE_RELEVANCE_CRITERIA)).toEqual(['relevant', 'partly', 'not'])
-    expect(EVIDENCE_RELEVANCE_CRITERIA.relevant).toMatch(/directly helps answer the question/i)
-    expect(EVIDENCE_RELEVANCE_CRITERIA.relevant).toMatch(/a good answer must take into account/i)
-    expect(EVIDENCE_RELEVANCE_CRITERIA.partly).toMatch(/could add useful context/i)
-    expect(EVIDENCE_RELEVANCE_CRITERIA.not).toMatch(/shares a topic or a word/i)
+  it('throws RerankError when LLM returns invalid JSON', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('not valid json'))
+    await expect(rerankCandidates('u1', 'query', candidates)).rejects.toBeInstanceOf(RerankError)
   })
 
-  it('returns a verdict per candidate: the choice, its probability and an expected-relevance score', async () => {
-    const verdicts = await judgeEvidenceRelevance({ userId: 'u1', question: 'q', candidates })
-
-    expect(verdicts.get('t1')).toMatchObject({ choice: 'relevant', probability: 0.9 })
-    expect(verdicts.get('t1')!.score).toBeCloseTo(0.9 + 0.5 * 0.08, 10)
-    expect(verdicts.get('n1')).toMatchObject({ choice: 'not', probability: 0.8 })
-    expect(verdicts.get('n1')!.score).toBeCloseTo(0.05 + 0.5 * 0.15, 10)
-    expect(verdicts.get('f1')).toMatchObject({ choice: 'partly', probability: 0.6 })
-    expect(verdicts.get('f1')!.score).toBeCloseTo(0.2 + 0.5 * 0.6, 10)
+  it('throws RerankError when LLM call fails', async () => {
+    llmChatCompletionMock.mockRejectedValue(new Error('LLM error'))
+    await expect(rerankCandidates('u1', 'query', candidates)).rejects.toBeInstanceOf(RerankError)
   })
 
-  it('caps one item at the character budget so a long note excerpt cannot flood the call', async () => {
-    const long = 'x'.repeat(EVIDENCE_ITEM_MAX_CHARS + 500)
-    runEnforcedPerItemDecisionsMock.mockResolvedValue(
-      new Map([['t1', answer('relevant', { relevant: 1 })]]),
-    )
-    await judgeEvidenceRelevance({
-      userId: 'u1',
-      question: 'q',
-      candidates: [{ ref: 't1', label: 'Stored thought', text: long }],
-    })
-    const instructions = (
-      runEnforcedPerItemDecisionsMock.mock.calls[0]![0] as { items: Array<{ instructions: string }> }
-    ).items[0]!.instructions
-    expect(instructions.match(/x/g)!.length).toBe(EVIDENCE_ITEM_MAX_CHARS)
+  it('requests JSON object mode and an {"ids": [...]} object', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('{"ids": ["a","b"]}'))
+    const result = await rerankCandidates('u1', 'query', candidates)
+    expect(result.map((r) => r.id)).toEqual(['a', 'b', 'c'])
+    const call = llmChatCompletionMock.mock.calls.at(-1)![0]
+    expect(call.responseFormat).toBe('json_object')
+    expect(JSON.stringify(call.messages)).toContain('{\\"ids\\"')
   })
 
-  it('no candidates: no call at all', async () => {
-    const verdicts = await judgeEvidenceRelevance({ userId: 'u1', question: 'q', candidates: [] })
-    expect(verdicts.size).toBe(0)
-    expect(runEnforcedPerItemDecisionsMock).not.toHaveBeenCalled()
+  it('throws RerankError for a bare array (the old contract)', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('["a","b"]'))
+    await expect(rerankCandidates('u1', 'query', candidates)).rejects.toBeInstanceOf(RerankError)
   })
 
-  it('never reaches the chat gateway: the chat model decides no relevance', async () => {
-    await judgeEvidenceRelevance({ userId: 'u1', question: 'q', candidates })
+  it('throws RerankError when LLM returns JSON without an ids array', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('{"reason": "none relevant"}'))
+    await expect(rerankCandidates('u1', 'query', candidates)).rejects.toBeInstanceOf(RerankError)
+  })
+
+  it('returns input unchanged for single candidate', async () => {
+    const single = [candidates[0]]
+    const result = await rerankCandidates('u1', 'query', single)
+    expect(result).toEqual(single)
     expect(llmChatCompletionMock).not.toHaveBeenCalled()
   })
 
-  it('fails loud on a candidate Jev left unanswered, a duplicate ref or a blank question', async () => {
-    runEnforcedPerItemDecisionsMock.mockResolvedValue(
-      new Map([['t1', answer('relevant', { relevant: 1 })]]),
-    )
-    await expect(
-      judgeEvidenceRelevance({ userId: 'u1', question: 'q', candidates }),
-    ).rejects.toThrow(/no relevance answer for "n1"/)
-    await expect(
-      judgeEvidenceRelevance({ userId: 'u1', question: 'q', candidates: [candidates[0]!, candidates[0]!] }),
-    ).rejects.toThrow(/duplicate candidate ref "t1"/)
-    await expect(
-      judgeEvidenceRelevance({ userId: 'u1', question: '   ', candidates }),
-    ).rejects.toThrow(/question must be non-empty/)
+  it('places candidates with unknown IDs at the end', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('{"ids": ["b"]}')) // only returns one ID
+    const result = await rerankCandidates('u1', 'query', candidates)
+    // b first (ranked), then a and c in their relative original order
+    expect(result[0].id).toBe('b')
   })
 
-  it('propagates a Jev failure (no fallback to fusion order, no chat rerank)', async () => {
-    runEnforcedPerItemDecisionsMock.mockRejectedValue(
-      new Error('[decision-plane] enforced evidence_relevance per-item decision failed: gateway down'),
-    )
-    await expect(
-      judgeEvidenceRelevance({ userId: 'u1', question: 'q', candidates }),
-    ).rejects.toThrow('gateway down')
+  it('returns input unchanged when top score gap is large', async () => {
+    const spread: RerankCandidate[] = [
+      { id: 'a', normalizedText: 'first', score: 0.95 },
+      { id: 'b', normalizedText: 'second', score: 0.5 },
+      { id: 'c', normalizedText: 'third', score: 0.4 },
+    ]
+    const result = await rerankCandidates('u1', 'query', spread)
+    expect(result.map((r) => r.id)).toEqual(['a', 'b', 'c'])
     expect(llmChatCompletionMock).not.toHaveBeenCalled()
   })
-})
 
-describe('rankByRelevance', () => {
-  const verdict = (choice: EvidenceVerdict['choice'], score: number): EvidenceVerdict => ({
-    choice,
-    probability: 0.9,
-    score,
+  it('shouldSkipRerank detects clear winner', () => {
+    expect(
+      shouldSkipRerank([
+        { id: 'a', normalizedText: 'x', score: 0.9 },
+        { id: 'b', normalizedText: 'y', score: 0.5 },
+      ]),
+    ).toBe(true)
+    expect(
+      shouldSkipRerank([
+        { id: 'a', normalizedText: 'x', score: 0.55 },
+        { id: 'b', normalizedText: 'y', score: 0.5 },
+      ]),
+    ).toBe(false)
   })
-  const items = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id }))
 
-  it('drops every candidate Jev judged not relevant and orders the rest by relevance, best first', () => {
-    const verdicts = new Map<string, EvidenceVerdict>([
-      ['a', verdict('partly', 0.4)],
-      ['b', verdict('not', 0.9)],
-      ['c', verdict('relevant', 0.95)],
-      ['d', verdict('not', 0.1)],
-      ['e', verdict('relevant', 0.8)],
+  it('includes recent context in the prompt when provided', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('{"ids": ["a","b","c"]}'))
+
+    await rerankCandidates('u1', 'pricing discussion', candidates, [
+      { normalizedText: 'Just had a call with Anna about next quarter' },
     ])
-    expect(rankByRelevance(items, (i) => i.id, verdicts).map((i) => i.id)).toEqual(['c', 'e', 'a'])
+
+    const call = llmChatCompletionMock.mock.calls.at(-1)![0]
+    const userMsg = call.messages.find((m: { role: string }) => m.role === 'user')
+    expect(userMsg.content).toContain('Anna about next quarter')
   })
 
-  it('keeps the incoming order between equally relevant candidates (stable)', () => {
-    const verdicts = new Map<string, EvidenceVerdict>(
-      items.map((i) => [i.id, verdict('relevant', 0.7)]),
-    )
-    expect(rankByRelevance(items, (i) => i.id, verdicts).map((i) => i.id)).toEqual([
-      'a',
-      'b',
-      'c',
-      'd',
-      'e',
-    ])
+  it('strips markdown code fences from LLM response', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('```json\n{"ids":["c","b","a"]}\n```'))
+    const result = await rerankCandidates('u1', 'query', candidates)
+    expect(result.map((r) => r.id)).toEqual(['c', 'b', 'a'])
   })
 
-  it('fails loud when a candidate has no verdict', () => {
-    expect(() => rankByRelevance(items, (i) => i.id, new Map())).toThrow(/no verdict for "a"/)
+  it('maps prompt-style placeholder IDs to candidate positions', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('{"ids": ["id-3", "id-1"]}'))
+    const result = await rerankCandidates('u1', 'query', candidates)
+    expect(result.map((r) => r.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('maps id-prefixed uuid strings from the rerank LLM', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('{"ids": ["id-a", "id-b"]}'))
+    const result = await rerankCandidates('u1', 'query', candidates.slice(0, 2))
+    expect(result.map((r) => r.id)).toEqual(['a', 'b'])
+  })
+
+  it('preserves all candidate fields in output', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('{"ids": ["b","a","c"]}'))
+    const result = await rerankCandidates('u1', 'query', candidates)
+    expect(result[0]).toEqual(candidates[1]) // b
+    expect(result[1]).toEqual(candidates[0]) // a
+  })
+
+  it('throws RerankError when LLM returns no choices', async () => {
+    llmChatCompletionMock.mockResolvedValue({})
+    await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
+      message: 'Rerank LLM returned no choices',
+    })
+  })
+
+  it('throws RerankError when LLM returns blank content', async () => {
+    llmChatCompletionMock.mockResolvedValue({ choices: [{ message: { content: '   ' } }] })
+    await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
+      message: 'Rerank LLM returned empty content',
+    })
+  })
+
+  it('keeps fusion order when the LLM returns an empty ID array', async () => {
+    llmChatCompletionMock.mockResolvedValue(makeResponse('{"ids": []}'))
+    const result = await rerankCandidates('u1', 'query', candidates)
+    expect(result.map((r) => r.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('resolveRankedIds accepts numeric and placeholder IDs', () => {
+    expect(resolveRankedIds(['id-2', 1], candidates)).toEqual(['b', 'a'])
+  })
+
+  it('resolveRankedIds accepts id-prefixed uuid strings', () => {
+    expect(resolveRankedIds(['id-a', 'id-c'], candidates)).toEqual(['a', 'c'])
+  })
+
+  it('wraps non-Error LLM failures and parse failures', async () => {
+    llmChatCompletionMock.mockRejectedValueOnce('gateway down')
+    await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
+      message: 'Rerank LLM call failed: gateway down',
+    })
+
+    llmChatCompletionMock.mockResolvedValueOnce(makeResponse('{"reason":"none"}'))
+    await expect(rerankCandidates('u1', 'query', candidates)).rejects.toMatchObject({
+      message: 'Rerank LLM response is not a JSON object with an "ids" array',
+    })
   })
 })

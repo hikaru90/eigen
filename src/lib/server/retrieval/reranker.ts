@@ -1,115 +1,205 @@
 /**
- * Relevance of what an answer may see (docs/planning/jev-everywhere-rollout.md, J1): the decision
- * model (Jev) judges every candidate — thought, note passage or fact — against the user's
- * question, in ONE batched Decisions call per question: relevant · partly · not.
+ * LLM-based listwise reranker.
  *
- * It replaced the chat model's listwise rerank. Candidates judged `not` are dropped, the rest are
- * ordered by an expected-relevance score built from Jev's probabilities. There is no fallback: a
- * failed call, a missing answer or a malformed candidate list rejects the retrieval, and the
- * fusion order is never silently used instead.
+ * Takes the top-k candidates from weighted merge and re-ranks them using a single
+ * LLM prompt that sees both the query and all candidate excerpts together.
  *
- * Closed set in, closed set out — this file reads no candidate text for meaning.
+ * Cost: 1 LLM call per retrieval (skipped when unnecessary).
+ * Falls back to fusion order when the LLM returns no usable IDs.
  */
 
-import { runEnforcedPerItemDecisions } from '$lib/server/llm/decision-plane'
+import { evictEvalLlmCacheEntry, evictOnReject } from '$lib/server/llm/eval-llm-cache'
+import { llmChatCompletion } from '$lib/server/llm/llm-client'
+import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
 
-export type EvidenceRelevanceChoice = 'relevant' | 'partly' | 'not'
-
-export const EVIDENCE_RELEVANCE_CRITERIA: Record<EvidenceRelevanceChoice, string> = {
-  relevant:
-    "The item directly helps answer the question: it states what is asked about, or something about the user that a good answer must take into account (a preference, a health condition, a habit, a constraint, a circumstance).",
-  partly:
-    'The item is related and could add useful context to the answer, but the answer does not depend on it.',
-  not: 'The item does not help answer the question: it is about something else, or only shares a topic or a word with it.',
-}
-
-/** One candidate item is cut here so a long note excerpt cannot flood the batched call. */
-export const EVIDENCE_ITEM_MAX_CHARS = 800
-
-export type RelevanceCandidate = {
-  /** Unique within the call (`t1`, `n2`, `f3`); stored as the row's subject ref, never text. */
-  ref: string
-  /** What the item is, for the judge: "Stored thought, 2026-05-01", "Known fact about Mia …". */
-  label: string
-  /** The item's text as the answer would see it (identifiers as the `[secure value]` placeholder). */
-  text: string
-}
-
-export type EvidenceVerdict = {
-  choice: EvidenceRelevanceChoice
-  /** Jev's probability of the chosen answer. */
-  probability: number
-  /** Expected relevance, P(relevant) + ½·P(partly): what the ordering is built from. */
+export type RerankCandidate = {
+  id: string
+  normalizedText: string
   score: number
+  [key: string]: unknown
 }
 
-function probabilityOf(
-  answer: { choice: string; probability: number; alternatives: Record<string, number> },
-  choice: EvidenceRelevanceChoice,
-): number {
-  return answer.choice === choice ? answer.probability : (answer.alternatives[choice] ?? 0)
+export type RecentContext = {
+  normalizedText: string
 }
 
-export async function judgeEvidenceRelevance(input: {
-  userId: string
-  /** The question as the user asked it. */
-  question: string
-  candidates: RelevanceCandidate[]
-}): Promise<Map<string, EvidenceVerdict>> {
-  const question = input.question.trim()
-  if (!question) throw new Error('judgeEvidenceRelevance: question must be non-empty')
-  if (input.candidates.length === 0) return new Map()
-
-  const seen = new Set<string>()
-  for (const candidate of input.candidates) {
-    if (seen.has(candidate.ref)) {
-      throw new Error(`judgeEvidenceRelevance: duplicate candidate ref "${candidate.ref}"`)
-    }
-    seen.add(candidate.ref)
+export class RerankError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message)
+    this.name = 'RerankError'
+    if (cause instanceof Error) this.cause = cause
   }
+}
 
-  const answers = await runEnforcedPerItemDecisions({
-    userId: input.userId,
-    surface: 'evidence',
-    kind: 'evidence_relevance',
-    state: `Question: ${question}`,
-    criteria: EVIDENCE_RELEVANCE_CRITERIA,
-    items: input.candidates.map((candidate) => ({
-      ref: candidate.ref,
-      instructions: `Does this stored item help answer the question?\n${candidate.label}:\n<<<item\n${candidate.text.slice(0, EVIDENCE_ITEM_MAX_CHARS)}\nitem>>>`,
-      llmChoice: null,
-    })),
-  })
-
-  const verdicts = new Map<string, EvidenceVerdict>()
-  for (const candidate of input.candidates) {
-    const answer = answers.get(candidate.ref)
-    if (!answer) {
-      throw new Error(`judgeEvidenceRelevance: no relevance answer for "${candidate.ref}"`)
-    }
-    verdicts.set(candidate.ref, {
-      choice: answer.choice as EvidenceRelevanceChoice,
-      probability: answer.probability,
-      score: probabilityOf(answer, 'relevant') + 0.5 * probabilityOf(answer, 'partly'),
-    })
-  }
-  return verdicts
+/** Skip LLM rerank when fusion scores already separate winners clearly. */
+export function shouldSkipRerank(candidates: RerankCandidate[]): boolean {
+  if (candidates.length <= 1) return true
+  const sorted = [...candidates].sort((a, b) => b.score - a.score)
+  const gap = sorted[0].score - sorted[1].score
+  return gap >= 0.15
 }
 
 /**
- * Drops every candidate judged `not` and orders the rest by relevance, best first; candidates with
- * the same score keep their incoming order (the search's own ranking breaks ties).
+ * Rerank candidates using a single listwise LLM prompt.
+ *
+ * @throws {RerankError} when the LLM call or response parse fails.
  */
-export function rankByRelevance<T>(
-  items: T[],
-  refOf: (item: T) => string,
-  verdicts: ReadonlyMap<string, EvidenceVerdict>,
-): T[] {
-  const kept: Array<{ item: T; score: number; index: number }> = []
-  items.forEach((item, index) => {
-    const verdict = verdicts.get(refOf(item))
-    if (!verdict) throw new Error(`rankByRelevance: no verdict for "${refOf(item)}"`)
-    if (verdict.choice !== 'not') kept.push({ item, score: verdict.score, index })
+export async function rerankCandidates<T extends RerankCandidate>(
+  userId: string,
+  query: string,
+  candidates: T[],
+  recentContext?: RecentContext[],
+  topK = 8,
+): Promise<T[]> {
+  if (candidates.length <= 1) return candidates
+  if (shouldSkipRerank(candidates)) return candidates
+
+  const returnCount = Math.max(1, Math.min(topK, candidates.length))
+
+  const contextBlock =
+    recentContext && recentContext.length > 0
+      ? [
+          "Recent context (user's latest captures, for relevance calibration):",
+          recentContext
+            .slice(0, 3)
+            .map((c, i) => `[recent-${i + 1}] ${c.normalizedText.slice(0, 150)}`)
+            .join('\n'),
+        ].join('\n')
+      : ''
+
+  const candidateBlock = candidates
+    .map((c, i) => `[${i + 1}] ID:${c.id}\n${c.normalizedText.slice(0, 300)}`)
+    .join('\n\n')
+
+  const prompt = [
+    `Query: ${query}`,
+    '',
+    contextBlock,
+    contextBlock ? '' : null,
+    'Candidates to rerank (most to least useful for answering the query):',
+    candidateBlock,
+    '',
+    `Return ONLY a JSON object {"ids": [...]} with up to ${returnCount} IDs in order from most to least relevant.`,
+    'Example: {"ids": ["id-3", "id-1", "id-2"]}',
+    'If every candidate is weak, still return your best-guess ordering — never return an empty ids array.',
+  ]
+    .filter((l) => l !== null)
+    .join('\n')
+
+  let response: unknown
+  try {
+    response = await llmChatCompletion({
+      userId,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You rerank search results by relevance. Return only a JSON object {"ids": [...]} of IDs, most relevant first.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      temperature: 0,
+      logContext: 'retrieval_rerank',
+      responseFormat: 'json_object',
+    })
+  } catch (err) {
+    throw new RerankError(
+      `Rerank LLM call failed: ${err instanceof Error ? err.message : String(err)}`,
+      err,
+    )
+  }
+
+  const content = evictOnReject(response, () => {
+    const choices = (response as { choices?: unknown }).choices
+    if (!Array.isArray(choices) || choices.length === 0) {
+      throw new RerankError('Rerank LLM returned no choices')
+    }
+
+    const content = (choices[0] as { message?: { content?: unknown } }).message?.content
+    if (typeof content !== 'string' || !content.trim()) {
+      throw new RerankError('Rerank LLM returned empty content')
+    }
+    return content
   })
-  return kept.sort((a, b) => b.score - a.score || a.index - b.index).map((k) => k.item)
+
+  let rankedIds: string[]
+  try {
+    rankedIds = parseRankedIdsFromRerankResponse(content, candidates)
+    if (rankedIds.length === 0) {
+      evictEvalLlmCacheEntry(response)
+      console.warn('[rerank] LLM returned no resolvable candidate IDs; keeping fusion order', {
+        query,
+        response: content.trim().slice(0, 200),
+      })
+      return candidates
+    }
+  } catch (err) {
+    evictEvalLlmCacheEntry(response)
+    if (err instanceof RerankError) throw err
+    throw new RerankError(
+      `Failed to parse rerank response: ${err instanceof Error ? err.message : String(err)}`,
+      err,
+    )
+  }
+
+  const indexById = new Map<string, number>()
+  rankedIds.forEach((id, idx) => indexById.set(id, idx))
+
+  return [...candidates].sort((a, b) => {
+    const rankA = indexById.get(a.id) ?? candidates.length
+    const rankB = indexById.get(b.id) ?? candidates.length
+    return rankA - rankB
+  })
+}
+
+/** Map literal IDs or prompt-style placeholders (e.g. id-2, 2) to candidate IDs. */
+export function resolveRankedIds(rawIds: unknown[], candidates: RerankCandidate[]): string[] {
+  const idSet = new Set(candidates.map((c) => c.id))
+  const resolved: string[] = []
+  const seen = new Set<string>()
+
+  for (const raw of rawIds) {
+    let id: string | undefined
+
+    if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 && raw <= candidates.length) {
+      id = candidates[raw - 1].id
+    } else if (typeof raw === 'string') {
+      if (idSet.has(raw)) {
+        id = raw
+      } else {
+        const idPrefixed = raw.match(/^id-(.+)$/i)
+        if (idPrefixed && idSet.has(idPrefixed[1])) {
+          id = idPrefixed[1]
+        } else {
+          const match = raw.match(/^id-(\d+)$/i) ?? raw.match(/^(\d+)$/)
+          if (match) {
+            const idx = Number(match[1]) - 1
+            if (idx >= 0 && idx < candidates.length) id = candidates[idx].id
+          }
+        }
+      }
+    }
+
+    if (id && !seen.has(id)) {
+      seen.add(id)
+      resolved.push(id)
+    }
+  }
+
+  return resolved
+}
+
+function parseRankedIdsFromRerankResponse(
+  content: string,
+  candidates: RerankCandidate[],
+): string[] {
+  const parsed = parseLlmJsonPayload(content) as unknown
+  const ids =
+    parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as { ids?: unknown }).ids
+      : undefined
+  if (!Array.isArray(ids)) {
+    throw new RerankError('Rerank LLM response is not a JSON object with an "ids" array')
+  }
+  return resolveRankedIds(ids, candidates)
 }

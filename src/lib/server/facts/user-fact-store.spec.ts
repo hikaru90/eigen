@@ -23,9 +23,9 @@ import { userFact, userFactSource, userSecureValue } from '$lib/server/db/schema
 import { createRecordingDb } from '$lib/test/recording-db'
 import { SECURE_VALUE_PLACEHOLDER, secureReferenceToken } from './fact-vocabulary'
 import {
-  FACT_NEAREST_PER_CANDIDATE,
+  FACT_RECONCILE_TOP_K,
   loadKnownPeople,
-  loadNearestFacts,
+  loadStoredFactsForPrompt,
   persistFactWrites,
 } from './user-fact-store'
 
@@ -263,8 +263,8 @@ describe('loadKnownPeople', () => {
   })
 })
 
-describe('loadNearestFacts', () => {
-  it('finds the active facts nearest to one candidate statement by meaning, with the candidate\'s own embedding', async () => {
+describe('loadStoredFactsForPrompt', () => {
+  it('finds the active facts about related subjects by meaning, reusing the capture embedding', async () => {
     m.searchMock.mockResolvedValue([
       {
         id: OLD_ID,
@@ -277,7 +277,7 @@ describe('loadNearestFacts', () => {
         score: 0.8,
       },
     ])
-    const out = await loadNearestFacts('u1', {
+    const out = await loadStoredFactsForPrompt('u1', {
       text: 'I quit coffee',
       queryEmbedding: VECTOR,
     })
@@ -286,7 +286,7 @@ describe('loadNearestFacts', () => {
       expect.objectContaining({
         query: 'I quit coffee',
         queryEmbedding: VECTOR,
-        topK: FACT_NEAREST_PER_CANDIDATE,
+        topK: FACT_RECONCILE_TOP_K,
       }),
     )
     // history never reconciles: only active facts are offered

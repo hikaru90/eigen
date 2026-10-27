@@ -5,12 +5,10 @@
  * 1. Find XYZ first: the same retrieval Ask uses (thoughts and note passages), run for every
  *    LLM-derived target phrase, restricted to items stored strictly BEFORE the forget capture — a
  *    fact restated later stays (`findForgetHits`).
- * 2. Decide per hit with its full text: ONE Jev call (`forget_action`, `judgeForgetHits`) answers
- *    `remove_all | remove_detail | keep` per hit, its probability is the confidence. Removals at or
- *    above FORGET_CONFIDENCE_MIN are applied; every hit below it is left untouched and recorded as
- *    unresolved. There is no all-or-nothing gate: one unsure hit never blocks the others. The chat
- *    model decides nothing here; it only writes edited text for a `remove_detail`, told what to
- *    forget by the user's own request.
+ * 2. Decide per hit with its full text: one LLM judge call returns `remove_all | remove_detail |
+ *    keep` with a confidence per hit (`judgeForgetHits`). Removals at or above
+ *    FORGET_CONFIDENCE_MIN are applied; every hit below it is left untouched and recorded as
+ *    unresolved. There is no all-or-nothing gate: one unsure hit never blocks the others.
  * 3. Apply through the owners' services, so tenant isolation, encryption, passages and the graph
  *    stay in their hands:
  *      thought remove_all    -> archiveThoughtForUser
@@ -22,17 +20,12 @@
  *      fact remove_all       -> forgetUserFacts (status `forgotten`: out of every search at once,
  *                               its secure value deleted with it)
  *      fact remove_detail    -> removeDetailFromFact (statement rewritten without the detail)
- * 4. Check what is left before the instruction goes (`forget_residual`): when the removals leave
- *    nothing unresolved, the same search runs again with the first pass's phrases and Jev answers,
- *    per hit it still finds, whether the item still states what the user asked to forget. Every
- *    "yes" is recorded as unresolved by id.
- * 5. Keep the instruction until everything is removed: the forget capture is archived only when at
- *    least one hit was removed, nothing is unresolved and the residual check found nothing.
- *    Otherwise it stays an active thought (the caller records `metadata.forgetInstruction` and lets
- *    it through the normal pipeline), so Ask still sees the request and does not use the
- *    information.
- * 6. Never silent: one activity-log row per hit decision, per action, per residual answer and a
- *    summary (ids, actions, confidences, answers and counts only — never text or secret values).
+ * 4. Keep the instruction until everything is removed: the forget capture is archived only when at
+ *    least one hit was removed and nothing is unresolved. Otherwise it stays an active thought
+ *    (the caller records `metadata.forgetInstruction` and lets it through the normal pipeline), so
+ *    Ask still sees the request and does not use the information.
+ * 5. Never silent: one activity-log row per hit decision, per action and a summary (ids, actions,
+ *    confidences and counts only — never text or secret values).
  *
  * Failures propagate (the enrich retry ladder owns recovery); nothing here falls back.
  */
@@ -42,11 +35,7 @@ import { logActivityCall } from '$lib/server/activity/log-call'
 import type { ForgetInstructionStatus, UnresolvedForgetHit } from '$lib/server/capture/capture-intent'
 import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result'
 import { findForgetHits } from '$lib/server/capture/find-forget-hits'
-import {
-  FORGET_CONFIDENCE_MIN,
-  judgeForgetHits,
-  judgeForgetResidual,
-} from '$lib/server/capture/judge-forget-hits'
+import { FORGET_CONFIDENCE_MIN, judgeForgetHits } from '$lib/server/capture/judge-forget-hits'
 import { removeDetailFromNote } from '$lib/server/capture/remove-note-detail'
 import { editStoredThought } from '$lib/server/capture/service'
 import { getDb } from '$lib/server/db'
@@ -57,10 +46,9 @@ import { archiveTextFile } from '$lib/server/text-files/service'
 
 export type ForgetOutcome = {
   /**
-   * applied = something removed, nothing unresolved, nothing left that states it · partial =
-   * something removed, something unresolved (or still stating it after the removals) · unresolved =
-   * nothing removed, something unresolved · nothing_removed = hits were judged and none had to go ·
-   * nothing_found = retrieval found no candidate.
+   * applied = something removed, nothing unresolved · partial = something removed, something
+   * unresolved · unresolved = nothing removed, something unresolved · nothing_removed = hits were
+   * judged and none had to go · nothing_found = retrieval found no candidate.
    */
   status: 'applied' | ForgetInstructionStatus
   /** Thought ids archived (whole thought forgotten). */
@@ -75,7 +63,7 @@ export type ForgetOutcome = {
   factsForgotten: string[]
   /** Fact ids whose statement was rewritten without the forgotten detail. */
   factsEdited: string[]
-  /** Hits left untouched because the judge was not confident enough, or still stating it afterwards. */
+  /** Hits left untouched because the judge was not confident enough. */
   unresolved: UnresolvedForgetHit[]
   /** archived = everything was removed · kept = the forget capture stays an active thought. */
   instruction: 'archived' | 'kept'
@@ -86,12 +74,9 @@ export const FORGET_AUDIT_OPERATION = 'forget_request'
 /** Stored in place of the edit request and summary: the edit metadata must not keep the detail. */
 export const FORGET_EDIT_LABEL = 'Edited at your request to forget something'
 
-/**
- * The edit request handed to the natural-language edit service; deliberately not a lifecycle verb.
- * The user's own forget request says what to remove: no separate "detail" is decided anywhere.
- */
-function editOutRequest(forgetRequest: string): string {
-  return `Remove only what the following request asks to forget from the thought and keep everything else unchanged: ${forgetRequest}`
+/** The edit request handed to the natural-language edit service; deliberately not a lifecycle verb. */
+function editOutRequest(detail: string): string {
+  return `Remove only the following from the thought and keep everything else unchanged: ${detail}`
 }
 
 async function audit(userId: string, context: string): Promise<void> {
@@ -114,7 +99,7 @@ export async function applyForgetRequest(input: {
   const { userId, captureThoughtId, request } = input
   const auditPrefix = `forget capture=${captureThoughtId}`
 
-  const { phrases, hits } = await findForgetHits({
+  const { hits } = await findForgetHits({
     userId,
     request,
     createdBefore: input.captureCreatedAt,
@@ -159,7 +144,7 @@ export async function applyForgetRequest(input: {
         continue
       }
 
-      const edit = await editStoredThought(userId, hit.id, editOutRequest(request), {
+      const edit = await editStoredThought(userId, hit.id, editOutRequest(j.detail), {
         editLabel: FORGET_EDIT_LABEL,
       })
       if (!edit.ok) throw new Error(`forget: thought ${hit.id} not found`)
@@ -180,7 +165,7 @@ export async function applyForgetRequest(input: {
         await audit(userId, `${auditPrefix} fact_forgotten=${hit.id}`)
         continue
       }
-      const result = await removeDetailFromFact({ userId, factId: hit.id, forgetRequest: request })
+      const result = await removeDetailFromFact({ userId, factId: hit.id, detail: j.detail })
       if (result === 'gone') continue
       if (result === 'forgotten') {
         factsForgotten.push(hit.id)
@@ -203,7 +188,7 @@ export async function applyForgetRequest(input: {
     const result = await removeDetailFromNote({
       userId,
       noteId: hit.id,
-      forgetRequest: request,
+      detail: j.detail,
       matchedOrdinals: hit.matchedOrdinals,
     })
     if (result === 'gone') continue
@@ -223,7 +208,7 @@ export async function applyForgetRequest(input: {
     notesEdited.length +
     factsForgotten.length +
     factsEdited.length
-  let status: ForgetOutcome['status'] =
+  const status: ForgetOutcome['status'] =
     hits.length === 0
       ? 'nothing_found'
       : unresolved.length > 0
@@ -233,31 +218,6 @@ export async function applyForgetRequest(input: {
         : removed > 0
           ? 'applied'
           : 'nothing_removed'
-
-  // The instruction is about to go: look again before it does. Whatever the search still finds is
-  // asked about (forget_residual); one item that still states the forgotten thing keeps the
-  // instruction. Only when the instruction would otherwise be archived — in every other state it
-  // stays anyway.
-  if (status === 'applied') {
-    const { hits: remaining } = await findForgetHits({
-      userId,
-      request,
-      createdBefore: input.captureCreatedAt,
-      phrases,
-    })
-    const residual =
-      remaining.length === 0
-        ? []
-        : await judgeForgetResidual({ userId, forgetRequest: request, hits: remaining })
-    for (const r of residual) {
-      await audit(
-        userId,
-        `${auditPrefix} residual=${r.hit.kind}:${r.hit.id} still_states=${r.stillStates ? 'yes' : 'no'}`,
-      )
-      if (r.stillStates) unresolved.push({ kind: r.hit.kind, id: r.hit.id })
-    }
-    if (unresolved.length > 0) status = 'partial'
-  }
 
   // The instruction goes only when everything it was about is gone. Archiving it is the last
   // step, so a failure above leaves it for the retry ladder.

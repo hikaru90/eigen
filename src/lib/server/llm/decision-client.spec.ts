@@ -3,13 +3,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tenantUserAsyncLocal } from '$lib/server/billing/context'
+import { createEvalLlmCache, withEvalLlmCache, type EvalLlmCache } from './eval-llm-cache'
 import { envPaste, FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 import {
   resolveDecisionEnforceKinds,
   resolveDecisionShadowConfig,
   runDecisionModel,
 } from './decision-client'
-import { createEvalLlmCache, withEvalLlmCache, type EvalLlmCache } from './eval-llm-cache'
 
 describe('resolveDecisionShadowConfig', () => {
   it('returns null when DECISION_SHADOW_ENABLED is not "true"', () => {
@@ -132,7 +132,7 @@ describe('resolveDecisionEnforceKinds', () => {
     }
   })
 
-  it('accepts all 25 registry kinds in one setting', () => {
+  it('accepts all 15 registry kinds in one setting', () => {
     const all = [
       'category',
       'content_role',
@@ -149,44 +149,10 @@ describe('resolveDecisionEnforceKinds', () => {
       'open_loop',
       'salience_band',
       'capture_intent',
-      // Jev-everywhere J1 (docs/planning/jev-everywhere-rollout.md): chat decisions moved to Jev
-      'fact_keep',
-      'fact_subject',
-      'fact_kind',
-      'fact_reconcile',
-      'forget_action',
-      'forget_residual',
-      'evidence_relevance',
-      'comparative_ordering',
-      'query_personalization',
-      'query_temporal',
     ]
     const kinds = resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: all.join(',') })
-    expect(kinds.size).toBe(25)
+    expect(kinds.size).toBe(15)
     expect([...kinds].sort()).toEqual([...all].sort())
-  })
-
-  it('accepts each J1 kind on its own and still fails loud on near-misses', () => {
-    for (const kind of [
-      'fact_keep',
-      'fact_subject',
-      'fact_kind',
-      'fact_reconcile',
-      'forget_action',
-      'forget_residual',
-      'evidence_relevance',
-      'comparative_ordering',
-      'query_personalization',
-      'query_temporal',
-    ]) {
-      expect([...resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: kind })]).toEqual([kind])
-    }
-    expect(() => resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'fact_keeps' })).toThrow(
-      /unknown decision kind "fact_keeps"/,
-    )
-    expect(() =>
-      resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'evidence_relevant' }),
-    ).toThrow(/unknown decision kind "evidence_relevant"/)
   })
 
   it('still fails loud on near-misses of the widened kinds', () => {

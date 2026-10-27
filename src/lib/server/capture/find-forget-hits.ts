@@ -86,18 +86,9 @@ export async function findForgetHits(input: {
   request: string
   /** Only items stored strictly before this instant can be forgotten: a fact restated later stays. */
   createdBefore: Date
-  /**
-   * The phrases of an earlier pass: the residual search after the removals looks for the same
-   * things instead of deriving new ones. Absent: they are derived from the request.
-   */
-  phrases?: string[]
 }): Promise<{ phrases: string[]; hits: ForgetHit[] }> {
-  if (input.phrases && input.phrases.length === 0) {
-    throw new Error('findForgetHits: phrases must not be empty')
-  }
   const phrases = (
-    input.phrases ??
-    (await deriveDeleteSearchQueries({ userId: input.userId, deleteRequest: input.request }))
+    await deriveDeleteSearchQueries({ userId: input.userId, deleteRequest: input.request })
   ).map((phrase) => redactedText(phrase))
   const embeddings = await createThoughtEmbeddings(input.userId, phrases)
 

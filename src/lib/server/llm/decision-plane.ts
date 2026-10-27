@@ -49,9 +49,7 @@ export type { DecisionKind }
  * planned chat/qa surfaces (spec §5.2) served by
  * runEnforcedBoundedDecisions. resolution, delete_gate, and chat_turn widen
  * the surface registry ahead of their flows — rows record the surface
- * verbatim and behavior is unchanged for every existing surface. fact_derivation
- * (facts at capture), forget (the forget flow) and evidence (what the answer
- * sees) are the Jev-everywhere J1 surfaces.
+ * verbatim and behavior is unchanged for every existing surface.
  */
 export type DecisionShadowSurface =
   | 'capture_service'
@@ -62,9 +60,6 @@ export type DecisionShadowSurface =
   | 'resolution'
   | 'delete_gate'
   | 'chat_turn'
-  | 'fact_derivation'
-  | 'forget'
-  | 'evidence'
 
 export type { ContentRole }
 
@@ -450,14 +445,7 @@ function resolveDecisionShadowConfigSafe(): DecisionShadowConfig | null {
 }
 
 /** Kinds decided per item (mention/pair, delete candidate) rather than for the capture as a whole. */
-type PerItemKind =
-  | 'entity_type'
-  | 'relation_type'
-  | 'temporal_kind'
-  | 'delete_target'
-  | 'evidence_relevance'
-  | 'forget_action'
-  | 'forget_residual'
+type PerItemKind = 'entity_type' | 'relation_type' | 'temporal_kind' | 'delete_target'
 
 export type PerItemDecisionItem = {
   /** Deterministic surrogate stored in decision_shadow_log.subject_ref — never text. */
@@ -629,11 +617,6 @@ export type BoundedDecisionSpec = {
   decisionKind: DecisionKind
   /** Unique question id within this call (e.g. 'scope', 'gtd:hub-<index>'). */
   id: string
-  /**
-   * Deterministic per-item surrogate (fact candidates `c1…cN`) for decisions asked per item inside
-   * one mixed call; stored in `subject_ref`, never text. Absent: a whole-question decision (null).
-   */
-  subjectRef?: string
   question: DecisionChoiceQuestion
   /** Chat judge's answer for the comparison column; null when the chat call was skipped. */
   llmChoice: string | null
@@ -655,7 +638,7 @@ function boundedRow(
     surface: input.surface,
     decisionKind: spec.decisionKind,
     // Whole-question decisions have no per-item subject.
-    subjectRef: spec.subjectRef ?? null,
+    subjectRef: null,
     llmChoice: spec.llmChoice,
     llmConfidence: spec.llmConfidence ?? null,
     decisionChoice: answer?.choice ?? null,
@@ -693,8 +676,7 @@ async function persistBoundedRows(
       // Provider-reported USD (usage.cost); 0 when absent — never inferred.
       baseCostUsd: reportedCostUsd ?? 0,
       gatewayHost: 'openrouter.ai',
-      // each kind once: a mixed call asks the same kind for many items
-      context: `decision_shadow kinds=${[...new Set(specs.map((s) => s.decisionKind))].join(',')} surface=${input.surface}`,
+      context: `decision_shadow kinds=${specs.map((s) => s.decisionKind).join(',')} surface=${input.surface}`,
       durationMs,
       cached,
     })
@@ -925,17 +907,6 @@ async function recordRows(
     salience_band: undefined,
     // Shadow-only: the pipeline's behavior (store) is the comparison; enforced runs early.
     capture_intent: primaries.captureIntent,
-    // Jev-only kinds (J1): decided by the plane alone, never part of the generic capture shadow.
-    fact_keep: undefined,
-    fact_subject: undefined,
-    fact_kind: undefined,
-    fact_reconcile: undefined,
-    forget_action: undefined,
-    forget_residual: undefined,
-    evidence_relevance: undefined,
-    comparative_ordering: undefined,
-    query_personalization: undefined,
-    query_temporal: undefined,
   }
 
   const rows: Array<typeof decisionShadowLog.$inferInsert> = []

@@ -286,13 +286,7 @@ describe('editStoredThought', () => {
       source: 'llm',
     })
     reenrichThoughtMock.mockResolvedValue(undefined)
-    rederiveFactsMock.mockResolvedValue({
-      added: 0,
-      superseded: 0,
-      confirmed: 0,
-      droppedByJudge: 0,
-      droppedLowConfidence: 0,
-    })
+    rederiveFactsMock.mockResolvedValue({ added: 0, superseded: 0, confirmed: 0, droppedLowConfidence: 0 })
     factIdsDerivedFromThoughtMock.mockResolvedValue([])
     retireFactsWithoutLiveSourceMock.mockResolvedValue({ retired: [], revived: [] })
     loadThoughtCaptureResultMock.mockImplementation(async (_userId: string, thoughtId: string) => ({

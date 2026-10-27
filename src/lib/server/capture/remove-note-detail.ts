@@ -7,9 +7,7 @@
  * restored to the note's stored secrets (docs/planning/secret-hygiene.md, Part 2). The model sees
  * no credential; the stored body keeps every secret the removal did not touch.
  *
- * What counts as the forgotten detail is the model's judgement from the user's forget request;
- * whether a note is edited at all was Jev's decision (`forget_action`, judge-forget-hits.ts).
- * Splicing and saving are mechanical.
+ * What counts as "the detail" is the model's judgement; splicing and saving are mechanical.
  */
 
 import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
@@ -22,13 +20,13 @@ import { loadStoredPassages } from '$lib/server/text-files/note-passages'
 import { archiveTextFile, getTextFile, updateTextFile } from '$lib/server/text-files/service'
 
 export const REMOVE_NOTE_DETAIL_PROMPT = [
-  'You edit regions of a user\'s note so that what the user asked to forget is removed. You get the user\'s forget request and one or more regions of the note. Return JSON only — no markdown fences.',
+  'You edit regions of a user\'s note so that one detail is forgotten. You get the detail to remove and one or more regions of the note. Return JSON only — no markdown fences.',
   '',
   'Return exactly: {"regions":[{"region":"<ref>","text":"<the region without the detail>"}, ...]} with every region (r1, r2, ...) exactly once.',
   '',
-  'Remove only what the request asks to forget: the sentences or clauses that state it. Keep everything else of the region exactly as written, character for character: wording, line breaks, punctuation, the region\'s language, and every placeholder such as [redacted secret #n] (copy placeholders unchanged).',
-  'If a region holds nothing but the forgotten thing, return an empty string for it. If a region does not contain it, return it unchanged.',
-  'Do not add, summarise, translate or comment. Judge what the request covers by meaning in any language.',
+  'Remove only the forgotten detail: the sentences or clauses that state it. Keep everything else of the region exactly as written, character for character: wording, line breaks, punctuation, the region\'s language, and every placeholder such as [redacted secret #n] (copy placeholders unchanged).',
+  'If a region holds nothing but the detail, return an empty string for it. If a region does not contain the detail, return it unchanged.',
+  'Do not add, summarise, translate or comment. Judge what the detail covers by meaning in any language.',
 ].join('\n')
 
 type Region = { ref: string; start: number; end: number }
@@ -73,8 +71,7 @@ export type RemoveNoteDetailOutcome = 'edited' | 'archived' | 'gone'
 export async function removeDetailFromNote(input: {
   userId: string
   noteId: string
-  /** The user's forget request: what to remove from the passages. */
-  forgetRequest: string
+  detail: string
   /** The passages the search hit matched; their neighbours come with them. */
   matchedOrdinals: number[]
 }): Promise<RemoveNoteDetailOutcome> {
@@ -112,7 +109,7 @@ export async function removeDetailFromNote(input: {
     { role: 'system', content: REMOVE_NOTE_DETAIL_PROMPT },
     {
       role: 'user',
-      content: `Forget request: ${input.forgetRequest}\n\n${regions
+      content: `Detail to remove: ${input.detail}\n\n${regions
         .map(
           (r) =>
             `<<<region ${r.ref}>>>\n${numbered.slice(r.start, r.end)}\n<<</region>>>`,
@@ -139,7 +136,7 @@ export async function removeDetailFromNote(input: {
   })
 
   if (regions.every((r) => rewrites.get(r.ref) === numbered.slice(r.start, r.end))) {
-    // the forgotten thing would still be remembered: fail loud, the retry ladder asks the model again
+    // the detail would still be remembered: fail loud, the retry ladder asks the model again
     throw new Error(`forget: note ${noteId} edit left the note unchanged`)
   }
   let next = numbered

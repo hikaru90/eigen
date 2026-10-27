@@ -1,31 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { llmChatCompletionMock, runEnforcedPerItemDecisionsMock } = vi.hoisted(() => ({
-  llmChatCompletionMock: vi.fn(),
-  runEnforcedPerItemDecisionsMock: vi.fn(),
-}))
-// The forget decisions are Jev's, asked through the plane (mocked at its boundary); the chat model
-// decides none of them, so the chat gateway must never be reached from this module.
+const { llmChatCompletionMock } = vi.hoisted(() => ({ llmChatCompletionMock: vi.fn() }))
 vi.mock('$lib/server/llm/llm-client', () => ({ llmChatCompletion: llmChatCompletionMock }))
-vi.mock('$lib/server/llm/decision-plane', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('$lib/server/llm/decision-plane')>()
-  return { ...actual, runEnforcedPerItemDecisions: runEnforcedPerItemDecisionsMock }
-})
 
 import type { ForgetHit } from './find-forget-hits'
 import {
-  FORGET_ACTION_CRITERIA,
   FORGET_CONFIDENCE_MIN,
-  FORGET_RESIDUAL_CRITERIA,
+  JUDGE_FORGET_HITS_PROMPT,
   judgeForgetHits,
-  judgeForgetResidual,
+  parseForgetHitDecisions,
 } from './judge-forget-hits'
 
-function answer(choice: string, probabilities: Record<string, number>) {
+function reply(json: unknown) {
   return {
-    choice,
-    probability: probabilities[choice]!,
-    alternatives: Object.fromEntries(Object.entries(probabilities).filter(([k]) => k !== choice)),
+    choices: [{ message: { content: typeof json === 'string' ? json : JSON.stringify(json) } }],
   }
 }
 
@@ -59,45 +47,76 @@ const fact = (id: string, text: string, over: Partial<Extract<ForgetHit, { kind:
   ...over,
 })
 
-type PlaneCall = {
-  userId: string
-  surface: string
-  kind: string
-  state: string
-  criteria: Record<string, string>
-  items: Array<{ ref: string; instructions: string; llmChoice: string | null }>
-}
-const planeCall = () => runEnforcedPerItemDecisionsMock.mock.calls[0]![0] as PlaneCall
+describe('parseForgetHitDecisions', () => {
+  const refs = ['h1', 'h2', 'h3']
 
-beforeEach(() => {
-  vi.clearAllMocks()
-})
+  it('parses one decision per hit, in any order, keyed by ref', () => {
+    const out = parseForgetHitDecisions(
+      JSON.stringify({
+        decisions: [
+          { hit: 'h3', action: 'keep', confidence: 0.95 },
+          { hit: 'h1', action: 'remove_all', confidence: 0.9 },
+          { hit: 'h2', action: 'remove_detail', detail: ' the surfing hobby ', confidence: 0.85 },
+        ],
+      }),
+      refs,
+    )
+    expect(out.get('h1')).toEqual({ action: 'remove_all', confidence: 0.9 })
+    expect(out.get('h2')).toEqual({
+      action: 'remove_detail',
+      detail: 'the surfing hobby',
+      confidence: 0.85,
+    })
+    expect(out.get('h3')).toEqual({ action: 'keep', confidence: 0.95 })
+  })
 
-describe('FORGET_ACTION_CRITERIA (forget_action)', () => {
-  it('is the closed remove_all / remove_detail / keep set, defined by meaning', () => {
-    expect(Object.keys(FORGET_ACTION_CRITERIA)).toEqual(['remove_all', 'remove_detail', 'keep'])
-    expect(FORGET_ACTION_CRITERIA.remove_all).toMatch(/only about the thing to forget/i)
-    expect(FORGET_ACTION_CRITERIA.remove_all).toMatch(/a fact that states the forgotten thing is remove_all/i)
-    expect(FORGET_ACTION_CRITERIA.remove_detail).toMatch(/other information the user did not ask to forget/i)
-    expect(FORGET_ACTION_CRITERIA.keep).toMatch(/near matches/i)
-    expect(FORGET_ACTION_CRITERIA.keep).toMatch(/earlier request to forget something is an instruction/i)
+  it('rejects a reply that skips, repeats or invents a hit (no repair)', () => {
+    const d = (hit: string) => ({ hit, action: 'keep', confidence: 0.9 })
+    expect(() => parseForgetHitDecisions(JSON.stringify({ decisions: [d('h1'), d('h2')] }), refs)).toThrow(/h3/)
+    expect(() =>
+      parseForgetHitDecisions(JSON.stringify({ decisions: [d('h1'), d('h1'), d('h2'), d('h3')] }), refs),
+    ).toThrow(/more than once/)
+    expect(() =>
+      parseForgetHitDecisions(JSON.stringify({ decisions: [d('h1'), d('h2'), d('h3'), d('h9')] }), refs),
+    ).toThrow(/h9/)
+  })
+
+  it('rejects an unknown action, a missing detail and a confidence outside [0, 1]', () => {
+    const one = (decision: unknown) =>
+      parseForgetHitDecisions(JSON.stringify({ decisions: [decision] }), ['h1'])
+    expect(() => one({ hit: 'h1', action: 'archive', confidence: 0.9 })).toThrow(/action/)
+    expect(() => one({ hit: 'h1', action: 'remove_detail', confidence: 0.9 })).toThrow(/detail/)
+    expect(() => one({ hit: 'h1', action: 'remove_detail', detail: '  ', confidence: 0.9 })).toThrow(/detail/)
+    expect(() => one({ hit: 'h1', action: 'keep', confidence: 1.2 })).toThrow(/confidence/)
+    expect(() => one({ hit: 'h1', action: 'keep', confidence: '0.9' })).toThrow(/confidence/)
+    expect(() => one({ hit: 'h1', action: 'keep' })).toThrow(/confidence/)
+  })
+
+  it('rejects non-JSON and a missing decisions array', () => {
+    expect(() => parseForgetHitDecisions('not json', refs)).toThrow()
+    expect(() => parseForgetHitDecisions('{"decisions":"x"}', refs)).toThrow(/decisions/)
+    expect(() => parseForgetHitDecisions('[]', refs)).toThrow(/object/)
   })
 })
 
-describe('judgeForgetHits (forget_action, Jev)', () => {
-  it('asks Jev ONE batched call with the request as state and every hit in full; maps answers back to hits', async () => {
+describe('judgeForgetHits', () => {
+  beforeEach(() => llmChatCompletionMock.mockReset())
+
+  it('asks once, in json mode, with the request and every hit in full, and maps decisions back to hits', async () => {
     const long = `${'A long story about a trip. '.repeat(40)}I like surfing.`
     const hits = [
       thought('t1', 'I like surfing'),
       note('n1', 'Travel diary', long),
       thought('t2', 'I work as a nurse'),
     ]
-    runEnforcedPerItemDecisionsMock.mockResolvedValue(
-      new Map([
-        ['h1', answer('remove_all', { remove_all: 0.95, remove_detail: 0.03, keep: 0.02 })],
-        ['h2', answer('remove_detail', { remove_detail: 0.9, remove_all: 0.05, keep: 0.05 })],
-        ['h3', answer('keep', { keep: 0.97, remove_all: 0.02, remove_detail: 0.01 })],
-      ]),
+    llmChatCompletionMock.mockResolvedValue(
+      reply({
+        decisions: [
+          { hit: 'h1', action: 'remove_all', confidence: 0.95 },
+          { hit: 'h2', action: 'remove_detail', detail: 'that I like surfing', confidence: 0.9 },
+          { hit: 'h3', action: 'keep', confidence: 0.97 },
+        ],
+      }),
     )
 
     const out = await judgeForgetHits({
@@ -106,25 +125,23 @@ describe('judgeForgetHits (forget_action, Jev)', () => {
       hits,
     })
 
-    expect(runEnforcedPerItemDecisionsMock).toHaveBeenCalledTimes(1)
-    const call = planeCall()
-    expect(call.userId).toBe('u1')
-    expect(call.surface).toBe('forget')
-    expect(call.kind).toBe('forget_action')
-    expect(call.state).toBe('Forget request: Please forget that I like surfing')
-    expect(call.criteria).toBe(FORGET_ACTION_CRITERIA)
-    expect(call.items.map((i) => i.ref)).toEqual(['h1', 'h2', 'h3'])
-    for (const item of call.items) expect(item.llmChoice).toBeNull()
-    // full text, not a snippet; titles; never an id
-    expect(call.items[1]!.instructions).toContain(long)
-    expect(call.items[1]!.instructions).toContain('Travel diary')
-    expect(JSON.stringify(call.items)).not.toContain('"t1"')
-    expect(call.items.map((i) => i.instructions).join('\n')).not.toMatch(/\bt1\b|\bn1\b/)
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
+    const call = llmChatCompletionMock.mock.calls[0][0]
+    expect(call.responseFormat).toBe('json_object')
+    expect(call.temperature).toBe(0)
+    expect(call.messages[0].content).toBe(JUDGE_FORGET_HITS_PROMPT)
+    const user = call.messages[1].content as string
+    expect(user).toContain('Please forget that I like surfing')
+    // full text, not a snippet
+    expect(user).toContain(long)
+    expect(user).toContain('Travel diary')
+    for (const ref of ['h1', 'h2', 'h3']) expect(user).toContain(`[${ref}]`)
+    // ids never reach the model
+    expect(user).not.toContain('t1')
 
-    // the confidence is Jev's probability for the chosen action; no "detail" any more
     expect(out).toEqual([
       { hit: hits[0], action: 'remove_all', confidence: 0.95 },
-      { hit: hits[1], action: 'remove_detail', confidence: 0.9 },
+      { hit: hits[1], action: 'remove_detail', detail: 'that I like surfing', confidence: 0.9 },
       { hit: hits[2], action: 'keep', confidence: 0.97 },
     ])
   })
@@ -138,114 +155,54 @@ describe('judgeForgetHits (forget_action, Jev)', () => {
         inferred: true,
       }),
     ]
-    runEnforcedPerItemDecisionsMock.mockResolvedValue(
-      new Map([
-        ['h1', answer('remove_all', { remove_all: 0.95, keep: 0.05 })],
-        ['h2', answer('keep', { keep: 0.9, remove_all: 0.1 })],
-      ]),
+    llmChatCompletionMock.mockResolvedValue(
+      reply({
+        decisions: [
+          { hit: 'h1', action: 'remove_all', confidence: 0.95 },
+          { hit: 'h2', action: 'keep', confidence: 0.9 },
+        ],
+      }),
     )
 
     const out = await judgeForgetHits({ userId: 'u1', forgetRequest: 'forget that I drink coffee', hits })
 
-    const [first, second] = planeCall().items
-    expect(first!.instructions).toContain(
-      '[h1] fact about the user (habit, as of 2026-05-10):\nDrinks three coffees a day',
-    )
-    expect(second!.instructions).toContain(
+    const user = llmChatCompletionMock.mock.calls[0][0].messages[1].content as string
+    expect(user).toContain('[h1] fact about the user (habit, as of 2026-05-10):\nDrinks three coffees a day')
+    expect(user).toContain(
       '[h2] fact about Mia (friend) (health, inferred, as of 2026-05-10):\nMia (friend) keeps getting headaches',
     )
+    expect(user).not.toContain('f1')
     expect(out.map((j) => j.action)).toEqual(['remove_all', 'keep'])
   })
 
-  it('no hits: no call at all', async () => {
+  it('no hits: no LLM call', async () => {
     expect(await judgeForgetHits({ userId: 'u1', forgetRequest: 'r', hits: [] })).toEqual([])
-    expect(runEnforcedPerItemDecisionsMock).not.toHaveBeenCalled()
-  })
-
-  it('the chat model decides nothing: the chat gateway is never reached', async () => {
-    runEnforcedPerItemDecisionsMock.mockResolvedValue(
-      new Map([['h1', answer('keep', { keep: 0.9, remove_all: 0.1 })]]),
-    )
-    await judgeForgetHits({ userId: 'u1', forgetRequest: 'r', hits: [thought('t1', 'x')] })
     expect(llmChatCompletionMock).not.toHaveBeenCalled()
   })
 
-  it('fails loud on a hit Jev left unanswered or answered off the closed set, and on a Jev failure (retry ladder owns recovery)', async () => {
-    runEnforcedPerItemDecisionsMock.mockResolvedValue(new Map())
+  it('throws on an empty or malformed reply (the retry ladder owns recovery)', async () => {
+    llmChatCompletionMock.mockResolvedValue(reply(''))
     await expect(
       judgeForgetHits({ userId: 'u1', forgetRequest: 'r', hits: [thought('t1', 'x')] }),
-    ).rejects.toThrow(/no forget_action answer for h1/)
-
-    runEnforcedPerItemDecisionsMock.mockResolvedValue(
-      new Map([['h1', answer('delete_everything', { delete_everything: 1 })]]),
-    )
+    ).rejects.toThrow(/empty/)
+    llmChatCompletionMock.mockResolvedValue(reply({ decisions: [] }))
     await expect(
       judgeForgetHits({ userId: 'u1', forgetRequest: 'r', hits: [thought('t1', 'x')] }),
-    ).rejects.toThrow(/delete_everything/)
-
-    runEnforcedPerItemDecisionsMock.mockRejectedValue(new Error('gateway down'))
-    await expect(
-      judgeForgetHits({ userId: 'u1', forgetRequest: 'r', hits: [thought('t1', 'x')] }),
-    ).rejects.toThrow('gateway down')
-  })
-})
-
-describe('FORGET_RESIDUAL_CRITERIA (forget_residual)', () => {
-  it('is a yes / no question: does the item still state what the user asked to forget', () => {
-    expect(Object.keys(FORGET_RESIDUAL_CRITERIA)).toEqual(['yes', 'no'])
-    expect(FORGET_RESIDUAL_CRITERIA.yes).toMatch(/still states or implies the thing the user asked/i)
-    expect(FORGET_RESIDUAL_CRITERIA.yes).toMatch(/in whole or in part/i)
-    expect(FORGET_RESIDUAL_CRITERIA.no).toMatch(/does not state or imply/i)
-    expect(FORGET_RESIDUAL_CRITERIA.no).toMatch(/earlier forget request/i)
-  })
-})
-
-describe('judgeForgetResidual (forget_residual, Jev)', () => {
-  it('asks Jev ONE batched call over the remaining hits and reports per hit whether it still states the forgotten thing', async () => {
-    const hits = [thought('t1', 'I like surfing on weekends'), fact('f1', 'Surfs on weekends')]
-    runEnforcedPerItemDecisionsMock.mockResolvedValue(
-      new Map([
-        ['h1', answer('yes', { yes: 0.9, no: 0.1 })],
-        ['h2', answer('no', { no: 0.8, yes: 0.2 })],
-      ]),
-    )
-
-    const out = await judgeForgetResidual({
-      userId: 'u1',
-      forgetRequest: 'Please forget that I like surfing',
-      hits,
-    })
-
-    expect(runEnforcedPerItemDecisionsMock).toHaveBeenCalledTimes(1)
-    const call = planeCall()
-    expect(call.surface).toBe('forget')
-    expect(call.kind).toBe('forget_residual')
-    expect(call.state).toBe('Forget request: Please forget that I like surfing')
-    expect(call.criteria).toBe(FORGET_RESIDUAL_CRITERIA)
-    expect(call.items.map((i) => i.ref)).toEqual(['h1', 'h2'])
-    expect(call.items[0]!.instructions).toContain('I like surfing on weekends')
-    expect(call.items[1]!.instructions).toContain('fact about the user')
-    expect(out).toEqual([
-      { hit: hits[0], stillStates: true, probability: 0.9 },
-      { hit: hits[1], stillStates: false, probability: 0.8 },
-    ])
+    ).rejects.toThrow(/h1/)
   })
 
-  it('nothing remains: no call at all', async () => {
-    expect(await judgeForgetResidual({ userId: 'u1', forgetRequest: 'r', hits: [] })).toEqual([])
-    expect(runEnforcedPerItemDecisionsMock).not.toHaveBeenCalled()
+  it('the prompt defines the three outcomes by meaning, keeps earlier forget requests, and makes no keyword rule', () => {
+    for (const word of ['remove_all', 'remove_detail', 'keep', 'confidence']) {
+      expect(JUDGE_FORGET_HITS_PROMPT).toContain(word)
+    }
+    expect(JUDGE_FORGET_HITS_PROMPT).toMatch(/any language/i)
+    expect(JUDGE_FORGET_HITS_PROMPT).toMatch(/earlier request to forget/i)
+    expect(JUDGE_FORGET_HITS_PROMPT).toContain(String(FORGET_CONFIDENCE_MIN))
   })
 
-  it('fails loud on an unanswered hit and on a Jev failure; the chat gateway is never reached', async () => {
-    runEnforcedPerItemDecisionsMock.mockResolvedValue(new Map())
-    await expect(
-      judgeForgetResidual({ userId: 'u1', forgetRequest: 'r', hits: [thought('t1', 'x')] }),
-    ).rejects.toThrow(/no forget_residual answer for h1/)
-    runEnforcedPerItemDecisionsMock.mockRejectedValue(new Error('gateway down'))
-    await expect(
-      judgeForgetResidual({ userId: 'u1', forgetRequest: 'r', hits: [thought('t1', 'x')] }),
-    ).rejects.toThrow('gateway down')
-    expect(llmChatCompletionMock).not.toHaveBeenCalled()
+  it('the prompt explains facts: short statements derived from captures, forgotten with the thing they state', () => {
+    expect(JUDGE_FORGET_HITS_PROMPT).toMatch(/facts/i)
+    expect(JUDGE_FORGET_HITS_PROMPT).toMatch(/about the user or about another person/i)
   })
 })
 

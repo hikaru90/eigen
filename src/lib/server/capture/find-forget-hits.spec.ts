@@ -115,35 +115,6 @@ describe('findForgetHits', () => {
     expect(out.phrases).toEqual(['surfing', 'waves and boards'])
   })
 
-  it('the residual search hands over the phrases of the first pass: no second derivation, the same retrieval', async () => {
-    m.retrieveMock.mockResolvedValue(evidence([], []))
-    m.embedMock.mockResolvedValue([[7]])
-
-    const out = await findForgetHits({
-      userId: 'u1',
-      request: 'Please forget that I like surfing',
-      createdBefore: CUTOFF,
-      phrases: ['surfing'],
-    })
-
-    expect(m.deriveMock).not.toHaveBeenCalled()
-    expect(m.embedMock).toHaveBeenCalledWith('u1', ['surfing'])
-    expect(m.retrieveMock).toHaveBeenCalledTimes(1)
-    expect(m.retrieveMock.mock.calls[0]![0]).toMatchObject({
-      query: 'surfing',
-      queryEmbedding: [7],
-      factsAsOfBefore: CUTOFF,
-    })
-    expect(out.phrases).toEqual(['surfing'])
-  })
-
-  it('an empty phrase list is rejected (no silent fall back to deriving phrases again)', async () => {
-    await expect(
-      findForgetHits({ userId: 'u1', request: 'r', createdBefore: CUTOFF, phrases: [] }),
-    ).rejects.toThrow(/phrases must not be empty/)
-    expect(m.deriveMock).not.toHaveBeenCalled()
-  })
-
   it('a note passage hit is a hit: it carries the note id, title and the matched excerpt', async () => {
     m.retrieveMock.mockResolvedValueOnce(
       evidence([thought('t1', '2026-06-01T00:00:00Z', 0.7)], [note('n1', '2026-05-01T00:00:00.000Z', 0.9)]),

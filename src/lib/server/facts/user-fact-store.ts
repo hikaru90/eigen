@@ -8,8 +8,7 @@
  * call of its own); an embedding is written to its column and never read back here.
  */
 
-import type { NearestFact } from './decide-user-facts'
-import type { KnownPerson } from './extract-user-facts'
+import type { KnownPerson, StoredFactForPrompt } from './extract-user-facts'
 import type { FactWritePlan } from './plan-fact-writes'
 import { and, eq } from 'drizzle-orm'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
@@ -23,23 +22,20 @@ import {
 } from '$lib/server/db/schema'
 import { searchUserFacts } from './search-user-facts'
 
-/** Stored facts Jev reconciles one candidate against. */
-export const FACT_NEAREST_PER_CANDIDATE = 5
-/** Relevance floor of that context: lower than the answer floor, Jev decides what is the same fact. */
+/** Stored facts offered to the extractor as reconciliation context. */
+export const FACT_RECONCILE_TOP_K = 12
+/** Relevance floor of that context: lower than the answer floor, the model filters. */
 export const FACT_RECONCILE_MIN_SCORE = 0.2
 
-/**
- * The active facts nearest to one candidate statement, found by meaning (hybrid search over
- * `user_fact` with the candidate's own embedding).
- */
-export async function loadNearestFacts(
+/** The active facts about related subjects, found by meaning (hybrid search over `user_fact`). */
+export async function loadStoredFactsForPrompt(
   userId: string,
   input: { text: string; queryEmbedding: number[] },
-): Promise<NearestFact[]> {
+): Promise<StoredFactForPrompt[]> {
   const hits = await searchUserFacts(userId, {
     query: input.text,
     queryEmbedding: input.queryEmbedding,
-    topK: FACT_NEAREST_PER_CANDIDATE,
+    topK: FACT_RECONCILE_TOP_K,
     minScore: FACT_RECONCILE_MIN_SCORE,
   })
   return hits.map((hit) => ({

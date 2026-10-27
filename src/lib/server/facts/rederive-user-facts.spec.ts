@@ -43,13 +43,7 @@ function thoughtRow(over: Record<string, unknown> = {}, metadata: Record<string,
 beforeEach(() => {
   vi.clearAllMocks()
   m.rows = []
-  m.deriveMock.mockResolvedValue({
-    added: 1,
-    superseded: 0,
-    confirmed: 0,
-    droppedByJudge: 0,
-    droppedLowConfidence: 0,
-  })
+  m.deriveMock.mockResolvedValue({ added: 1, superseded: 0, confirmed: 0, droppedLowConfidence: 0 })
   m.releaseMock.mockResolvedValue(undefined)
 })
 
@@ -117,13 +111,7 @@ describe('rederiveUserFactsForThought (after an edit changed the thought)', () =
     const out = await rederiveUserFactsForThought('u1', 't1')
     expect(m.releaseMock).toHaveBeenCalledWith('u1', 't1')
     expect(m.deriveMock).not.toHaveBeenCalled()
-    expect(out).toEqual({
-      added: 0,
-      superseded: 0,
-      confirmed: 0,
-      droppedByJudge: 0,
-      droppedLowConfidence: 0,
-    })
+    expect(out).toEqual({ added: 0, superseded: 0, confirmed: 0, droppedLowConfidence: 0 })
   })
 
   it('an archived thought is not a fact source either', async () => {

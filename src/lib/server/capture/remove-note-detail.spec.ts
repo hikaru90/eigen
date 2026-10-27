@@ -86,7 +86,7 @@ describe('removeDetailFromNote', () => {
     const out = await removeDetailFromNote({
       userId: 'u1',
       noteId: 'n1',
-      forgetRequest: 'Please forget the seventh sentence',
+      detail: 'the seventh sentence',
       matchedOrdinals: [3],
     })
 
@@ -95,7 +95,7 @@ describe('removeDetailFromNote', () => {
     expect(call.responseFormat).toBe('json_object')
     expect(call.temperature).toBe(0)
     expect(call.messages[0].content).toBe(REMOVE_NOTE_DETAIL_PROMPT)
-    expect(call.messages[1].content).toContain('Forget request: Please forget the seventh sentence')
+    expect(call.messages[1].content).toContain('the seventh sentence')
     expect(call.messages[1].content).toContain(region)
     // the rest of the note is never sent
     expect(call.messages[1].content).not.toContain(chunks[chunks.length - 1]!.text)
@@ -119,7 +119,7 @@ describe('removeDetailFromNote', () => {
       return reply({ regions: [{ region: 'r1', text: region.replace('PORT=3000', '') }] })
     })
 
-    await removeDetailFromNote({ userId: 'u1', noteId: 'n1', forgetRequest: 'the port', matchedOrdinals: [0] })
+    await removeDetailFromNote({ userId: 'u1', noteId: 'n1', detail: 'the port', matchedOrdinals: [0] })
 
     expect(leaks(JSON.stringify(m.llmChatCompletionMock.mock.calls))).toBe(false)
     expect(JSON.stringify(m.llmChatCompletionMock.mock.calls)).toContain('[redacted secret #1]')
@@ -139,7 +139,7 @@ describe('removeDetailFromNote', () => {
         regions: regions.map((r) => ({ region: r[1], text: r[2]!.replace(/Sentence number \d+ talks about topic 5 [^.]*\./, '') })),
       })
     })
-    await removeDetailFromNote({ userId: 'u1', noteId: 'n1', forgetRequest: 'topic 5', matchedOrdinals: ordinals })
+    await removeDetailFromNote({ userId: 'u1', noteId: 'n1', detail: 'topic 5', matchedOrdinals: ordinals })
     const call = m.llmChatCompletionMock.mock.calls[0][0].messages[1].content as string
     expect(call).toContain('<<<region r1>>>')
     expect(call).toContain('<<<region r2>>>')
@@ -152,7 +152,7 @@ describe('removeDetailFromNote', () => {
     const region = numbered.slice(chunks[1]!.startChar, chunks[3]!.endChar)
     m.llmChatCompletionMock.mockResolvedValue(reply({ regions: [{ region: 'r1', text: region }] }))
     await expect(
-      removeDetailFromNote({ userId: 'u1', noteId: 'n1', forgetRequest: 'x', matchedOrdinals: [2] }),
+      removeDetailFromNote({ userId: 'u1', noteId: 'n1', detail: 'x', matchedOrdinals: [2] }),
     ).rejects.toThrow(/unchanged/)
     expect(m.updateTextFileMock).not.toHaveBeenCalled()
   })
@@ -160,7 +160,7 @@ describe('removeDetailFromNote', () => {
   it('a note that was archived or deleted since retrieval is gone: nothing to edit', async () => {
     m.getTextFileMock.mockResolvedValue(null)
     expect(
-      await removeDetailFromNote({ userId: 'u1', noteId: 'n1', forgetRequest: 'x', matchedOrdinals: [0] }),
+      await removeDetailFromNote({ userId: 'u1', noteId: 'n1', detail: 'x', matchedOrdinals: [0] }),
     ).toBe('gone')
     expect(m.llmChatCompletionMock).not.toHaveBeenCalled()
   })
@@ -171,7 +171,7 @@ describe('removeDetailFromNote', () => {
       chunkNoteIntoPassages(sentences(30).replaceAll('Sentence', 'Other')).map((c, i) => ({ id: `p${i}`, ...c })),
     )
     await expect(
-      removeDetailFromNote({ userId: 'u1', noteId: 'n1', forgetRequest: 'x', matchedOrdinals: [2] }),
+      removeDetailFromNote({ userId: 'u1', noteId: 'n1', detail: 'x', matchedOrdinals: [2] }),
     ).rejects.toThrow(/stale/)
     expect(m.llmChatCompletionMock).not.toHaveBeenCalled()
   })
@@ -183,7 +183,7 @@ describe('removeDetailFromNote', () => {
     const out = await removeDetailFromNote({
       userId: 'u1',
       noteId: 'n1',
-      forgetRequest: 'surfing',
+      detail: 'surfing',
       matchedOrdinals: [0],
     })
     expect(out).toBe('archived')
@@ -195,13 +195,12 @@ describe('removeDetailFromNote', () => {
     arrangeNote('I like surfing.', 'Hobbies')
     m.llmChatCompletionMock.mockResolvedValue(reply({ regions: [{ region: 'r1', text: '' }] }))
     expect(
-      await removeDetailFromNote({ userId: 'u1', noteId: 'n1', forgetRequest: 'surfing', matchedOrdinals: [0] }),
+      await removeDetailFromNote({ userId: 'u1', noteId: 'n1', detail: 'surfing', matchedOrdinals: [0] }),
     ).toBe('edited')
     expect(m.updateTextFileMock.mock.calls[0]![2].body).toBe('')
   })
 
   it('the prompt asks for verbatim keeping of everything else, placeholders included, in the note language', () => {
-    expect(REMOVE_NOTE_DETAIL_PROMPT).toMatch(/forget request/i)
     expect(REMOVE_NOTE_DETAIL_PROMPT).toMatch(/exactly as written/i)
     expect(REMOVE_NOTE_DETAIL_PROMPT).toContain('[redacted secret #n]')
     expect(REMOVE_NOTE_DETAIL_PROMPT).toMatch(/any language/i)

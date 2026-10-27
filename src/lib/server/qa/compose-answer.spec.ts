@@ -44,7 +44,6 @@ const {
   searchUserFactsMock,
   substituteSecureReferencesMock,
   resolveSecureReferencesMock,
-  runEnforcedPerItemDecisionsMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   searchTextFilesMock: vi.fn(),
@@ -64,15 +63,7 @@ const {
   searchUserFactsMock: vi.fn(),
   substituteSecureReferencesMock: vi.fn(),
   resolveSecureReferencesMock: vi.fn(),
-  runEnforcedPerItemDecisionsMock: vi.fn(),
 }))
-
-// What the answer sees is judged by Jev (evidence_relevance) through the plane: mocked at its
-// boundary, so no spec reaches the Decisions API. Default verdict below: everything is relevant.
-vi.mock('$lib/server/llm/decision-plane', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('$lib/server/llm/decision-plane')>()
-  return { ...actual, runEnforcedPerItemDecisions: runEnforcedPerItemDecisionsMock }
-})
 
 vi.mock('$lib/server/facts/search-user-facts', () => ({
   searchUserFacts: searchUserFactsMock,
@@ -172,47 +163,6 @@ vi.mock('$lib/server/memory/temporal-context', () => ({
 function chatResponse(content: string) {
   return { choices: [{ message: { content } }] }
 }
-
-type RelevanceVerdicts = Record<
-  string,
-  readonly ['relevant' | 'partly' | 'not', Record<string, number>]
->
-
-/** Jev's relevance answers by candidate ref (t1.., n1.., f1..); unlisted candidates are relevant. */
-function jevRelevance(verdicts: RelevanceVerdicts = {}) {
-  runEnforcedPerItemDecisionsMock.mockImplementation(
-    async (input: { items: Array<{ ref: string }> }) =>
-      new Map(
-        input.items.map((item) => {
-          const [choice, probabilities] = verdicts[item.ref] ?? [
-            'relevant',
-            { relevant: 0.9, partly: 0.07, not: 0.03 },
-          ]
-          return [
-            item.ref,
-            {
-              choice,
-              probability: probabilities[choice]!,
-              alternatives: Object.fromEntries(
-                Object.entries(probabilities).filter(([k]) => k !== choice),
-              ),
-            },
-          ]
-        }),
-      ),
-  )
-}
-
-const relevanceCalls = () =>
-  runEnforcedPerItemDecisionsMock.mock.calls.map(
-    (c) =>
-      c[0] as {
-        surface: string
-        kind: string
-        state: string
-        items: Array<{ ref: string; instructions: string }>
-      },
-  )
 
 const FIXED_DATE = new Date('2026-01-01T00:00:00Z')
 
@@ -608,7 +558,6 @@ describe('composeAnswer', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    jevRelevance()
     dbWhereMock.mockResolvedValue([])
     loadTemporalContextMock.mockResolvedValue(new Map())
     classifyQueryIntentMock.mockResolvedValue(localIntent)
@@ -1038,81 +987,22 @@ describe('composeAnswer', () => {
       await expect(composeAnswer({ userId: 'u1', question: 'q' })).rejects.toThrow(/f_unknown/)
     })
 
-    it('searches a candidate pool of 24 facts for every question; the answer sees at most 8 of them, however corpus-wide the question', async () => {
+    it('facts have their own budget: 8 for a local question, 24 for a corpus-wide one; thought topK is untouched', async () => {
       await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
-      expect(searchUserFactsMock.mock.calls[0]![1].topK).toBe(24)
+      expect(searchUserFactsMock.mock.calls[0]![1].topK).toBe(8)
+      expect(searchThoughtsMock.mock.calls[0]![0].topK).toBe(8)
 
       searchUserFactsMock.mockClear()
+      searchThoughtsMock.mockClear()
       classifyQueryIntentMock.mockResolvedValue({ ...localIntent, scope: 'global' })
       await composeAnswer({ userId: 'u1', question: 'what do you know about me?' })
       expect(searchUserFactsMock.mock.calls[0]![1].topK).toBe(24)
+      expect(searchThoughtsMock.mock.calls[0]![0].topK).toBe(16)
 
-      const many = Array.from({ length: 24 }, (_, i) => factHit({ id: `f_${i}` }))
-      searchUserFactsMock.mockResolvedValue(many)
-      const result = await composeAnswer({ userId: 'u1', question: 'what do you know about me?' })
-      expect(result.context.filter((c) => c.kind === 'fact')).toHaveLength(8)
-    })
-
-    it('judges what the answer sees with Jev: ONE batched evidence_relevance call over thoughts, notes and facts, against the question as asked', async () => {
-      searchTextFilesMock.mockResolvedValue([noteHit()])
-      searchUserFactsMock.mockResolvedValue([factHit(), miaFact()])
-
-      await composeAnswer({
-        userId: 'u1',
-        question: 'coastal activities?',
-        retrievalQuery: 'a different retrieval probe',
-      })
-
-      expect(runEnforcedPerItemDecisionsMock).toHaveBeenCalledTimes(1)
-      const [call] = relevanceCalls()
-      expect(call!.surface).toBe('evidence')
-      expect(call!.kind).toBe('evidence_relevance')
-      expect(call!.state).toBe('Question: coastal activities?')
-      expect(call!.items.map((i) => i.ref)).toEqual(['t1', 't2', 'n1', 'f1', 'f2'])
-    })
-
-    it('what Jev judged not relevant never reaches the answer model: thoughts, notes and facts alike', async () => {
-      searchTextFilesMock.mockResolvedValue([noteHit()])
-      searchUserFactsMock.mockResolvedValue([factHit(), miaFact()])
-      jevRelevance({
-        t2: ['not', { not: 0.9, partly: 0.08, relevant: 0.02 }],
-        n1: ['not', { not: 0.8, partly: 0.1, relevant: 0.1 }],
-        f2: ['not', { not: 0.7, partly: 0.2, relevant: 0.1 }],
-      })
-      llmChatCompletionMock.mockResolvedValue(
-        chatResponse('Answer: Rice flour.\nEvidence:\n- Rice flour [id=t_001]\nUnknown:\n- none'),
-      )
-
-      const result = await composeAnswer({ userId: 'u1', question: 'coastal activities?' })
-
-      expect(result.context.map((c) => c.id)).toEqual(['t_001', 'f_pool'])
-      expect(userMessage()).not.toContain('Tartine sells day-old loaves')
-      expect(userMessage()).not.toContain('f_mia')
-    })
-
-    it('if Jev finds nothing relevant at all, the answer says there is not enough in memory (no model call)', async () => {
-      searchUserFactsMock.mockResolvedValue([factHit()])
-      jevRelevance({
-        t1: ['not', { not: 0.9, partly: 0.05, relevant: 0.05 }],
-        t2: ['not', { not: 0.9, partly: 0.05, relevant: 0.05 }],
-        f1: ['not', { not: 0.9, partly: 0.05, relevant: 0.05 }],
-      })
-      const result = await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
-      expect(llmChatCompletionMock).not.toHaveBeenCalled()
-      expect(result.context).toEqual([])
-    })
-
-    it('a failing relevance judgement fails the answer (no silent answer from retrieval order)', async () => {
-      runEnforcedPerItemDecisionsMock.mockRejectedValue(new Error('jev down'))
-      await expect(composeAnswer({ userId: 'u1', question: 'q' })).rejects.toThrow('jev down')
-      expect(llmChatCompletionMock).not.toHaveBeenCalled()
-    })
-
-    it('the chat model decides no relevance: the only chat call in compose is the answer', async () => {
-      searchUserFactsMock.mockResolvedValue([factHit()])
-      await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
-      expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
-      expect(llmChatCompletionMock.mock.calls[0]![0].logContext).toBe('compose_answer')
+      searchUserFactsMock.mockClear()
+      classifyQueryIntentMock.mockResolvedValue(localIntent)
+      await composeAnswer({ userId: 'u1', question: 'carbonara recipe', topK: 3 })
+      expect(searchUserFactsMock.mock.calls[0]![1].topK).toBe(8)
     })
 
     it('"what do you know about me?" gives the model every retrieved fact and the grouping rule, and cites them', async () => {
@@ -1405,8 +1295,7 @@ describe('composeAnswer', () => {
       expect.objectContaining({
         userId: 'u1',
         query: 'what about graph weights?',
-        // the search returns the whole evidence pool; the caller's topK is the answer budget
-        topK: 15,
+        topK: 5,
         weights: { vector: 0.4, graph: 0.6 },
         queryEmbedding: expect.any(Array),
       }),
@@ -1414,46 +1303,11 @@ describe('composeAnswer', () => {
     expect(createThoughtEmbeddingMock).toHaveBeenCalledWith('u1', 'what about graph weights?')
   })
 
-  it('searches the whole evidence pool (15) and keeps 8 thoughts when no topK is given', async () => {
-    const many = Array.from({ length: 15 }, (_, i) => ({
-      ...sampleRetrieval[0]!,
-      id: `t_${String(i).padStart(3, '0')}`,
-      score: 0.9 - i / 100,
-    }))
-    searchThoughtsMock.mockResolvedValue(many)
-    const result = await composeAnswer({ userId: 'u1', question: 'x' })
+  it('uses default topK of 8 when not provided', async () => {
+    await composeAnswer({ userId: 'u1', question: 'x' })
     expect(searchThoughtsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ topK: 15, weights: CONTEXT_WEIGHTS.default }),
+      expect.objectContaining({ topK: 8, weights: CONTEXT_WEIGHTS.default }),
     )
-    expect(result.context.filter((c) => c.kind === 'thought')).toHaveLength(8)
-  })
-
-  it('a topK of 3 is the answer budget: Jev judges the pool, the answer keeps the 3 most relevant', async () => {
-    const many = Array.from({ length: 6 }, (_, i) => ({
-      ...sampleRetrieval[0]!,
-      id: `t_${i}`,
-      score: 0.9 - i / 100,
-    }))
-    searchThoughtsMock.mockResolvedValue(many)
-    // the last three are the most relevant ones: relevance, not retrieval rank, decides
-    jevRelevance({
-      t4: ['relevant', { relevant: 0.99, partly: 0.005, not: 0.005 }],
-      t5: ['relevant', { relevant: 0.98, partly: 0.01, not: 0.01 }],
-      t6: ['relevant', { relevant: 0.97, partly: 0.02, not: 0.01 }],
-      t1: ['partly', { partly: 0.6, relevant: 0.2, not: 0.2 }],
-      t2: ['partly', { partly: 0.6, relevant: 0.2, not: 0.2 }],
-      t3: ['partly', { partly: 0.6, relevant: 0.2, not: 0.2 }],
-    })
-    llmChatCompletionMock.mockResolvedValue(
-      chatResponse('Answer: x.\nEvidence:\n- y [id=t_3]\nUnknown:\n- none'),
-    )
-    const result = await composeAnswer({ userId: 'u1', question: 'x', topK: 3 })
-    expect(
-      result.context
-        .filter((c) => c.kind === 'thought')
-        .map((c) => c.id)
-        .sort(),
-    ).toEqual(['t_3', 't_4', 't_5'])
   })
 
   it('uses retrievalQuery as the single unified search when provided', async () => {

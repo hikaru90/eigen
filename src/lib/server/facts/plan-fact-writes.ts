@@ -8,7 +8,7 @@
  * from the placeholder form.
  */
 
-import type { FactOperation, ParsedFactSubject } from './fact-operations'
+import type { FactOperation, ParsedFactSubject } from './parse-fact-extraction'
 import { randomUUID } from 'node:crypto'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
 import { bindSecureReference, type FactKind, type SecureValueKind } from './fact-vocabulary'

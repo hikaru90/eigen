@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const m = vi.hoisted(() => ({
   findMock: vi.fn(),
   judgeMock: vi.fn(),
-  residualMock: vi.fn(),
   archiveThoughtMock: vi.fn(),
   archiveNoteMock: vi.fn(),
   editMock: vi.fn(),
@@ -18,7 +17,7 @@ vi.mock('$lib/server/db', () => ({ getDb: () => ({ tag: 'db' }) }))
 vi.mock('$lib/server/capture/find-forget-hits', () => ({ findForgetHits: m.findMock }))
 vi.mock('$lib/server/capture/judge-forget-hits', async (importOriginal) => {
   const actual = await importOriginal<typeof import('$lib/server/capture/judge-forget-hits')>()
-  return { ...actual, judgeForgetHits: m.judgeMock, judgeForgetResidual: m.residualMock }
+  return { ...actual, judgeForgetHits: m.judgeMock }
 })
 vi.mock('$lib/server/capture/remove-note-detail', () => ({
   removeDetailFromNote: m.removeNoteDetailMock,
@@ -82,9 +81,10 @@ const removeAll = (hit: ForgetHit, confidence = 0.95): JudgedForgetHit => ({
   action: 'remove_all',
   confidence,
 })
-const removeDetail = (hit: ForgetHit, confidence = 0.9): JudgedForgetHit => ({
+const removeDetail = (hit: ForgetHit, detail: string, confidence = 0.9): JudgedForgetHit => ({
   hit,
   action: 'remove_detail',
+  detail,
   confidence,
 })
 const keep = (hit: ForgetHit, confidence = 0.95): JudgedForgetHit => ({
@@ -93,19 +93,10 @@ const keep = (hit: ForgetHit, confidence = 0.95): JudgedForgetHit => ({
   confidence,
 })
 
-/**
- * Arrange retrieval + judge in one go. The first search finds the hits; the residual search after the
- * removals (when one happens) finds `remaining` — nothing by default, every removed hit gone.
- */
-function arrange(judged: JudgedForgetHit[], remaining: ForgetHit[] = []) {
-  m.findMock
-    .mockResolvedValueOnce({ phrases: ['p'], hits: judged.map((j) => j.hit) })
-    .mockResolvedValue({ phrases: ['p'], hits: remaining })
+/** Arrange retrieval + judge in one go. */
+function arrange(judged: JudgedForgetHit[]) {
+  m.findMock.mockResolvedValue({ phrases: ['p'], hits: judged.map((j) => j.hit) })
   m.judgeMock.mockResolvedValue(judged)
-  m.residualMock.mockImplementation(
-    async (input: { hits: ForgetHit[] }) =>
-      input.hits.map((hit) => ({ hit, stillStates: false, probability: 0.9 })),
-  )
 }
 
 function run() {
@@ -162,7 +153,7 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
     })
 
     it('remove_detail edits only the detail through the natural-language edit service, with a generic edit label', async () => {
-      arrange([removeDetail(thoughtHit(T1))])
+      arrange([removeDetail(thoughtHit(T1), 'that I like surfing')])
       m.editMock.mockResolvedValue({
         ok: true,
         thought: { id: T1, normalizedText: 'I work as a nurse' },
@@ -175,8 +166,7 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
       const [userId, thoughtId, editRequest, options] = m.editMock.mock.calls[0]
       expect([userId, thoughtId]).toEqual(['u1', T1])
       expect(editRequest).toMatch(/^Remove only/)
-      // the chat edit is told what to forget by the user's own request; nothing else decided a "detail"
-      expect(editRequest).toContain('Please forget that I like surfing')
+      expect(editRequest).toContain('that I like surfing')
       // the stored edit metadata gets the generic label, never the forgotten detail
       expect(options).toEqual({ editLabel: FORGET_EDIT_LABEL })
       expect(FORGET_EDIT_LABEL).not.toMatch(/surf/i)
@@ -184,7 +174,7 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
     })
 
     it('a remove_detail edit that leaves the text unchanged fails loudly and the instruction is not archived', async () => {
-      arrange([removeDetail(thoughtHit(T1))])
+      arrange([removeDetail(thoughtHit(T1), 'surfing')])
       m.loadResultMock.mockResolvedValue({ id: T1, normalizedText: 'surfing and nursing', lifecycleStatus: 'open' })
       m.editMock.mockResolvedValue({
         ok: true,
@@ -213,12 +203,12 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
 
   describe('notes (passage hits)', () => {
     it('remove_detail edits the matched passages of the note through the note edit path', async () => {
-      arrange([removeDetail(noteHit(N1, [3, 4]))])
+      arrange([removeDetail(noteHit(N1, [3, 4]), 'that I like surfing')])
       const outcome = await run()
       expect(m.removeNoteDetailMock).toHaveBeenCalledWith({
         userId: 'u1',
         noteId: N1,
-        forgetRequest: 'Please forget that I like surfing',
+        detail: 'that I like surfing',
         matchedOrdinals: [3, 4],
       })
       expect(m.archiveNoteMock).not.toHaveBeenCalled()
@@ -234,13 +224,13 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
     })
 
     it('a note emptied by the detail removal is reported as archived', async () => {
-      arrange([removeDetail(noteHit(N1))])
+      arrange([removeDetail(noteHit(N1), 'everything')])
       m.removeNoteDetailMock.mockResolvedValue('archived')
       expect(await run()).toMatchObject({ notesArchived: [N1], notesEdited: [] })
     })
 
     it('a note that is gone (archived or deleted since retrieval) counts as neither removed nor unresolved', async () => {
-      arrange([removeAll(noteHit(N1)), removeDetail(noteHit(N2))])
+      arrange([removeAll(noteHit(N1)), removeDetail(noteHit(N2), 'x')])
       m.archiveNoteMock.mockResolvedValue(false)
       m.removeNoteDetailMock.mockResolvedValue('gone')
       const outcome = await run()
@@ -270,25 +260,25 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
     })
 
     it('remove_detail rewrites the statement without the detail', async () => {
-      arrange([removeDetail(factHit(F1))])
+      arrange([removeDetail(factHit(F1), 'that I drink coffee')])
       const outcome = await run()
       expect(m.removeFactDetailMock).toHaveBeenCalledWith({
         userId: 'u1',
         factId: F1,
-        forgetRequest: 'Please forget that I like surfing',
+        detail: 'that I drink coffee',
       })
       expect(m.forgetFactsMock).not.toHaveBeenCalled()
       expect(outcome).toMatchObject({ status: 'applied', factsEdited: [F1], factsForgotten: [] })
     })
 
     it('a detail removal that leaves nothing of the fact counts as forgotten', async () => {
-      arrange([removeDetail(factHit(F1))])
+      arrange([removeDetail(factHit(F1), 'everything')])
       m.removeFactDetailMock.mockResolvedValue('forgotten')
       expect(await run()).toMatchObject({ factsForgotten: [F1], factsEdited: [] })
     })
 
     it('a fact that is gone (archived with its source, or forgotten since retrieval) counts as neither removed nor unresolved', async () => {
-      arrange([removeAll(factHit(F1)), removeDetail(factHit(F2))])
+      arrange([removeAll(factHit(F1)), removeDetail(factHit(F2), 'x')])
       m.forgetFactsMock.mockResolvedValue([])
       m.removeFactDetailMock.mockResolvedValue('gone')
       expect(await run()).toMatchObject({
@@ -328,7 +318,7 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
     })
 
     it('a failing fact removal propagates and the instruction stays', async () => {
-      arrange([removeDetail(factHit(F1))])
+      arrange([removeDetail(factHit(F1), 'x')])
       m.removeFactDetailMock.mockRejectedValue(new Error('fact detail removal: response is not valid JSON'))
       await expect(run()).rejects.toThrow(/fact detail removal/)
       expect(m.archiveThoughtMock).not.toHaveBeenCalledWith('u1', CAPTURE)
@@ -339,7 +329,7 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
     it('mixed confident + uncertain hits: the confident removal is applied, the uncertain one is left untouched and recorded, the instruction is kept', async () => {
       arrange([
         removeAll(thoughtHit(T1), 0.95),
-        removeDetail(thoughtHit(T2), 0.6),
+        removeDetail(thoughtHit(T2), 'surfing', 0.6),
         removeAll(noteHit(N1), 0.79),
       ])
       const outcome = await run()
@@ -454,9 +444,9 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
     const secret = 'HUNTER2-password-hint'
     arrange([
       removeAll(thoughtHit(T1, `my password hint is ${secret}`), 0.97),
-      removeDetail(thoughtHit(T2, `${secret} and nursing`), 0.92),
+      removeDetail(thoughtHit(T2, `${secret} and nursing`), secret, 0.92),
       keep(noteHit(N1), 0.9),
-      removeDetail(noteHit(N2), 0.4),
+      removeDetail(noteHit(N2), secret, 0.4),
     ])
     m.editMock.mockResolvedValue({
       ok: true,
@@ -481,117 +471,5 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
       expect(call[2]).toMatchObject({ provider: 'memory', operation: 'forget_request', baseCostUsd: 0 })
       expect(JSON.stringify(call[2])).not.toContain(secret)
     }
-  })
-})
-
-describe('applyForgetRequest: the residual check (forget_residual, Jev) before the instruction goes', () => {
-  const residual = (hit: ForgetHit, stillStates: boolean, probability = 0.9) => ({
-    hit,
-    stillStates,
-    probability,
-  })
-
-  it('after everything was removed it searches again with the first pass phrases and asks Jev about every hit that is still found', async () => {
-    const left = thoughtHit(T2, 'I surf on weekends')
-    arrange([removeAll(thoughtHit(T1))], [left])
-
-    const outcome = await run()
-
-    expect(m.findMock).toHaveBeenCalledTimes(2)
-    expect(m.findMock.mock.calls[1]![0]).toEqual({
-      userId: 'u1',
-      request: 'Please forget that I like surfing',
-      createdBefore: CAPTURE_AT,
-      phrases: ['p'],
-    })
-    expect(m.residualMock).toHaveBeenCalledTimes(1)
-    expect(m.residualMock).toHaveBeenCalledWith({
-      userId: 'u1',
-      forgetRequest: 'Please forget that I like surfing',
-      hits: [left],
-    })
-    // every answer is no: the instruction goes
-    expect(outcome).toMatchObject({ status: 'applied', instruction: 'archived', unresolved: [] })
-    expect(m.archiveThoughtMock).toHaveBeenLastCalledWith('u1', CAPTURE)
-  })
-
-  it('a hit that still states the forgotten thing keeps the instruction: partial, the hit recorded by id, nothing archived last', async () => {
-    const left = factHit(F2, 'Surfs on weekends')
-    arrange([removeAll(thoughtHit(T1))], [left, thoughtHit(T2)])
-    m.residualMock.mockResolvedValue([residual(left, true), residual(thoughtHit(T2), false)])
-
-    const outcome = await run()
-
-    expect(outcome).toMatchObject({
-      status: 'partial',
-      archived: [T1],
-      unresolved: [{ kind: 'fact', id: F2 }],
-      instruction: 'kept',
-    })
-    expect(m.archiveThoughtMock).not.toHaveBeenCalledWith('u1', CAPTURE)
-    expect(auditContexts()).toContain(`forget capture=${CAPTURE} residual=fact:${F2} still_states=yes`)
-    expect(auditContexts()).toContain(`forget capture=${CAPTURE} residual=thought:${T2} still_states=no`)
-    expect(auditContexts().at(-1)).toContain('status=partial')
-    expect(auditContexts().at(-1)).toContain('unresolved=1 instruction=kept')
-  })
-
-  it('the removed fact only is not "done": the thought that says the same still blocks the archive', async () => {
-    // the root cause of the 0/8 forget slice: done was declared after removing only the fact
-    const sameThing = thoughtHit(T1, 'I do not drink coffee any more, I quit last month')
-    arrange([removeAll(factHit(F1))], [sameThing])
-    m.residualMock.mockResolvedValue([residual(sameThing, true, 0.85)])
-    const outcome = await run()
-    expect(outcome).toMatchObject({
-      status: 'partial',
-      factsForgotten: [F1],
-      unresolved: [{ kind: 'thought', id: T1 }],
-      instruction: 'kept',
-    })
-  })
-
-  it('nothing is found any more: no Jev call, the instruction goes', async () => {
-    arrange([removeAll(thoughtHit(T1))], [])
-    const outcome = await run()
-    expect(m.findMock).toHaveBeenCalledTimes(2)
-    expect(m.residualMock).not.toHaveBeenCalled()
-    expect(outcome).toMatchObject({ status: 'applied', instruction: 'archived' })
-  })
-
-  it('no residual search when the instruction stays anyway (nothing removed, a hit unresolved, nothing found)', async () => {
-    arrange([keep(thoughtHit(T1))])
-    await run()
-    arrange([removeAll(thoughtHit(T1), 0.5)])
-    await run()
-    m.findMock.mockReset()
-    m.findMock.mockResolvedValue({ phrases: ['p'], hits: [] })
-    await run()
-    expect(m.residualMock).not.toHaveBeenCalled()
-    // one search per run: the three runs above searched once each
-    expect(m.findMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('a failing residual search or Jev call propagates and the instruction is not archived (the retry ladder owns recovery)', async () => {
-    arrange([removeAll(thoughtHit(T1))], [thoughtHit(T2)])
-    m.residualMock.mockRejectedValue(new Error('jev down'))
-    await expect(run()).rejects.toThrow('jev down')
-    expect(m.archiveThoughtMock).not.toHaveBeenCalledWith('u1', CAPTURE)
-
-    m.findMock.mockReset()
-    m.findMock
-      .mockResolvedValueOnce({ phrases: ['p'], hits: [thoughtHit(T1)] })
-      .mockRejectedValueOnce(new Error('embedding down'))
-    m.judgeMock.mockResolvedValue([removeAll(thoughtHit(T1))])
-    await expect(run()).rejects.toThrow('embedding down')
-    expect(m.archiveThoughtMock).not.toHaveBeenCalledWith('u1', CAPTURE)
-  })
-
-  it('the residual audit rows hold ids and the answer only, never text', async () => {
-    const secret = 'HUNTER2-password-hint'
-    const left = thoughtHit(T2, `my password hint is ${secret}`)
-    arrange([removeAll(thoughtHit(T1))], [left])
-    m.residualMock.mockResolvedValue([residual(left, true)])
-    await run()
-    expect(auditContexts().join('\n')).not.toContain(secret)
-    expect(auditContexts()).toContain(`forget capture=${CAPTURE} residual=thought:${T2} still_states=yes`)
   })
 })
