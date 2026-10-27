@@ -1,0 +1,252 @@
+{
+  "kind": "capture_audit",
+  "cases": [
+    {
+      "id": "a01-clean-task-en",
+      "note": "Everything right; Friday resolves from Tuesday 27 Oct to Fri 30 Oct.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Call Mom on Friday about the birthday dinner",
+        "storedText": "Call Mom on Friday about the birthday dinner",
+        "names": [{ "ref": "n1", "surface": "Mom" }],
+        "dates": [{ "ref": "d1", "event": "Call Mom about the birthday dinner", "when": "Friday 30 October 2026" }],
+        "pieces": []
+      },
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "right" }
+    },
+    {
+      "id": "a02-wrong-weekday",
+      "note": "Friday stored as Thursday.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Dentist appointment on Friday at 9am",
+        "storedText": "Dentist appointment on Friday at 9am",
+        "names": [],
+        "dates": [{ "ref": "d1", "event": "Dentist appointment", "when": "Thursday 29 October 2026, 09:00" }],
+        "pieces": []
+      },
+      "expected": { "missing_names": "none_missing", "date:d1": "wrong" }
+    },
+    {
+      "id": "a03-wording-adds-and-drops",
+      "note": "'maybe' dropped, 'next weekend' added.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "maybe ask Jonas if he wants to join the climbing trip",
+        "storedText": "Ask Jonas to join the climbing trip next weekend.",
+        "names": [{ "ref": "n1", "surface": "Jonas" }],
+        "dates": [],
+        "pieces": []
+      },
+      "expected": { "wording": "wrong", "name:n1": "right", "missing_names": "none_missing" }
+    },
+    {
+      "id": "a04-wording-typo-fix-ok",
+      "note": "Speech/typo cleanup only; tomorrow = Wed 28 Oct.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "remind me to by oat milk and eggs tmrw",
+        "storedText": "Remind me to buy oat milk and eggs tomorrow.",
+        "names": [],
+        "dates": [{ "ref": "d1", "event": "Buy oat milk and eggs", "when": "Wednesday 28 October 2026" }],
+        "pieces": []
+      },
+      "expected": { "wording": "right", "missing_names": "none_missing", "date:d1": "right" }
+    },
+    {
+      "id": "a05-invented-name",
+      "note": "No name in the capture; 'Sarah' is invented.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Lunch with the new team lead on Thursday",
+        "storedText": "Lunch with the new team lead on Thursday",
+        "names": [{ "ref": "n1", "surface": "Sarah" }],
+        "dates": [{ "ref": "d1", "event": "Lunch with the new team lead", "when": "Thursday 29 October 2026" }],
+        "pieces": []
+      },
+      "expected": { "name:n1": "wrong", "missing_names": "none_missing", "date:d1": "right" }
+    },
+    {
+      "id": "a06-missing-place-name",
+      "note": "Café Lotte not found; 'before 6pm' with no day = today.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Pick up the keys from Anna and drop them at Café Lotte before 6pm",
+        "storedText": "Pick up the keys from Anna and drop them at Café Lotte before 6pm",
+        "names": [{ "ref": "n1", "surface": "Anna" }],
+        "dates": [{ "ref": "d1", "event": "Drop the keys at Café Lotte", "when": "Tuesday 27 October 2026, before 18:00" }],
+        "pieces": []
+      },
+      "expected": { "name:n1": "right", "missing_names": "something_missing", "date:d1": "right" }
+    },
+    {
+      "id": "a07-german-clean",
+      "note": "German; Papa and Leipzig found; 'Arzt' is generic, not a missing name.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Am Mittwoch mit Papa zum Arzt nach Leipzig fahren",
+        "storedText": "Am Mittwoch mit Papa zum Arzt nach Leipzig fahren",
+        "names": [{ "ref": "n1", "surface": "Papa" }, { "ref": "n2", "surface": "Leipzig" }],
+        "dates": [{ "ref": "d1", "event": "Mit Papa zum Arzt nach Leipzig fahren", "when": "Mittwoch, 28. Oktober 2026" }],
+        "pieces": []
+      },
+      "expected": { "name:n1": "right", "name:n2": "right", "missing_names": "none_missing", "date:d1": "right" }
+    },
+    {
+      "id": "a08-german-wrong-deadline",
+      "note": "German; 'Ende November' stored as 31 Oct.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Steuererklärung bis Ende November abgeben",
+        "storedText": "Steuererklärung bis Ende November abgeben",
+        "names": [],
+        "dates": [{ "ref": "d1", "event": "Steuererklärung abgeben", "when": "bis 31. Oktober 2026" }],
+        "pieces": []
+      },
+      "expected": { "missing_names": "none_missing", "date:d1": "wrong" }
+    },
+    {
+      "id": "a09-good-split",
+      "note": "Three clean pieces that cover the list.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Today: 1) send invoice to Kowalski GmbH 2) book train to Hamburg 3) water the plants",
+        "storedText": "Today: 1) send invoice to Kowalski GmbH 2) book train to Hamburg 3) water the plants",
+        "names": [{ "ref": "n1", "surface": "Kowalski GmbH" }, { "ref": "n2", "surface": "Hamburg" }],
+        "dates": [],
+        "pieces": [
+          { "ref": "p1", "text": "Send invoice to Kowalski GmbH" },
+          { "ref": "p2", "text": "Book train to Hamburg" },
+          { "ref": "p3", "text": "Water the plants" }
+        ]
+      },
+      "expected": {
+        "name:n1": "right",
+        "name:n2": "right",
+        "missing_names": "none_missing",
+        "piece:p1": "right",
+        "piece:p2": "right",
+        "piece:p3": "right",
+        "pieces_cover": "right"
+      }
+    },
+    {
+      "id": "a10-fragment-piece",
+      "note": "p2 is half a sentence; everything is still somewhere, so cover is right.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Met Lena at the conference — her startup is hiring a designer, so I should send her Tom's portfolio.",
+        "storedText": "Met Lena at the conference — her startup is hiring a designer, so I should send her Tom's portfolio.",
+        "names": [{ "ref": "n1", "surface": "Lena" }, { "ref": "n2", "surface": "Tom" }],
+        "dates": [],
+        "pieces": [
+          { "ref": "p1", "text": "Met Lena at the conference" },
+          { "ref": "p2", "text": "her startup is hiring a designer, so" },
+          { "ref": "p3", "text": "Send Tom's portfolio to Lena" }
+        ]
+      },
+      "expected": {
+        "name:n1": "right",
+        "name:n2": "right",
+        "missing_names": "none_missing",
+        "piece:p1": "right",
+        "piece:p2": "wrong",
+        "piece:p3": "right",
+        "pieces_cover": "right"
+      }
+    },
+    {
+      "id": "a11-split-drops-detail",
+      "note": "The March expiry is in no piece.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Two things: renew my passport (it expires in March) and ask Ben about the flat in Lisbon",
+        "storedText": "Two things: renew my passport (it expires in March) and ask Ben about the flat in Lisbon",
+        "names": [{ "ref": "n1", "surface": "Ben" }, { "ref": "n2", "surface": "Lisbon" }],
+        "dates": [],
+        "pieces": [
+          { "ref": "p1", "text": "Renew my passport" },
+          { "ref": "p2", "text": "Ask Ben about the flat in Lisbon" }
+        ]
+      },
+      "expected": {
+        "name:n1": "right",
+        "name:n2": "right",
+        "missing_names": "none_missing",
+        "piece:p1": "right",
+        "piece:p2": "right",
+        "pieces_cover": "wrong"
+      }
+    },
+    {
+      "id": "a12-signoff-piece",
+      "note": "'Thanks,' split off as its own thought.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Hi! Please remember that the wifi password for the cabin is on the fridge. Thanks,",
+        "storedText": "Hi! Please remember that the wifi password for the cabin is on the fridge. Thanks,",
+        "names": [],
+        "dates": [],
+        "pieces": [
+          { "ref": "p1", "text": "The wifi password for the cabin is on the fridge" },
+          { "ref": "p2", "text": "Thanks," }
+        ]
+      },
+      "expected": { "missing_names": "none_missing", "piece:p1": "right", "piece:p2": "wrong", "pieces_cover": "right" }
+    },
+    {
+      "id": "a13-wording-stronger-claim",
+      "note": "'might be allergic' stored as a fact.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "I think I might be allergic to cashews",
+        "storedText": "I am allergic to cashews.",
+        "names": [],
+        "dates": [],
+        "pieces": []
+      },
+      "expected": { "wording": "wrong", "missing_names": "none_missing" }
+    },
+    {
+      "id": "a14-recurring-right",
+      "note": "Recurring time stored as recurring.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Yoga every Tuesday at 7pm at Studio Nord",
+        "storedText": "Yoga every Tuesday at 7pm at Studio Nord",
+        "names": [{ "ref": "n1", "surface": "Studio Nord" }],
+        "dates": [{ "ref": "d1", "event": "Yoga at Studio Nord", "when": "every Tuesday, 19:00" }],
+        "pieces": []
+      },
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "right" }
+    },
+    {
+      "id": "a15-date-not-in-capture",
+      "note": "The capture gives no time for the board meeting.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Need to finish the slides for the board meeting",
+        "storedText": "Need to finish the slides for the board meeting",
+        "names": [],
+        "dates": [{ "ref": "d1", "event": "Board meeting", "when": "Friday 30 October 2026" }],
+        "pieces": []
+      },
+      "expected": { "missing_names": "none_missing", "date:d1": "wrong" }
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "kind": "capture_reason",
+  "cases": [
+    {
+      "id": "r01-category-idea",
+      "input": { "rawText": "Idea: a podcast about old maps", "storedSummary": "Saved as a task", "reason": "this is an idea, not a todo" },
+      "expected": { "reason": "wrong_category" }
+    },
+    {
+      "id": "r02-wrong-day",
+      "input": { "rawText": "Call Mom on Friday", "storedSummary": "Saved as a task · about Mom · due Thu 29 Oct", "reason": "wrong day, I said friday" },
+      "expected": { "reason": "wrong_date" }
+    },
+    {
+      "id": "r03-missing-person",
+      "input": { "rawText": "Dinner with Anna and Ben on Saturday", "storedSummary": "Saved as an event · with Anna · Sat 31 Oct", "reason": "Ben is missing" },
+      "expected": { "reason": "wrong_name" }
+    },
+    {
+      "id": "r04-wrong-anna",
+      "input": { "rawText": "Anna's birthday is on the 12th", "storedSummary": "Saved as a note · about Anna Schmidt (colleague)", "reason": "that's my sister Anna, not the one from work" },
+      "expected": { "reason": "wrong_link" }
+    },
+    {
+      "id": "r05-maybe-dropped",
+      "input": { "rawText": "maybe try the new ramen place", "storedSummary": "Saved as a task: Try the new ramen place", "reason": "I said maybe, now it sounds like I have to" },
+      "expected": { "reason": "wording_changed" }
+    },
+    {
+      "id": "r06-overs-split",
+      "input": { "rawText": "Buy milk, eggs and bread", "storedSummary": "Saved as 3 tasks", "reason": "should be one shopping list, not three tasks" },
+      "expected": { "reason": "split_wrong" }
+    },
+    {
+      "id": "r07-budget-lost",
+      "input": { "rawText": "Book the hotel in Porto, budget max 120 a night", "storedSummary": "Saved as a task: Book the hotel in Porto", "reason": "the budget is gone" },
+      "expected": { "reason": "something_missing" }
+    },
+    {
+      "id": "r08-not-worth-keeping",
+      "input": { "rawText": "lol", "storedSummary": "Saved as a note", "reason": "this shouldn't have been saved at all" },
+      "expected": { "reason": "not_worth_keeping" }
+    },
+    {
+      "id": "r09-german-wrong-oma",
+      "input": { "rawText": "Morgen Oma anrufen", "storedSummary": "Gespeichert als Aufgabe · über Oma Ilse · fällig Mi 28. Okt", "reason": "falsche Oma, ich meinte Oma Gerda" },
+      "expected": { "reason": "wrong_link" }
+    },
+    {
+      "id": "r10-german-category",
+      "input": { "rawText": "Idee: Kräutergarten auf dem Balkon", "storedSummary": "Gespeichert als Aufgabe", "reason": "Das ist eine Idee, keine Aufgabe" },
+      "expected": { "reason": "wrong_category" }
+    },
+    {
+      "id": "r11-vague",
+      "input": { "rawText": "Pick up the dry cleaning", "storedSummary": "Saved as a task", "reason": "bad" },
+      "expected": { "reason": "other" }
+    },
+    {
+      "id": "r12-wrong-time",
+      "input": { "rawText": "Meeting with Priya moved to 3pm", "storedSummary": "Saved as an event · with Priya · today 13:00", "reason": "time is wrong" },
+      "expected": { "reason": "wrong_date" }
+    },
+    {
+      "id": "r13-detail-dropped",
+      "input": { "rawText": "Remember: Jonas owes me 20 euros for the concert tickets", "storedSummary": "Saved as a note · about Jonas: Jonas owes me 20 euros", "reason": "you dropped that it's for the concert tickets" },
+      "expected": { "reason": "something_missing" }
+    }
+  ]
+}
