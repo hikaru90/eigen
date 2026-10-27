@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isolatedGitEnv } from './isolated-git-env.mjs'
 import {
   OSS_FORBIDDEN_KEY_PATTERNS,
   OSS_OPERATOR_SECRET_KEYS,
@@ -24,7 +25,11 @@ function fail(message) {
 
 function readTrackedFiles() {
   try {
-    return execFileSync('git', ['ls-files', '-z'], { cwd: repoRoot, encoding: 'utf8' })
+    return execFileSync('git', ['ls-files', '-z'], {
+      cwd: repoRoot,
+      env: isolatedGitEnv(),
+      encoding: 'utf8',
+    })
       .split('\0')
       .filter(Boolean)
   } catch {

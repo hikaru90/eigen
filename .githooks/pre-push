@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# git exports GIT_DIR & co. to hooks; unset them so tests running `git init` in temp dirs cannot act on this repo.
+for git_var in $(compgen -e | grep '^GIT_[A-Za-z0-9_]*$' || true); do
+  unset "$git_var"
+done
+
 echo "pre-push: running local CI gate (npm run ci:local) …"
 npm run ci:local

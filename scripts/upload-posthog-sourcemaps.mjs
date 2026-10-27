@@ -8,12 +8,17 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isolatedGitEnv } from './isolated-git-env.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 function gitHead() {
   try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8', cwd: repoRoot }).trim()
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      cwd: repoRoot,
+      env: isolatedGitEnv(),
+    }).trim()
   } catch {
     return null
   }

@@ -23,6 +23,7 @@ import { z } from 'zod'
 import { PUBLIC_BENCH_OPERATOR_USER_ID } from '$lib/server/auth/harness-billing'
 import { createEvalLlmCache, withEvalLlmCache } from '$lib/server/llm/eval-llm-cache'
 import type { RetrievalContextItem } from '$lib/server/qa/compose-answer'
+import { isolatedGitEnv } from '../../scripts/isolated-git-env.mjs'
 import { mapWithConcurrency } from '../harness/concurrency'
 import { createCallAccounting, killSelf, resolveCrashSpec } from '../harness/crash-hook'
 import { logEval, runEval, withEvalDb } from '../harness/eval-context'
@@ -103,7 +104,8 @@ function parseRows<T>(label: string, rows: Record<string, unknown>[], schema: z.
 }
 
 function gitState(): { sha: string; dirty: boolean } {
-  const git = (args: string[]) => execFileSync('git', args, { encoding: 'utf8' }).trim()
+  const git = (args: string[]) =>
+    execFileSync('git', args, { encoding: 'utf8', env: isolatedGitEnv() }).trim()
   return { sha: git(['rev-parse', 'HEAD']), dirty: git(['status', '--porcelain']).length > 0 }
 }
 

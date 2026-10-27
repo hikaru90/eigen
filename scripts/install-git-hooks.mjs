@@ -3,6 +3,7 @@ import { execSync } from 'node:child_process'
 import { chmodSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isolatedGitEnv } from './isolated-git-env.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const hooksDir = join(root, '.githooks')
@@ -18,6 +19,7 @@ chmodSync(prePush, 0o755)
 try {
   const current = execSync('git config --get core.hooksPath', {
     cwd: root,
+    env: isolatedGitEnv(),
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
   }).trim()
@@ -28,5 +30,9 @@ try {
   // not set
 }
 
-execSync('git config core.hooksPath .githooks', { cwd: root, stdio: 'inherit' })
+execSync('git config core.hooksPath .githooks', {
+  cwd: root,
+  env: isolatedGitEnv(),
+  stdio: 'inherit',
+})
 console.info('[install-git-hooks] core.hooksPath → .githooks')

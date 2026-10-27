@@ -46,6 +46,8 @@ npm run ci:local           # same gate as CI unit job (lint → naming → check
 
 Before `git push`, run `npm run ci:local` (or rely on the `.githooks/pre-push` hook installed by `npm install` / `prepare`). To install hooks manually: `node scripts/install-git-hooks.mjs`.
 
+**Tests and scripts that spawn `git` must not inherit `GIT_*`.** Git exports `GIT_DIR` (and `GIT_INDEX_FILE`, `GIT_WORK_TREE`, …) to hooks, so a `git init` / `git add .` in a temp dir during a push from a linked worktree acts on the real repository (it once wrote `core.bare = true` into the shared config and staged deletions of every tracked file). The pre-push hook unsets them, and every `git` child process passes `env: isolatedGitEnv()` from `scripts/isolated-git-env.mjs`.
+
 Run a slice while fixing:
 
 ```bash
