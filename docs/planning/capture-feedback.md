@@ -210,10 +210,16 @@ in the user's own tenant.
     `pending_audit`, and its final write only applies while the review still carries the parts it
     started from. A final failure sets `audit_failed` with `audit_error` drawn from a closed set of
     sentences (failing step plus attempt count), never from an error message.
-  - **Names** come from `entity_resolution_log.mention_surface` (rewritten on every enrichment, so it
-    mirrors the latest extraction). Known gap: mentions typed `project` leave no log row, so a
-    project name in the capture is not in the list and can raise `something_missing`. C5 shows
-    whether that matters.
+  - **Names** are the `entity_resolution_log.mention_surface` rows (rewritten on every enrichment,
+    so they mirror the latest extraction) plus the canonical labels of the project entities the
+    thought is linked to (`thought_entity` to a `canonical_entity` of type `project` or a GTD
+    project, any link source), distinct by the same trimmed string, surfaces first. A mention
+    typed `project` leaves no log row, so the link is what puts the project name in the list.
+    Deterministic only: nothing is matched against the capture text. Known gaps: a project the
+    capture names but that is not linked (a non-task capture the enrich LLM did not put on a
+    thread) is still absent and can raise `something_missing`; a thread the LLM assigned without
+    the capture naming it is listed and Jev may call it `wrong`. The root fix would be a
+    resolution-log row for project mentions in `entity-graph-sync`; C5 shows whether it matters.
   - **Pieces** come from the parent's `metadata.splitInto` (the multi-task fan-out marker, written
     before the children exist); a child (`metadata.splitFrom`) gets none.
   - **Dates.** `day` is the start day of `active_period` in the event's own time zone. `detail`
@@ -225,6 +231,12 @@ in the user's own tenant.
     extraction (it falls back to `TEMPORAL_ANCHOR_TZ`, then Europe/Berlin, as enrichment does).
   - **Audit logging.** New decision kind `capture_audit` and surface `capture_review`. The ticker only
     drains production tenants, so audits of harness tenants wait until a user drain is run.
+  - **Smoke.** `npm run capture-review:smoke` (`evals/capture-review/`, operator-run, live) captures
+    the 7 examples of `smoke.json` into the harness tenant `capture-review-smoke` (billed to the
+    public-bench operator wallet; the exact id is registered in `harness-billing.ts`), drains the
+    enrichment and then the tenant's job queue after each capture, and prints per capture and
+    split child the text, category, review status, score, parts and audit input, then totals.
+    `--keep` skips the tenant reset. Exit 1 when any review is not `scored`.
 - **C2 — the vote:** the shared 👍/👎 component in `capture-kept.svelte` and
   `mesh/thought-inline-editor.svelte`, the vote endpoint, reason → edit, reason label.
 - **C3 — MCP tools.**

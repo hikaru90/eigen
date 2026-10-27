@@ -11,8 +11,15 @@ export const LONGMEMEVAL_OPERATOR_USER_ID = 'longmemeval-runner'
 export const PUBLIC_BENCH_OPERATOR_USER_ID = 'public-bench-runner'
 
 /**
+ * Dedicated tenant of `npm run capture-review:smoke` (evals/capture-review): a harness tenant that
+ * captures a few real-shaped thoughts so the capture review can be read end to end. Matched by its
+ * exact id, funded by the public-bench operator wallet.
+ */
+export const CAPTURE_REVIEW_SMOKE_TENANT_ID = 'capture-review-smoke'
+
+/**
  * Map harness corpus tenant ids to the operator wallet that funds LLM usage.
- * Id-prefix rules only — not semantic classification.
+ * Id rules only (prefixes and one exact tenant id) — not semantic classification.
  */
 export function resolveHarnessBillingUserId(tenantUserId: string): string | undefined {
   const id = tenantUserId.trim()
@@ -36,7 +43,7 @@ export function resolveHarnessBillingUserId(tenantUserId: string): string | unde
   if (id.startsWith('longmemeval-corpus-')) {
     return LONGMEMEVAL_OPERATOR_USER_ID
   }
-  if (id.startsWith('public-bench-')) {
+  if (id.startsWith('public-bench-') || id === CAPTURE_REVIEW_SMOKE_TENANT_ID) {
     return PUBLIC_BENCH_OPERATOR_USER_ID
   }
   return undefined
