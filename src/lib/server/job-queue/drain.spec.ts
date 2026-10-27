@@ -1,17 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { WEBHOOK_DELIVERY_JOB } from './constants'
+import { CAPTURE_REVIEW_AUDIT_JOB, WEBHOOK_DELIVERY_JOB } from './constants'
 
 const {
   withDbUserMock,
   processWebhookDeliveryJobMock,
   processOvernightMock,
   processOnboardingMock,
+  processCaptureReviewAuditMock,
   createAdminSqlMock,
 } = vi.hoisted(() => ({
   withDbUserMock: vi.fn(async (_userId: string, fn: () => Promise<unknown>) => fn()),
   processWebhookDeliveryJobMock: vi.fn(async () => undefined),
   processOvernightMock: vi.fn(async () => undefined),
   processOnboardingMock: vi.fn(async () => undefined),
+  processCaptureReviewAuditMock: vi.fn(async (_job: unknown) => undefined),
   createAdminSqlMock: vi.fn(),
 }))
 
@@ -39,6 +41,10 @@ vi.mock('./process-overnight', () => ({
 
 vi.mock('$lib/server/grounding/onboarding-welcome-push', () => ({
   processOnboardingGroundingPushJob: processOnboardingMock,
+}))
+
+vi.mock('$lib/server/capture-review/audit-job', () => ({
+  processCaptureReviewAuditJob: processCaptureReviewAuditMock,
 }))
 
 vi.mock('./admin-db', () => ({
@@ -115,5 +121,72 @@ describe('drainUserJobQueue DB context', () => {
     expect(result.completed).toBe(1)
     expect(withDbUserMock).toHaveBeenCalledWith('user-webhook', expect.any(Function))
     expect(processWebhookDeliveryJobMock).toHaveBeenCalled()
+  })
+})
+
+describe('drainUserJobQueue capture_review_audit dispatch', () => {
+  function claimedAuditRow(overrides: { attempt_count: number; max_attempts: number }) {
+    return {
+      ...claimedWebhookRow('user-audit'),
+      job_type: CAPTURE_REVIEW_AUDIT_JOB,
+      payload: { thoughtId: 't1' },
+      ...overrides,
+    }
+  }
+
+  function claim(row: ReturnType<typeof claimedAuditRow>) {
+    const tx = vi.fn(async () => [row])
+    createAdminSqlMock.mockReturnValue({
+      begin: async (fn: (sql: typeof tx) => Promise<unknown>) => fn(tx),
+      end: vi.fn(async () => undefined),
+    })
+  }
+
+  beforeEach(() => {
+    processCaptureReviewAuditMock.mockReset()
+    processCaptureReviewAuditMock.mockResolvedValue(undefined)
+    withDbUserMock.mockClear()
+    createAdminSqlMock.mockReset()
+  })
+
+  it('hands the claimed job to the audit handler inside the tenant context', async () => {
+    claim(claimedAuditRow({ attempt_count: 0, max_attempts: 4 }))
+
+    const result = await drainUserJobQueue({ userId: 'user-audit', productionOnly: false })
+
+    expect(result).toEqual({ claimed: 1, completed: 1, failed: 0 })
+    expect(withDbUserMock).toHaveBeenCalledWith('user-audit', expect.any(Function))
+    expect(processCaptureReviewAuditMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'job-1',
+        userId: 'user-audit',
+        jobType: CAPTURE_REVIEW_AUDIT_JOB,
+        payload: { thoughtId: 't1' },
+        // the claim counts this try: attempt_count 0 becomes 1 of 4
+        attemptCount: 1,
+        maxAttempts: 4,
+      }),
+    )
+  })
+
+  it('requeues a failed audit while attempts remain, and gives it up on the last one', async () => {
+    processCaptureReviewAuditMock.mockRejectedValue(new Error('audit failed'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    claim(claimedAuditRow({ attempt_count: 1, max_attempts: 4 }))
+    expect(await drainUserJobQueue({ userId: 'user-audit', productionOnly: false })).toEqual({
+      claimed: 1,
+      completed: 0,
+      failed: 0,
+    })
+
+    // the 4th and last try (attempt_count 3 + this claim = 4 of 4)
+    claim(claimedAuditRow({ attempt_count: 3, max_attempts: 4 }))
+    expect(await drainUserJobQueue({ userId: 'user-audit', productionOnly: false })).toEqual({
+      claimed: 1,
+      completed: 0,
+      failed: 1,
+    })
+    errorSpy.mockRestore()
   })
 })

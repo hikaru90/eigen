@@ -2,6 +2,11 @@
  * Tier 2: enrich a queued thought row in place using full user context.
  */
 import { and, eq, sql } from 'drizzle-orm'
+import {
+  withDecisionRecorder,
+  type RecordedDecision,
+} from '$lib/server/capture-review/decision-recorder'
+import { recordCaptureReview } from '$lib/server/capture-review/record-review'
 import { applyCaptureContentSplitIfNeeded } from '$lib/server/capture/apply-capture-content-split'
 import { enrichThought, type EnrichThoughtOptions } from '$lib/server/capture/enrich'
 import { drainCaptureEnrichQueue } from '$lib/server/capture/enrich-queue-drain'
@@ -235,7 +240,9 @@ export async function enrichQueuedThought(
   const time = ingestTimer.time.bind(ingestTimer)
 
   try {
-    await runIngestWithRetries(async () => {
+    // One enrichment attempt. The decision plane tells the recorder about every enforced Jev
+    // answer while it runs (see `runAttempt`'s caller below).
+    const runAttempt = async (): Promise<void> => {
       if (isGraphScaleQuiet()) {
         console.info('[graph-scale] enrich pipeline start', { userId, thoughtId })
       }
@@ -453,6 +460,13 @@ export async function enrichQueuedThought(
       if (!enrichedRow?.enrichedAt) {
         throw new Error('Enrichment finished without setting enriched_at')
       }
+    }
+
+    // Each attempt gets its own recorder, so decisions of a failed attempt never reach the review:
+    // only what the attempt that succeeded decided is kept.
+    let reviewDecisions: RecordedDecision[] = []
+    await runIngestWithRetries(async () => {
+      reviewDecisions = (await withDecisionRecorder(runAttempt)).decisions
     })
 
     await markEnrichQueueComplete(thoughtId)
@@ -487,6 +501,16 @@ export async function enrichQueuedThought(
       thoughtId,
       timing: ingestTimer.finish(),
     })
+
+    // Capture review (docs/planning/capture-feedback.md §3): record Jev's confidence for this
+    // capture and queue the audit of what the chat model wrote. The enrichment result above is
+    // already persisted, so this step has its own ingest retry ladder (up to 3 retries of only the
+    // review write and the enqueue, never a re-run of the enrichment). If it still fails the error
+    // is not swallowed: it falls into the catch below, which logs it and marks the queue row failed
+    // with the explicit message; a user-initiated retry then enriches again and records the review.
+    await runIngestWithRetries(() =>
+      recordCaptureReview({ userId, thoughtId, decisions: reviewDecisions }),
+    )
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (!isGraphScaleQuiet()) {

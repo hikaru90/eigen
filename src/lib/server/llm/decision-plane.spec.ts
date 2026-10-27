@@ -1,7 +1,9 @@
 import type { DecisionShadowConfig } from './decision-client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { withDecisionRecorder } from '$lib/server/capture-review/decision-recorder'
 import {
   dominantEntityType,
+  runCaptureAudit,
   runEnforcedBoundedDecisions,
   runEnforcedPerItemDecisions,
   startContentRoleDecision,
@@ -999,5 +1001,389 @@ describe('surface + kind widening (resolution, delete_gate, chat_turn)', () => {
     expect(row.surface).toBe('chat_turn')
     expect(row.decisionChoice).toBe('core')
     expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('capture review recording (enforced outcomes reach the decision recorder)', () => {
+  const ENFORCED = new Set(['category', 'content_role', 'entity_type'] as const)
+
+  it('records the early content_role answer with the kind name as its ref', async () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        content_role: { choice: 'split', probabilities: { split: 0.9, thought_only: 0.1 } },
+      }),
+    )
+    const { decisions } = await withDecisionRecorder(async () => {
+      await startContentRoleDecision({ userId: 'user-1', state: 'recipe text' })!.decide()
+    })
+    expect(decisions).toEqual([
+      { kind: 'content_role', ref: 'content_role', choice: 'split', probability: 0.9 },
+    ])
+  })
+
+  it('records nothing for a content_role call that failed or answered off-catalog', async () => {
+    resolveEnforceMock.mockReturnValue(ENFORCED)
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValueOnce(
+      choiceAnswers({
+        content_role: { choice: 'both_somehow', probabilities: { both_somehow: 1 } },
+      }),
+    )
+    const offCatalog = await withDecisionRecorder(async () => {
+      await startContentRoleDecision({ userId: 'user-1', state: 'x' })!
+        .decide()
+        .catch(() => undefined)
+    })
+    expect(offCatalog.decisions).toEqual([])
+
+    runDecisionMock.mockRejectedValueOnce(new Error('502'))
+    const failed = await withDecisionRecorder(async () => {
+      await startContentRoleDecision({ userId: 'user-1', state: 'x' })!
+        .decide()
+        .catch(() => undefined)
+    })
+    expect(failed.decisions).toEqual([])
+  })
+
+  it('records the enforced category at settle, and does not re-record the early content_role', async () => {
+    resolveEnforceMock.mockReturnValue(new Set(['category', 'content_role'] as const))
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(allAnswersResponse())
+    const { decisions } = await withDecisionRecorder(async () => {
+      const settle = startDecisionShadow(
+        makeEnrichContext({
+          enforcedContentRole: {
+            mode: 'thought_only',
+            probability: 0.8,
+            alternatives: { split: 0.2 },
+            durationMs: 1,
+          },
+        }),
+      )
+      await settle!(enrichPrimaries())
+    })
+    expect(decisions).toEqual([
+      { kind: 'category', ref: 'category', choice: 'task', probability: 0.51 },
+    ])
+  })
+
+  it('records no category when category is only a shadow (the chat judge decides)', async () => {
+    resolveEnforceMock.mockReturnValue(new Set())
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(allAnswersResponse())
+    const { decisions } = await withDecisionRecorder(async () => {
+      await startDecisionShadow(makeEnrichContext())!(enrichPrimaries())
+    })
+    expect(decisions).toEqual([])
+  })
+
+  it('records every per-item answer under its item ref and kind', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        'temporal_kind:t1': { choice: 'deadline', probabilities: { deadline: 0.7, reminder: 0.3 } },
+        'temporal_kind:t2': {
+          choice: 'reminder',
+          probabilities: { reminder: 0.95, deadline: 0.05 },
+        },
+      }),
+    )
+    const { decisions } = await withDecisionRecorder(async () => {
+      await runEnforcedPerItemDecisions({
+        userId: 'user-1',
+        surface: 'enrich_queued',
+        kind: 'temporal_kind',
+        state: 'Pay rent by Friday, remind me Monday',
+        criteria: { deadline: 'd', reminder: 'r' },
+        items: [
+          { ref: 't1', instructions: 'Kind of "by Friday"', llmChoice: 'deadline' },
+          { ref: 't2', instructions: 'Kind of "Monday"', llmChoice: null },
+        ],
+      })
+    })
+    expect(decisions).toEqual([
+      { kind: 'temporal_kind', ref: 't1', choice: 'deadline', probability: 0.7 },
+      { kind: 'temporal_kind', ref: 't2', choice: 'reminder', probability: 0.95 },
+    ])
+  })
+
+  it('records nothing for a failed per-item call and never the off-catalog item', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValueOnce(
+      choiceAnswers({
+        'entity_type:m1': { choice: 'person', probabilities: { person: 0.9 } },
+        'entity_type:m2': { choice: 'made_up', probabilities: { made_up: 1 } },
+      }),
+    )
+    const input = {
+      userId: 'user-1',
+      surface: 'enrich_queued' as const,
+      kind: 'entity_type' as const,
+      state: 'x',
+      criteria: { person: 'p', technology: 't' },
+      items: [
+        { ref: 'm1', instructions: 'a', llmChoice: null },
+        { ref: 'm2', instructions: 'b', llmChoice: null },
+      ],
+    }
+    // The off-catalog item is never recorded (the throw then discards the whole attempt).
+    const offCatalog = await withDecisionRecorder(async () => {
+      await runEnforcedPerItemDecisions(input).catch(() => undefined)
+    })
+    expect(offCatalog.decisions.filter((d) => d.ref === 'm2')).toEqual([])
+
+    runDecisionMock.mockRejectedValueOnce(new Error('timeout'))
+    const failed = await withDecisionRecorder(async () => {
+      await runEnforcedPerItemDecisions(input).catch(() => undefined)
+    })
+    expect(failed.decisions).toEqual([])
+  })
+
+  it('records every bounded answer under its decision kind and spec id', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        open_loop: { choice: 'actionable', probabilities: { actionable: 0.77, closed: 0.23 } },
+        duration_unit: { choice: 'days', probabilities: { days: 0.6, weeks: 0.4 } },
+      }),
+    )
+    const spec = (
+      decisionKind: 'open_loop' | 'duration_unit',
+      id: string,
+      criteria: Record<string, string>,
+    ) => ({
+      decisionKind,
+      id,
+      question: { type: 'choice' as const, instructions: 'q', criteria },
+      llmChoice: null,
+    })
+    const { decisions } = await withDecisionRecorder(async () => {
+      await runEnforcedBoundedDecisions({
+        userId: 'user-1',
+        surface: 'enrich_queued',
+        state: 'x',
+        specs: [
+          spec('open_loop', 'open_loop', { actionable: 'a', closed: 'c' }),
+          spec('duration_unit', 'duration_unit', { days: 'd', weeks: 'w' }),
+        ],
+      })
+    })
+    expect(decisions).toEqual([
+      { kind: 'open_loop', ref: 'open_loop', choice: 'actionable', probability: 0.77 },
+      { kind: 'duration_unit', ref: 'duration_unit', choice: 'days', probability: 0.6 },
+    ])
+  })
+
+  it('runs unchanged without a recorder scope (every other caller of the plane)', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({ 'entity_type:m1': { choice: 'person', probabilities: { person: 0.9 } } }),
+    )
+    const answers = await runEnforcedPerItemDecisions({
+      userId: 'user-1',
+      surface: 'enrich_queued',
+      kind: 'entity_type',
+      state: 'x',
+      criteria: { person: 'p' },
+      items: [{ ref: 'm1', instructions: 'a', llmChoice: null }],
+    })
+    expect(answers.get('m1')?.choice).toBe('person')
+  })
+})
+
+describe('runCaptureAudit', () => {
+  const request = {
+    state:
+      'Captured on Wednesday 4 November 2026 at 09:15 (Europe/Berlin).\nThe user wrote: Dentist Friday, ask Anna',
+    questions: {
+      wording: {
+        type: 'choice' as const,
+        instructions:
+          'Eigen stored: Dentist Friday, ask Anna. Does the stored wording say what the user wrote?',
+        criteria: { right: 'Same meaning.', wrong: 'Changed meaning.' },
+      },
+      'name:n1': {
+        type: 'choice' as const,
+        instructions:
+          'Eigen found the name "Anna" in the capture. Does the capture mention "Anna"?',
+        criteria: { right: 'Mentioned.', wrong: 'Not mentioned.' },
+      },
+      missing_names: {
+        type: 'choice' as const,
+        instructions: 'Is a name missing from "Anna"?',
+        criteria: { none_missing: 'None.', something_missing: 'Something.' },
+      },
+    },
+  }
+
+  function auditAnswers() {
+    return choiceAnswers({
+      wording: { choice: 'right', probabilities: { right: 0.96, wrong: 0.04 } },
+      'name:n1': { choice: 'right', probabilities: { right: 0.99, wrong: 0.01 } },
+      missing_names: {
+        choice: 'something_missing',
+        probabilities: { none_missing: 0.31, something_missing: 0.69 },
+      },
+    })
+  }
+
+  it('asks Jev the request as built, in ONE call, and returns every answer by question id', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(auditAnswers())
+
+    const answers = await runCaptureAudit({ userId: 'user-1', request })
+
+    expect(runDecisionMock).toHaveBeenCalledTimes(1)
+    expect(runDecisionMock.mock.calls[0][0]).toEqual(config)
+    expect(runDecisionMock.mock.calls[0][1]).toBe(request)
+    expect([...answers.keys()]).toEqual(['wording', 'name:n1', 'missing_names'])
+    expect(answers.get('missing_names')).toMatchObject({
+      choice: 'something_missing',
+      probabilities: { none_missing: 0.31, something_missing: 0.69 },
+    })
+  })
+
+  it('is not gated by DECISION_ENFORCE_KINDS (Jev is the only auditor)', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    resolveEnforceMock.mockReturnValue(new Set())
+    runDecisionMock.mockResolvedValue(auditAnswers())
+    await expect(runCaptureAudit({ userId: 'user-1', request })).resolves.toBeInstanceOf(Map)
+  })
+
+  it('writes one decision_shadow_log row per question: question id as the subject, no text', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(auditAnswers())
+
+    await runCaptureAudit({ userId: 'user-1', request })
+
+    const rows = insertedRows()
+    expect(rows.map((r) => r.subjectRef)).toEqual(['wording', 'name:n1', 'missing_names'])
+    expect(rows[2]).toMatchObject({
+      userId: 'user-1',
+      surface: 'capture_review',
+      decisionKind: 'capture_audit',
+      subjectRef: 'missing_names',
+      llmChoice: null,
+      llmConfidence: null,
+      decisionChoice: 'something_missing',
+      decisionProbability: 0.69,
+      decisionAlternatives: { none_missing: 0.31 },
+      agree: null,
+      decisionError: null,
+      authoritativeEngine: 'decision_model',
+    })
+    const logged = JSON.stringify(rows)
+    expect(logged).not.toContain('Anna')
+    expect(logged).not.toContain('Dentist')
+    expect(logged).not.toContain('Eigen found')
+  })
+
+  it('logs exactly one activity row for the call, with the provider-reported cost', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(auditAnswers())
+
+    await runCaptureAudit({ userId: 'user-1', request })
+
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+    expect(logActivityCallMock.mock.calls[0][1]).toBe('user-1')
+    expect(logActivityCallMock.mock.calls[0][2]).toMatchObject({
+      provider: 'openrouter',
+      operation: 'decision_shadow',
+      baseCostUsd: 0.0000421,
+      gatewayHost: 'openrouter.ai',
+      context: 'decision_shadow kinds=capture_audit items=3 surface=capture_review',
+      cached: false,
+    })
+    expect(JSON.stringify(logActivityCallMock.mock.calls[0][2])).not.toContain('Anna')
+  })
+
+  it('throws before any call, row or activity when the decision-model config is unavailable', async () => {
+    resolveConfigMock.mockReturnValue(null)
+
+    await expect(runCaptureAudit({ userId: 'user-1', request })).rejects.toThrow(
+      /capture audit requires DECISION_SHADOW_ENABLED/,
+    )
+    expect(runDecisionMock).not.toHaveBeenCalled()
+    expect(dbMocks.insertValues).not.toHaveBeenCalled()
+    expect(logActivityCallMock).not.toHaveBeenCalled()
+  })
+
+  it('throws when there is nothing to ask', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    await expect(
+      runCaptureAudit({ userId: 'user-1', request: { state: 'x', questions: {} } }),
+    ).rejects.toThrow(/at least one question/)
+    expect(runDecisionMock).not.toHaveBeenCalled()
+  })
+
+  it('writes an error row per question and the activity row, then throws, when the call fails', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockRejectedValue(new Error('502 bad gateway'))
+
+    await expect(runCaptureAudit({ userId: 'user-1', request })).rejects.toThrow(
+      /capture audit failed.*502/s,
+    )
+
+    const rows = insertedRows()
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      expect(row).toMatchObject({
+        decisionKind: 'capture_audit',
+        decisionChoice: null,
+        decisionError: expect.stringContaining('502'),
+      })
+    }
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("writes every row, then throws, when an answer is off the question's own catalog", async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        wording: { choice: 'right', probabilities: { right: 0.9 } },
+        'name:n1': { choice: 'right', probabilities: { right: 0.9 } },
+        // "right" is a valid key for the other questions, but not for missing_names.
+        missing_names: { choice: 'right', probabilities: { right: 0.9 } },
+      }),
+    )
+
+    await expect(runCaptureAudit({ userId: 'user-1', request })).rejects.toThrow(
+      /missing_names.*off-catalog choice "right"/,
+    )
+
+    const rows = insertedRows()
+    expect(rows).toHaveLength(3)
+    expect(rows[2]).toMatchObject({ subjectRef: 'missing_names', decisionChoice: null })
+    expect(rows[2].decisionError).toMatch(/off-catalog/)
+    expect(rows[0]).toMatchObject({
+      subjectRef: 'wording',
+      decisionChoice: 'right',
+      decisionError: null,
+    })
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('throws when Jev left a question unanswered', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        wording: { choice: 'right', probabilities: { right: 0.9 } },
+        'name:n1': { choice: 'right', probabilities: { right: 0.9 } },
+      }),
+    )
+
+    await expect(runCaptureAudit({ userId: 'user-1', request })).rejects.toThrow(
+      /no answer for question "missing_names"/,
+    )
+    expect(insertedRows()).toHaveLength(3)
+  })
+
+  it('carries the cached flag into the activity row', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue({ ...auditAnswers(), reportedCostUsd: 0, cached: true })
+    await runCaptureAudit({ userId: 'user-1', request })
+    expect(logActivityCallMock.mock.calls[0][2]).toMatchObject({ baseCostUsd: 0, cached: true })
   })
 })

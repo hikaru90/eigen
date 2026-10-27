@@ -601,6 +601,68 @@ export const decisionShadowLog = pgTable(
 
 export type DecisionShadowLog = InferSelectModel<typeof decisionShadowLog>
 
+export const captureReviewStatusEnum = ['pending_audit', 'scored', 'audit_failed'] as const
+export type CaptureReviewStatus = (typeof captureReviewStatusEnum)[number]
+
+export const captureReviewVerdictEnum = ['up', 'down'] as const
+export type CaptureReviewVerdict = (typeof captureReviewVerdictEnum)[number]
+
+/** Where the owner voted: right after capture (`capture`) or on the Mesh thought row (`mesh`). */
+export const captureReviewVotedOnEnum = ['capture', 'mesh'] as const
+export type CaptureReviewVotedOn = (typeof captureReviewVotedOnEnum)[number]
+
+/**
+ * One part of a capture review. Holds NO user text: `ref` is a decision item ref (`m1`, `t2`) or an
+ * audit question id (`name:n1`, `wording`), `label` a closed value (ontology or criteria key).
+ * Validated by `captureReviewPartSchema` in `$lib/server/capture-review/review-parts`.
+ */
+export type CaptureReviewPartRecord = {
+  part: string
+  ref: string
+  engine: 'jev_decision' | 'jev_audit'
+  label: string
+  probability: number
+}
+
+/**
+ * Per-capture review (docs/planning/capture-feedback.md): how sure Eigen is that it stored the
+ * capture right. Written at the end of enrichment (`pending_audit`), completed by the background
+ * audit job (`scored` / `audit_failed`). `score` is the weakest part. The owner's vote and reason
+ * columns are written by the vote endpoint (phase C2); the reason is tenant-encrypted like thought
+ * text and only `reason_kind` (a closed label) is ever aggregated.
+ */
+export const captureReview = pgTable(
+  'capture_review',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    thoughtId: uuid('thought_id')
+      .notNull()
+      .references(() => thought.id, { onDelete: 'cascade' }),
+    parts: jsonb('parts').$type<CaptureReviewPartRecord[]>().notNull().default([]),
+    score: real('score'),
+    status: text('status').$type<CaptureReviewStatus>().notNull(),
+    /** Text-free explanation when status is `audit_failed`. */
+    auditError: text('audit_error'),
+    verdict: text('verdict').$type<CaptureReviewVerdict>(),
+    votedAt: timestamp('voted_at', { withTimezone: true }),
+    votedOn: text('voted_on').$type<CaptureReviewVotedOn>(),
+    reasonEncrypted: text('reason_encrypted'),
+    reasonKind: text('reason_kind'),
+    editAppliedAt: timestamp('edit_applied_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    unique('capture_review_thought_uidx').on(t.thoughtId),
+    index('capture_review_user_idx').on(t.userId),
+  ],
+)
+
+export type CaptureReview = InferSelectModel<typeof captureReview>
+
 export const billingModeEnum = ['platform_credits', 'byok'] as const
 export type BillingMode = (typeof billingModeEnum)[number]
 
@@ -1559,6 +1621,7 @@ export const userJobTypeEnum = [
   'webhook_delivery',
   'onboarding_grounding_push',
   'erpnext_invoice_push',
+  'capture_review_audit',
 ] as const
 export type UserJobType = (typeof userJobTypeEnum)[number]
 
