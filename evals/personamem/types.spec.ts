@@ -61,16 +61,11 @@ describe('answerRowSchema', () => {
     ).toThrow()
   })
 
-  it('carries the best below-floor scores of an eigen row, null where nothing was dropped', () => {
-    const ok = answerRowSchema.parse({
-      ...base,
-      belowFloor: { thoughts: 0.19, notePassages: null },
-    })
-    expect(ok.belowFloor).toEqual({ thoughts: 0.19, notePassages: null })
-    expect(() => answerRowSchema.parse({ ...base, belowFloor: { thoughts: 0.19 } })).toThrow()
-    expect(() =>
-      answerRowSchema.parse({ ...base, belowFloor: { thoughts: 2, notePassages: null } }),
-    ).toThrow()
+  it('carries the best below-floor thought score of an eigen row, null where nothing was dropped', () => {
+    const ok = answerRowSchema.parse({ ...base, belowFloor: { thoughts: 0.19 } })
+    expect(ok.belowFloor).toEqual({ thoughts: 0.19 })
+    expect(() => answerRowSchema.parse({ ...base, belowFloor: {} })).toThrow()
+    expect(() => answerRowSchema.parse({ ...base, belowFloor: { thoughts: 2 } })).toThrow()
   })
 })
 

@@ -256,7 +256,7 @@ describe('buildSummary --evidence-only', () => {
     askTools: ['answer_question'],
     askAnsweredWithoutMemory: false,
     prefType: 'neutral',
-    belowFloor: { thoughts: 0.19, notePassages: null },
+    belowFloor: { thoughts: 0.19 },
     correctAnswer: 'Green tea',
     eigenLetter: 'A',
     noMemoryLetter: 'C',
@@ -324,7 +324,7 @@ describe('buildSummary --evidence-only', () => {
       .sections.find((s) => s.heading === 'Smoke: q1')!
       .lines!.join('\n')
     expect(hit).toContain(
-      'retrieval: 1 item(s) reached the chooser; best candidate under the 0.22 floor: thoughts 0.190, note passages none',
+      'retrieval: 1 item(s) reached the chooser; best candidate under the 0.22 floor: thoughts 0.190',
     )
   })
 
@@ -334,22 +334,22 @@ describe('buildSummary --evidence-only', () => {
         .sections.find((s) => s.heading === 'Smoke: q1')!
         .lines!.join('\n')
     const empty = { ...block, context: [], askAnsweredWithoutMemory: false }
-    expect(lines({ ...empty, belowFloor: { thoughts: 0.19, notePassages: 0.04 } })).toContain(
-      'retrieval: NOTHING reached the chooser; best candidate under the 0.22 floor: thoughts 0.190, note passages 0.040',
+    expect(lines({ ...empty, belowFloor: { thoughts: 0.19 } })).toContain(
+      'retrieval: NOTHING reached the chooser; best candidate under the 0.22 floor: thoughts 0.190',
     )
-    expect(lines({ ...empty, belowFloor: { thoughts: null, notePassages: null } })).toContain(
+    expect(lines({ ...empty, belowFloor: { thoughts: null } })).toContain(
       'retrieval: NOTHING reached the chooser and no candidate fell under the 0.22 floor either (no candidate at all)',
     )
   })
 
-  it('lists the misses with their pref_type, context size and below-floor scores', () => {
+  it('lists the misses with their pref_type, context size and below-floor score', () => {
     const miss: SmokeBlock = {
       ...block,
       questionId: 'q2',
       prefType: 'ask_to_forget',
       context: [],
       eigenLetter: 'B',
-      belowFloor: { thoughts: 0.18, notePassages: null },
+      belowFloor: { thoughts: 0.18 },
     }
     const summary = build([block, miss])
     const misses = summary.sections.find((s) => s.heading === 'Eigen misses (evidence-only)')!
@@ -358,9 +358,8 @@ describe('buildSummary --evidence-only', () => {
       'pref_type',
       'context items',
       'best under floor: thoughts',
-      'best under floor: note passages',
     ])
-    expect(misses.table!.rows).toEqual([['q2', 'ask_to_forget', 0, '0.180', 'none']])
+    expect(misses.table!.rows).toEqual([['q2', 'ask_to_forget', 0, '0.180']])
   })
 
   it('has no misses section when Eigen got every question right', () => {

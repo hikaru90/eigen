@@ -22,7 +22,7 @@ Required:
   --tenant-concurrency N    Personas processed side by side
   --enrich-concurrency N    Enrich workers within one persona (1 = strictly incremental, D6)
   --relevance-floor product|X
-                            Q&A relevance floor for thoughts and note passages: product = the constant real users
+                            Q&A relevance floor for thoughts: product = the constant real users
                             get (0.22), or an eval-only override X in [0, 1], e.g. 0.15 (harness tenants only)
   exactly one of:
     --personas N --seed S   Seeded sample of N personas

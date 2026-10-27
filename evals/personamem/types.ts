@@ -77,13 +77,12 @@ export const retrievedItemSchema = z
 export type RetrievedItem = z.infer<typeof retrievedItemSchema>
 
 /**
- * The best candidate scores (0..1) the Q&A relevance floor dropped while answering one question:
- * thoughts, and note passages. null = nothing was dropped on that side. Never shown to Eigen.
+ * The best thought score (0..1) the Q&A relevance floor dropped while answering one question.
+ * null = nothing was dropped. Never shown to Eigen.
  */
 export const belowFloorSchema = z
   .object({
     thoughts: z.number().min(0).max(1).nullable(),
-    notePassages: z.number().min(0).max(1).nullable(),
   })
   .strict()
 export type BelowFloor = z.infer<typeof belowFloorSchema>

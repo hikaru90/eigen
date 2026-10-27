@@ -32,7 +32,7 @@ const eigenOutcome: EigenOutcome = {
     { id: 't1', normalizedText: 'Drinks tea', score: 0.5, createdAt: '2025-01-01T00:00:00.000Z' },
   ],
   citedIds: ['t1'],
-  belowFloor: { thoughts: null, notePassages: null },
+  belowFloor: { thoughts: null },
   askTools: ['answer_question'],
   askAnsweredWithoutMemory: false,
   evidence: { inHistory: true, items: 1, hit: true },

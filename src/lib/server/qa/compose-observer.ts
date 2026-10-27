@@ -3,10 +3,10 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { resolveHarnessBillingUserId } from '$lib/server/auth/harness-billing'
 
 /**
- * The best candidate scores (0..1) that the Q&A relevance floor dropped in one compose call;
- * null = nothing was dropped on that side. Tells "nothing retrieved" apart from "just below".
+ * The best thought score (0..1) that the Q&A relevance floor dropped in one compose call;
+ * null = nothing was dropped. Tells "nothing retrieved" apart from "just below".
  */
-export type BelowFloorScores = { thoughts: number | null; notePassages: number | null }
+export type BelowFloorScores = { thoughts: number | null }
 
 type Observed = { composed: ComposedAnswer[]; belowFloor: BelowFloorScores[] }
 

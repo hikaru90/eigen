@@ -37,27 +37,24 @@ describe('compose observer', () => {
 
   it('collects below-floor scores of every compose call, next to the composed answers', async () => {
     const { observed, belowFloor } = await withComposeObserver(HARNESS_USER, async () => {
-      observeBelowFloor(HARNESS_USER, { thoughts: 0.19, notePassages: null })
+      observeBelowFloor(HARNESS_USER, { thoughts: 0.19 })
       observeComposedAnswer(HARNESS_USER, composed('a'))
-      observeBelowFloor(HARNESS_USER, { thoughts: null, notePassages: 0.11 })
+      observeBelowFloor(HARNESS_USER, { thoughts: null })
     })
     expect(observed).toHaveLength(1)
-    expect(belowFloor).toEqual([
-      { thoughts: 0.19, notePassages: null },
-      { thoughts: null, notePassages: 0.11 },
-    ])
+    expect(belowFloor).toEqual([{ thoughts: 0.19 }, { thoughts: null }])
   })
 
   it('observing below-floor scores outside an observer is a no-op, even for a real user', () => {
     expect(() =>
-      observeBelowFloor('some-real-user', { thoughts: 0.1, notePassages: null }),
+      observeBelowFloor('some-real-user', { thoughts: 0.1 }),
     ).not.toThrow()
   })
 
   it('refuses a below-floor observation made for a non-harness user', async () => {
     await expect(
       withComposeObserver(HARNESS_USER, async () =>
-        observeBelowFloor('some-real-user', { thoughts: 0.1, notePassages: null }),
+        observeBelowFloor('some-real-user', { thoughts: 0.1 }),
       ),
     ).rejects.toThrow(/harness billing users/)
   })

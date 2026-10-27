@@ -77,9 +77,9 @@ describe('livePreflightProblems', () => {
   it('reports pending migrations', async () => {
     const checks = okChecks()
     checks.checkDatabase = vi.fn(async () => [
-      'migrations not applied: 0083_note_passage (run npm run db:migrate)',
+      'migrations not applied: 0082_board_admin_edit_delete (run npm run db:migrate)',
     ])
-    expect((await run(checks))[0]).toMatch(/migrations not applied: 0083_note_passage/)
+    expect((await run(checks))[0]).toMatch(/migrations not applied: 0082_board_admin_edit_delete/)
   })
 
   it('reports an OpenRouter key with too little credit, an unlimited key, and a request that failed', async () => {

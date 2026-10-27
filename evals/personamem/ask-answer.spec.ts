@@ -96,9 +96,9 @@ describe('answerViaAsk', () => {
 
   it('reports the best candidate under the relevance floor over all answer_question calls', async () => {
     m.runAskTurn.mockImplementation(async () => {
-      observeBelowFloor(TENANT, { thoughts: 0.1, notePassages: null })
+      observeBelowFloor(TENANT, { thoughts: 0.1 })
       observeComposedAnswer(TENANT, composed())
-      observeBelowFloor(TENANT, { thoughts: 0.18, notePassages: 0.07 })
+      observeBelowFloor(TENANT, { thoughts: 0.18 })
       observeComposedAnswer(TENANT, composed())
       return { answer: 'x', toolCalls: [] }
     })
@@ -108,7 +108,7 @@ describe('answerViaAsk', () => {
       referenceTime: REFERENCE,
       billing,
     })
-    expect(result.belowFloor).toEqual({ thoughts: 0.18, notePassages: 0.07 })
+    expect(result.belowFloor).toEqual({ thoughts: 0.18 })
   })
 
   it('has no below-floor scores when Ask never composed an answer', async () => {
@@ -119,7 +119,7 @@ describe('answerViaAsk', () => {
       referenceTime: REFERENCE,
       billing,
     })
-    expect(result.belowFloor).toEqual({ thoughts: null, notePassages: null })
+    expect(result.belowFloor).toEqual({ thoughts: null })
   })
 
   it('refuses a non-harness tenant', async () => {

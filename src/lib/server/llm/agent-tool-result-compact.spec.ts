@@ -152,42 +152,6 @@ describe('agent-tool-result-compact', () => {
       expect(large.truncated).toBe(true)
     })
 
-    it('keeps note hits of retrieve_thoughts: id, title, date and the matched excerpt', () => {
-      const compact = compactToolResultForLlm('retrieve_thoughts', {
-        results: [],
-        textFiles: [
-          {
-            id: 'n1',
-            title: 'Conference trip',
-            preview: 'Taking an early morning',
-            excerpt: 'Before the keynote: taking an early morning out on the waves.',
-            matchedOrdinals: [3],
-            score: 0.4,
-            createdAt: '2026-03-01T00:00:00.000Z',
-            updatedAt: '2026-03-02T00:00:00.000Z',
-            embedding: Array.from({ length: 1536 }, () => 0.1),
-          },
-        ],
-      }) as { textFiles: Array<Record<string, unknown>> }
-      expect(compact.textFiles).toEqual([
-        {
-          id: 'n1',
-          title: 'Conference trip',
-          excerpt: 'Before the keynote: taking an early morning out on the waves.',
-          createdAt: '2026-03-01T00:00:00.000Z',
-        },
-      ])
-      expect(JSON.stringify(compact).toLowerCase()).not.toContain('embedding')
-    })
-
-    it('omits textFiles from compacted retrieve_thoughts when there are none', () => {
-      const compact = compactToolResultForLlm('retrieve_thoughts', {
-        results: [{ id: 't1', normalizedText: 'Hi', score: 0.8 }],
-        textFiles: [],
-      })
-      expect(compact).not.toHaveProperty('textFiles')
-    })
-
     it('leaves id, thoughtId, and category undefined when not strings', () => {
       const compact = compactToolResultForLlm('list_thoughts', {
         thoughts: [{ id: 99, thoughtId: 100, category: 1, normalizedText: 'x' }],

@@ -3,10 +3,10 @@ import { resolveHarnessBillingUserId } from '$lib/server/auth/harness-billing'
 import { COMPOSE_ANSWER_RELEVANCE_MIN } from './rrf-scoring'
 
 /**
- * Eval-only override of the Q&A relevance floor (thoughts in `composeAnswer`, note passages in
- * note search). Only the eval harness sets it; request code never does. Harness billing users
- * only: reading it for any other user while it is active throws. Without an override every
- * caller gets `COMPOSE_ANSWER_RELEVANCE_MIN`, unchanged.
+ * Eval-only override of the Q&A relevance floor (thoughts in `composeAnswer`). Only the eval
+ * harness sets it; request code never does. Harness billing users only: reading it for any other
+ * user while it is active throws. Without an override every caller gets
+ * `COMPOSE_ANSWER_RELEVANCE_MIN`, unchanged.
  */
 const relevanceFloorAsyncLocal = new AsyncLocalStorage<number>()
 

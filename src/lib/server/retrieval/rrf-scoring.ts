@@ -26,12 +26,6 @@ export function bestScoreBelowFloor(scores: readonly number[], floor: number): n
   return best
 }
 
-/** Map raw FTS rank to a thought-similarity scale comparable with vector cosine sim. */
-export function normalizeLexicalRank(raw: number): number {
-  if (raw <= 0) return 0
-  return Math.min(1, raw * 2.5)
-}
-
 /** Standard reciprocal-rank-fusion damping constant. */
 export const RRF_K = 60
 

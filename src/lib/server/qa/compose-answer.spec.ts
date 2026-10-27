@@ -370,42 +370,23 @@ describe('compose prompt helpers', () => {
   })
 })
 
-function noteHit(patch: Record<string, unknown> = {}) {
-  return {
-    id: 'f1',
-    title: 'Conference trip',
-    preview: 'Taking an early morning out on the waves',
-    excerpt:
-      'Before the keynote I am taking an early morning out on the waves.\n[…]\nThe keynote is on Friday.',
-    matchedOrdinals: [3],
-    score: 0.42,
-    vectorScore: 0.42,
-    createdAt: '2026-01-01T00:00:00.000Z',
-    updatedAt: '2026-01-02T00:00:00.000Z',
-    author: 'user',
-    authorLabel: null,
-    authorKeyId: null,
-    ...patch,
-  }
-}
-
 describe('formatTextFilesForPrompt', () => {
   it('returns empty string when no files', () => {
     expect(formatTextFilesForPrompt([])).toBe('')
   })
 
-  it('formats a citable note id header with title and date, then the matched excerpt', () => {
-    const block = formatTextFilesForPrompt([noteHit()])
-    expect(block).toContain('[id=f1]')
-    expect(block).toContain('Conference trip')
-    expect(block).toContain('stored=2026-01-01')
-    expect(block).toContain('taking an early morning out on the waves')
-    expect(block).toContain('[…]')
-    expect(block).not.toContain('no embedding')
-  })
-
-  it('falls back to a title placeholder for untitled notes', () => {
-    expect(formatTextFilesForPrompt([noteHit({ title: '  ' })])).toContain('Untitled note')
+  it('formats file id, title, and preview', () => {
+    const block = formatTextFilesForPrompt([
+      {
+        id: 'f1',
+        title: 'Carbonara',
+        preview: 'Boil pasta…',
+        lexicalScore: 0.3,
+        updatedAt: '2026-06-01T12:00:00.000Z',
+      },
+    ])
+    expect(block).toContain('file=f1')
+    expect(block).toContain('Boil pasta')
   })
 })
 
@@ -589,21 +570,50 @@ describe('composeAnswer', () => {
     expect(llmChatCompletionMock).not.toHaveBeenCalled()
   })
 
-  it('searches notes with the already-computed query embedding and the thought relevance floor', async () => {
+  it('includes lexical text file hits in the compose prompt', async () => {
+    searchTextFilesMock.mockResolvedValue([
+      {
+        id: 'f1',
+        title: 'Carbonara recipe',
+        preview: '200g spaghetti, guanciale, eggs…',
+        lexicalScore: 0.42,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        author: 'user',
+        authorLabel: null,
+        authorKeyId: null,
+      },
+    ])
     await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
     expect(searchTextFilesMock).toHaveBeenCalledWith('u1', {
       query: 'carbonara recipe',
       topK: 5,
-      queryEmbedding: new Array(1536).fill(0.1),
-      minScore: 0.22,
-      onBelowFloor: expect.any(Function),
     })
-    expect(createThoughtEmbeddingMock).toHaveBeenCalledTimes(1)
+    const userMessage = llmChatCompletionMock.mock.calls[0][0].messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )
+    expect(userMessage.content).toContain('file=f1')
+    expect(userMessage.content).toContain('200g spaghetti')
   })
 
   describe('personalization expansion (S3)', () => {
     const advice = 'What should I eat before my morning run?'
     const subQueries = ['foods the user avoids', 'health conditions affecting energy']
+    const noteHit = (id: string) => ({
+      id,
+      title: `Note ${id}`,
+      preview: `body of ${id}`,
+      lexicalScore: 0.4,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      author: 'user' as const,
+      authorLabel: null,
+      authorKeyId: null,
+    })
+    const noteIdsInPrompt = () => {
+      const userMessage = llmChatCompletionMock.mock.calls[0][0].messages.find(
+        (m: { role: string }) => m.role === 'user',
+      )
+      return [...userMessage.content.matchAll(/file=(\S+)/g)].map((m) => m[1])
+    }
 
     it("fact questions take today's path: no expansion call, no extra embedding, one search each", async () => {
       const result = await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
@@ -660,22 +670,21 @@ describe('composeAnswer', () => {
       classifyQueryIntentMock.mockResolvedValue({ ...localIntent, personalization: true })
       expandPersonalizationQueriesMock.mockResolvedValue(subQueries)
       const byQuery: Record<string, ReturnType<typeof noteHit>[]> = {
-        [advice]: [noteHit({ id: 'n1' }), noteHit({ id: 'n2' })],
-        [subQueries[0]!]: [noteHit({ id: 'n3' }), noteHit({ id: 'n2' })],
-        [subQueries[1]!]: [noteHit({ id: 'n3' }), noteHit({ id: 'n4' })],
+        [advice]: [noteHit('n1'), noteHit('n2')],
+        [subQueries[0]!]: [noteHit('n3'), noteHit('n2')],
+        [subQueries[1]!]: [noteHit('n3'), noteHit('n4')],
       }
       searchTextFilesMock.mockImplementation(
         async (_u: string, arg: { query: string }) => byQuery[arg.query],
       )
 
-      const result = await composeAnswer({ userId: 'u1', question: advice })
+      await composeAnswer({ userId: 'u1', question: advice })
 
       expect(searchTextFilesMock).toHaveBeenCalledTimes(3)
       expect(
         searchTextFilesMock.mock.calls.map(([, arg]) => (arg as { query: string }).query),
       ).toEqual([advice, ...subQueries])
-      const noteIds = result.context.filter((c) => c.category === 'note').map((c) => c.id)
-      expect(noteIds).toEqual(['n3', 'n2', 'n1', 'n4'])
+      expect(noteIdsInPrompt()).toEqual(['n3', 'n2', 'n1', 'n4'])
     })
 
     it('never exceeds the notes budget when sub-queries add many notes', async () => {
@@ -683,12 +692,12 @@ describe('composeAnswer', () => {
       expandPersonalizationQueriesMock.mockResolvedValue(subQueries)
       let n = 0
       searchTextFilesMock.mockImplementation(async () =>
-        Array.from({ length: 5 }, () => noteHit({ id: `n${n++}` })),
+        Array.from({ length: 5 }, () => noteHit(`n${n++}`)),
       )
 
-      const result = await composeAnswer({ userId: 'u1', question: advice })
+      await composeAnswer({ userId: 'u1', question: advice })
 
-      expect(result.context.filter((c) => c.category === 'note')).toHaveLength(5)
+      expect(noteIdsInPrompt()).toHaveLength(5)
     })
 
     it('fails loud when expansion fails (no silent fall back to the plain question)', async () => {
@@ -711,16 +720,12 @@ describe('composeAnswer', () => {
         { ...sampleRetrieval[0]!, id: 't_low', score: 0.15 },
       ])
 
-    it('lets a thought under the product floor into the context, and searches notes with the same floor', async () => {
+    it('lets a thought under the product floor into the context', async () => {
       withLowCandidate()
       const result = await withEvalRelevanceFloor(0.1, () =>
         composeAnswer({ userId: harnessUser, question: 'carbonara recipe' }),
       )
       expect(result.context.map((c) => c.id)).toContain('t_low')
-      expect(searchTextFilesMock).toHaveBeenCalledWith(
-        harnessUser,
-        expect.objectContaining({ minScore: 0.1 }),
-      )
     })
 
     it('a stricter override drops thoughts the product floor would keep', async () => {
@@ -731,20 +736,12 @@ describe('composeAnswer', () => {
         composeAnswer({ userId: harnessUser, question: 'carbonara recipe' }),
       )
       expect(result.context.map((c) => c.id)).toEqual(['t_001'])
-      expect(searchTextFilesMock).toHaveBeenCalledWith(
-        harnessUser,
-        expect.objectContaining({ minScore: 0.75 }),
-      )
     })
 
     it('without an override the product floor applies, for a harness user too', async () => {
       withLowCandidate()
       const result = await composeAnswer({ userId: harnessUser, question: 'carbonara recipe' })
       expect(result.context.map((c) => c.id)).not.toContain('t_low')
-      expect(searchTextFilesMock).toHaveBeenCalledWith(
-        harnessUser,
-        expect.objectContaining({ minScore: 0.22 }),
-      )
     })
 
     it('refuses to compose for a real user while an override is active', async () => {
@@ -760,102 +757,36 @@ describe('composeAnswer', () => {
           composeAnswer({ userId: harnessUser, question: 'carbonara recipe' }),
         ),
       )
-      expect(belowFloor).toEqual([{ thoughts: 0.15, notePassages: null }])
+      expect(belowFloor).toEqual([{ thoughts: 0.15 }])
     })
   })
 
-  it('tells an eval observer the best thought and note-passage scores that fell under the floor', async () => {
+  it('tells an eval observer the best thought score that fell under the floor', async () => {
     const harnessUser = 'public-bench-personamem-v2-capture-gpt-4o-mini-p1'
     searchThoughtsMock.mockResolvedValue([
       ...sampleRetrieval,
       { ...sampleRetrieval[0]!, id: 't_low', score: 0.19 },
       { ...sampleRetrieval[0]!, id: 't_lower', score: 0.05 },
     ])
-    searchTextFilesMock.mockImplementation(
-      async (_user: string, input: { onBelowFloor?: (best: number | null) => void }) => {
-        input.onBelowFloor?.(0.11)
-        return []
-      },
-    )
     const { result, belowFloor } = await withComposeObserver(harnessUser, () =>
       composeAnswer({ userId: harnessUser, question: 'carbonara recipe' }),
     )
     expect(result.context.map((c) => c.id)).toEqual(['t_001', 't_002'])
-    expect(belowFloor).toEqual([{ thoughts: 0.19, notePassages: 0.11 }])
+    expect(belowFloor).toEqual([{ thoughts: 0.19 }])
   })
 
-  it('reports null for a side that dropped nothing, and the user never sees the scores', async () => {
+  it('reports null when nothing fell under the floor, and the user never sees the scores', async () => {
     const harnessUser = 'public-bench-personamem-v2-capture-gpt-4o-mini-p1'
-    searchTextFilesMock.mockImplementation(
-      async (_user: string, input: { onBelowFloor?: (best: number | null) => void }) => {
-        input.onBelowFloor?.(null)
-        return []
-      },
-    )
     const { result, belowFloor } = await withComposeObserver(harnessUser, () =>
       composeAnswer({ userId: harnessUser, question: 'carbonara recipe' }),
     )
-    expect(belowFloor).toEqual([{ thoughts: null, notePassages: null }])
+    expect(belowFloor).toEqual([{ thoughts: null }])
     expect(JSON.stringify(result)).not.toMatch(/belowFloor/)
   })
 
   it('composes unchanged for a real user: no observer, no below-floor bookkeeping', async () => {
     const result = await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
     expect(result.context.map((c) => c.id)).toEqual(['t_001', 't_002'])
-  })
-
-  it('puts matched note passages in the compose prompt and in the returned context', async () => {
-    searchTextFilesMock.mockResolvedValue([noteHit()])
-    const result = await composeAnswer({
-      userId: 'u1',
-      question: 'what fun activities could I try on a coastal trip?',
-    })
-    const userMessage = llmChatCompletionMock.mock.calls[0][0].messages.find(
-      (m: { role: string }) => m.role === 'user',
-    )
-    expect(userMessage.content).toContain('[id=f1]')
-    expect(userMessage.content).toContain('taking an early morning out on the waves')
-
-    const noteItem = result.context.find((c) => c.id === 'f1')
-    expect(noteItem).toBeDefined()
-    expect(noteItem!.category).toBe('note')
-    expect(noteItem!.normalizedText).toContain('Conference trip')
-    expect(noteItem!.normalizedText).toContain('early morning out on the waves')
-    expect(noteItem!.createdAt).toEqual(new Date('2026-01-01T00:00:00.000Z'))
-    // thoughts keep their place; notes follow them
-    expect(result.context.map((c) => c.id).slice(0, 2)).toEqual(['t_001', 't_002'])
-  })
-
-  it('lets the answer cite the note itself (the note id), not a passage', async () => {
-    searchTextFilesMock.mockResolvedValue([noteHit()])
-    llmChatCompletionMock.mockResolvedValue(
-      chatResponse(
-        'Answer: Surfing before the keynote.\nEvidence:\n- Early morning out on the waves [id=f1]\nUnknown:\n- none',
-      ),
-    )
-    const result = await composeAnswer({ userId: 'u1', question: 'coastal activities?' })
-    expect(result.citations).toEqual(['f1'])
-    expect(result.retrieved.map((r) => r.id)).toEqual(['f1'])
-  })
-
-  it('answers from notes alone when no thought is relevant', async () => {
-    searchThoughtsMock.mockResolvedValue([])
-    searchTextFilesMock.mockResolvedValue([noteHit()])
-    llmChatCompletionMock.mockResolvedValue(
-      chatResponse('Answer: Surfing.\nEvidence:\n- Waves [id=f1]\nUnknown:\n- none'),
-    )
-    const result = await composeAnswer({ userId: 'u1', question: 'coastal activities?' })
-    expect(llmChatCompletionMock).toHaveBeenCalled()
-    expect(result.citations).toEqual(['f1'])
-    expect(result.context.map((c) => c.id)).toEqual(['f1'])
-  })
-
-  it('never puts embedding values in the compose prompt or the returned context', async () => {
-    searchTextFilesMock.mockResolvedValue([noteHit()])
-    const result = await composeAnswer({ userId: 'u1', question: 'coastal activities?' })
-    const messages = llmChatCompletionMock.mock.calls[0][0].messages as Array<{ content: string }>
-    for (const m of messages) expect(m.content.toLowerCase()).not.toContain('embedding')
-    expect(JSON.stringify(result).toLowerCase()).not.toContain('embedding')
   })
 
   it('emits onProgress for embedding, searching, and composing', async () => {

@@ -32,7 +32,7 @@ import {
   shouldSkipRerank,
   type RerankCandidate,
 } from '$lib/server/retrieval/reranker'
-import { normalizeLexicalRank, reciprocalRankFusion } from '$lib/server/retrieval/rrf-scoring'
+import { reciprocalRankFusion } from '$lib/server/retrieval/rrf-scoring'
 import type { RetrievalResult } from '$lib/server/retrieval/service'
 import {
   filterTemporalEvents,
@@ -120,7 +120,11 @@ type ScoredCandidate = {
   lexicalScore?: number
 }
 
-export { normalizeLexicalRank }
+/** Map raw FTS rank to a thought-similarity scale comparable with vector cosine sim. */
+export function normalizeLexicalRank(raw: number): number {
+  if (raw <= 0) return 0
+  return Math.min(1, raw * 2.5)
+}
 
 function candidateHasDirectRelevance(candidate: ScoredCandidate): boolean {
   return candidate.sources.has('lexical') || candidate.sources.has('vector')

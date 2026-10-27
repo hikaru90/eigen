@@ -25,7 +25,7 @@ const eigen: Omit<EigenStage, 'type' | 'at'> = {
     { id: 't1', normalizedText: 'Drinks tea', score: 0.5, createdAt: '2025-01-01T00:00:00.000Z' },
   ],
   citedIds: [],
-  belowFloor: { thoughts: 0.2, notePassages: null },
+  belowFloor: { thoughts: 0.2 },
   askTools: ['answer_question'],
   askAnsweredWithoutMemory: false,
   evidence: { inHistory: true, items: 2, hit: true },

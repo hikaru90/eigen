@@ -71,8 +71,8 @@ export function decisionsInEffect(
 ): string[] {
   return [
     relevanceFloor === 'product'
-      ? `Relevance floor: product (${COMPOSE_ANSWER_RELEVANCE_MIN}) for thoughts and note passages, as real users get it`
-      : `Relevance floor ${relevanceFloor} for thoughts and note passages: an eval-only override of the product floor (${COMPOSE_ANSWER_RELEVANCE_MIN}), set by the harness for harness tenants only; not a product setting`,
+      ? `Relevance floor: product (${COMPOSE_ANSWER_RELEVANCE_MIN}) for thoughts, as real users get it`
+      : `Relevance floor ${relevanceFloor} for thoughts: an eval-only override of the product floor (${COMPOSE_ANSWER_RELEVANCE_MIN}), set by the harness for harness tenants only; not a product setting`,
     'D1: one chat model (--chat-model) drives enrich, Ask / composeAnswer and the chooser; embeddings stay the pinned platform model',
     evidenceOnly
       ? 'D2/D3 (evidence-only): per question, one capture per evidence user turn (related_conversation_snippet), capturedAt = 2025-01-01T00:00Z + n days in snippet order (query asked one day after the last turn); one tenant per question; the rest of the history is not replayed'
@@ -108,7 +108,7 @@ export type SmokeBlock = {
   /** What the chooser saw as Eigen's memories. */
   context: { text: string; storedAt: string }[]
   prefType: string
-  /** The best candidate scores the relevance floor dropped (null: nothing dropped on that side). */
+  /** The best thought score the relevance floor dropped (null: nothing dropped). */
   belowFloor: BelowFloor
   /** `--answer ask`: tools Ask used to answer; null in compose mode. */
   askTools: string[] | null
@@ -123,15 +123,15 @@ const score3 = (x: number | null) => (x === null ? 'none' : x.toFixed(3))
 
 /** Tells "nothing retrieved" from "something just under the floor" from "no candidate at all". */
 function retrievalLine(block: SmokeBlock, floor: number): string {
-  const { thoughts, notePassages } = block.belowFloor
+  const { thoughts } = block.belowFloor
   if (block.askAnsweredWithoutMemory) {
     return 'retrieval: not searched (Ask made no answer_question call)'
   }
-  const nearMiss = `best candidate under the ${floor} floor: thoughts ${score3(thoughts)}, note passages ${score3(notePassages)}`
+  const nearMiss = `best candidate under the ${floor} floor: thoughts ${score3(thoughts)}`
   if (block.context.length > 0) {
     return `retrieval: ${block.context.length} item(s) reached the chooser; ${nearMiss}`
   }
-  if (thoughts === null && notePassages === null) {
+  if (thoughts === null) {
     return `retrieval: NOTHING reached the chooser and no candidate fell under the ${floor} floor either (no candidate at all)`
   }
   return `retrieval: NOTHING reached the chooser; ${nearMiss}`
@@ -149,14 +149,12 @@ function missesSection(blocks: readonly SmokeBlock[]): SummarySection[] {
           'pref_type',
           'context items',
           'best under floor: thoughts',
-          'best under floor: note passages',
         ],
         rows: misses.map((b) => [
           b.questionId,
           b.prefType,
           b.context.length,
           score3(b.belowFloor.thoughts),
-          score3(b.belowFloor.notePassages),
         ]),
       },
     },

@@ -54,7 +54,7 @@ describe('answerViaCompose', () => {
 
   it('returns what composeAnswer reported to the observer as the below-floor scores', async () => {
     m.composeAnswer.mockImplementation(async () => {
-      observeBelowFloor(TENANT, { thoughts: 0.19, notePassages: 0.03 })
+      observeBelowFloor(TENANT, { thoughts: 0.19 })
       return { answer: 'Not in memory', context: [], retrieved: [] }
     })
     const result = await answerViaCompose({
@@ -64,7 +64,7 @@ describe('answerViaCompose', () => {
       billing,
     })
     expect(result.context).toEqual([])
-    expect(result.belowFloor).toEqual({ thoughts: 0.19, notePassages: 0.03 })
+    expect(result.belowFloor).toEqual({ thoughts: 0.19 })
   })
 
   it('refuses a non-harness tenant', async () => {
