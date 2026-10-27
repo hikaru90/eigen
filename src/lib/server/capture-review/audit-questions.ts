@@ -145,12 +145,27 @@ function validateTimezone(timezone: string): void {
   }
 }
 
+function validateDate(d: CaptureAuditInput['dates'][number], i: number): void {
+  requireText(d.event, `dates[${i}].event`)
+  if (d.day !== null) requireDay(d.day, `dates[${i}].day`)
+  if (d.detail !== null && d.detail.trim() === '') {
+    fail(`dates[${i}].detail must not be empty when given, or null`)
+  }
+  if (d.day === null && d.detail === null) {
+    fail(`dates[${i}] needs a day or a detail, both are null`)
+  }
+}
+
+function validateCapturedAt(capturedAt: string): void {
+  if (!ISO_WITH_OFFSET.test(capturedAt) || Number.isNaN(Date.parse(capturedAt))) {
+    fail(`capturedAt must be an ISO 8601 date-time with an offset or Z, got "${capturedAt}"`)
+  }
+}
+
 function validate(input: CaptureAuditInput): void {
   requireText(input.rawText, 'rawText')
   requireText(input.storedText, 'storedText')
-  if (!ISO_WITH_OFFSET.test(input.capturedAt) || Number.isNaN(Date.parse(input.capturedAt))) {
-    fail(`capturedAt must be an ISO 8601 date-time with an offset or Z, got "${input.capturedAt}"`)
-  }
+  validateCapturedAt(input.capturedAt)
   validateTimezone(input.timezone)
 
   requireRefs(
@@ -163,16 +178,7 @@ function validate(input: CaptureAuditInput): void {
     'dates',
     input.dates.map((d) => d.ref),
   )
-  input.dates.forEach((d, i) => {
-    requireText(d.event, `dates[${i}].event`)
-    if (d.day !== null) requireDay(d.day, `dates[${i}].day`)
-    if (d.detail !== null && d.detail.trim() === '') {
-      fail(`dates[${i}].detail must not be empty when given, or null`)
-    }
-    if (d.day === null && d.detail === null) {
-      fail(`dates[${i}] needs a day or a detail, both are null`)
-    }
-  })
+  input.dates.forEach(validateDate)
 
   if (input.pieces.length === 1) {
     fail(`pieces must be empty or have at least 2 entries, got ${input.pieces.length}`)
@@ -305,6 +311,21 @@ function datePhrase(date: CaptureAuditInput['dates'][number], captureDay: Calend
     .filter((piece) => piece !== null)
     .join(' ')
   return date.day === null ? words : `${words}, once (not repeating)`
+}
+
+/**
+ * The stored dates as one plain phrase each — `{event}: {when}`, where `{when}` is the same phrase
+ * the date question says — for text that tells Jev how Eigen stored a capture (the 👎 reason
+ * label). Pure and deterministic; the day is shown as a distance from the capture day.
+ */
+export function describeStoredDates(
+  input: Pick<CaptureAuditInput, 'capturedAt' | 'timezone' | 'dates'>,
+): string[] {
+  validateCapturedAt(input.capturedAt)
+  validateTimezone(input.timezone)
+  input.dates.forEach(validateDate)
+  const captureDay = captureDayOf(input.capturedAt, input.timezone)
+  return input.dates.map((date) => `${date.event.trim()}: ${datePhrase(date, captureDay)}`)
 }
 
 function question(

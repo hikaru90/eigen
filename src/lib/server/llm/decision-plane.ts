@@ -26,6 +26,11 @@
 
 import { logActivityCall } from '$lib/server/activity/log-call'
 import { recordDecision } from '$lib/server/capture-review/decision-recorder'
+import {
+  CAPTURE_REASON_KINDS,
+  CAPTURE_REASON_QUESTION_ID,
+  type CaptureReasonKind,
+} from '$lib/server/capture-review/reason-question'
 import { getDb } from '$lib/server/db'
 import { decisionShadowLog } from '$lib/server/db/schema'
 import {
@@ -50,7 +55,8 @@ export type { DecisionKind }
  * runEnforcedBoundedDecisions. resolution, delete_gate, and chat_turn widen
  * the surface registry ahead of their flows — rows record the surface
  * verbatim and behavior is unchanged for every existing surface.
- * capture_review is the background audit of a finished capture (runCaptureAudit).
+ * capture_review is the background audit of a finished capture (runCaptureAudit) and the label of
+ * a 👎 reason on it (runCaptureReasonLabel).
  */
 export type DecisionShadowSurface =
   | 'capture_service'
@@ -665,8 +671,21 @@ export async function runEnforcedBoundedDecisions(input: {
   return answers
 }
 
+/**
+ * The Jev-only calls of the capture review, which share one path: the audit of what the chat model
+ * wrote (`capture_audit`, many questions) and the label of a 👎 reason (`capture_reason`, one
+ * question). `noun` is how errors and the activity row name the call.
+ */
+type ReviewCallKind = Extract<DecisionKind, 'capture_audit' | 'capture_reason'>
+
+const REVIEW_CALL_NOUN: Record<ReviewCallKind, string> = {
+  capture_audit: 'capture audit',
+  capture_reason: 'capture reason label',
+}
+
 function auditRow(
   userId: string,
+  decisionKind: ReviewCallKind,
   questionId: string,
   answer: DecisionChoiceAnswer | null,
   durationMs: number,
@@ -680,10 +699,10 @@ function auditRow(
   return {
     userId,
     surface: 'capture_review',
-    decisionKind: 'capture_audit',
-    // The question id (`name:n1`, `wording`) — a surrogate, never text.
+    decisionKind,
+    // The question id (`name:n1`, `wording`, `reason`) — a surrogate, never text.
     subjectRef: questionId,
-    // Jev is the only auditor: there is no chat answer to compare with.
+    // Jev is the only judge: there is no chat answer to compare with.
     llmChoice: null,
     llmConfidence: null,
     decisionChoice: answer?.choice ?? null,
@@ -697,30 +716,29 @@ function auditRow(
 }
 
 /**
- * The capture review's audit (docs/planning/capture-feedback.md §4): ONE Decisions call asking
- * Jev every question of a built audit request about what the chat model wrote for a capture.
- * Returns each question's answer by question id; the caller turns them into review parts.
+ * One Jev-only call of the capture review: ONE Decisions call asking every question of a built
+ * request, with the evidence written first, like the enforced kinds: one decision_shadow_log row
+ * per question (question id as subject, choice keys and probabilities only, never the request
+ * text) and the call's ONE activity row with the provider-reported cost.
  *
  * Jev-only, so it is NOT gated by DECISION_ENFORCE_KINDS, but it needs the decision-model config:
- * without it this throws (the job fails loudly). A failed call, an unanswered question or an answer
- * outside the question's own criteria throws too — no repair, no fallback. Evidence is written
- * first, like the enforced kinds: one decision_shadow_log row per question (question id as subject,
- * choice keys and probabilities only, never the request text) and the call's ONE activity row with
- * the provider-reported cost.
+ * without it this throws. A failed call, an unanswered question or an answer outside the
+ * question's own criteria throws too — no repair, no fallback.
  */
-export async function runCaptureAudit(input: {
-  userId: string
-  request: DecisionRequest
-}): Promise<Map<string, DecisionChoiceAnswer>> {
+async function runReviewCall(
+  decisionKind: ReviewCallKind,
+  input: { userId: string; request: DecisionRequest },
+): Promise<Map<string, DecisionChoiceAnswer>> {
+  const noun = REVIEW_CALL_NOUN[decisionKind]
   const ids = Object.keys(input.request.questions)
   if (ids.length === 0) {
-    throw new Error('[decision-plane] capture audit needs at least one question')
+    throw new Error(`[decision-plane] ${noun} needs at least one question`)
   }
 
   const resolved = resolveDecisionShadowConfigSafe()
   if (!resolved) {
     throw new Error(
-      '[decision-plane] capture audit requires DECISION_SHADOW_ENABLED=true with a complete decision-model config (OPENROUTER_API_KEY, DECISION_SHADOW_MODEL)',
+      `[decision-plane] ${noun} requires DECISION_SHADOW_ENABLED=true with a complete decision-model config (OPENROUTER_API_KEY, DECISION_SHADOW_MODEL)`,
     )
   }
 
@@ -731,15 +749,16 @@ export async function runCaptureAudit(input: {
   } catch (err) {
     const durationMs = Date.now() - startedAt
     const message = errorText(err)
-    await persistAuditRows(
+    await persistReviewCallRows(
       input.userId,
-      ids.map((id) => auditRow(input.userId, id, null, durationMs, message)),
+      decisionKind,
+      ids.map((id) => auditRow(input.userId, decisionKind, id, null, durationMs, message)),
       ids.length,
       null,
       durationMs,
       false,
     )
-    throw new Error(`[decision-plane] capture audit failed: ${message}`, { cause: err })
+    throw new Error(`[decision-plane] ${noun} failed: ${message}`, { cause: err })
   }
 
   const durationMs = Date.now() - startedAt
@@ -749,22 +768,25 @@ export async function runCaptureAudit(input: {
   for (const id of ids) {
     const answer = res.answers[id]
     if (!answer) {
-      problem ??= `[decision-plane] capture audit returned no answer for question "${id}"`
-      rows.push(auditRow(input.userId, id, null, durationMs, `no answer for question "${id}"`))
+      problem ??= `[decision-plane] ${noun} returned no answer for question "${id}"`
+      rows.push(
+        auditRow(input.userId, decisionKind, id, null, durationMs, `no answer for question "${id}"`),
+      )
       continue
     }
     if (!Object.hasOwn(input.request.questions[id].criteria, answer.choice)) {
       const message = `question "${id}" returned off-catalog choice "${answer.choice}"`
-      problem ??= `[decision-plane] capture audit ${message}`
-      rows.push(auditRow(input.userId, id, null, durationMs, message))
+      problem ??= `[decision-plane] ${noun} ${message}`
+      rows.push(auditRow(input.userId, decisionKind, id, null, durationMs, message))
       continue
     }
     answers.set(id, answer)
-    rows.push(auditRow(input.userId, id, answer, durationMs, null))
+    rows.push(auditRow(input.userId, decisionKind, id, answer, durationMs, null))
   }
 
-  await persistAuditRows(
+  await persistReviewCallRows(
     input.userId,
+    decisionKind,
     rows,
     ids.length,
     res.reportedCostUsd,
@@ -777,11 +799,63 @@ export async function runCaptureAudit(input: {
 }
 
 /**
- * Writes the audit's evidence rows and the call's ONE activity row. A logging failure must never
- * mask the audit's own outcome — log loudly (same posture as persistBoundedRows).
+ * The capture review's audit (docs/planning/capture-feedback.md §4): ONE Decisions call asking
+ * Jev every question of a built audit request about what the chat model wrote for a capture.
+ * Returns each question's answer by question id; the caller turns them into review parts.
  */
-async function persistAuditRows(
+export async function runCaptureAudit(input: {
+  userId: string
+  request: DecisionRequest
+}): Promise<Map<string, DecisionChoiceAnswer>> {
+  return runReviewCall('capture_audit', input)
+}
+
+/** The kind of mistake a 👎 reason describes, and how sure Jev is of it. */
+export type CaptureReasonLabel = { kind: CaptureReasonKind; probability: number }
+
+/**
+ * The label of a 👎 reason (docs/planning/capture-feedback.md §6): ONE Decisions call with the
+ * single question `reason` (built by `buildCaptureReasonRequest`), answered with one of the closed
+ * `CAPTURE_REASON_KINDS`. Only that label is ever aggregated; the reason text is in the request
+ * and nowhere else (not in the log rows, not in the activity row).
+ *
+ * Throws, writing the evidence first, on a failed call, no answer, or a choice that is not a
+ * capture reason kind. The caller owns the retry (the ingest ladder) and what to store on failure.
+ */
+export async function runCaptureReasonLabel(input: {
+  userId: string
+  request: DecisionRequest
+}): Promise<CaptureReasonLabel> {
+  const ids = Object.keys(input.request.questions)
+  if (ids.length !== 1 || ids[0] !== CAPTURE_REASON_QUESTION_ID) {
+    throw new Error(
+      `[decision-plane] capture reason label needs exactly one question "${CAPTURE_REASON_QUESTION_ID}", got ${ids.length === 0 ? 'none' : ids.map((id) => `"${id}"`).join(', ')}`,
+    )
+  }
+  const answers = await runReviewCall('capture_reason', input)
+  const answer = answers.get(CAPTURE_REASON_QUESTION_ID)
+  if (!answer) {
+    // runReviewCall throws on an unanswered question, so this is a broken invariant, not a case.
+    throw new Error('[decision-plane] capture reason label returned no answer')
+  }
+  if (!(CAPTURE_REASON_KINDS as readonly string[]).includes(answer.choice)) {
+    throw new Error(
+      `[decision-plane] capture reason label choice "${answer.choice}" is not a capture reason kind`,
+    )
+  }
+  return {
+    kind: answer.choice as CaptureReasonKind,
+    probability: answer.probabilities[answer.choice],
+  }
+}
+
+/**
+ * Writes a review call's evidence rows and the call's ONE activity row. A logging failure must
+ * never mask the call's own outcome — log loudly (same posture as persistBoundedRows).
+ */
+async function persistReviewCallRows(
   userId: string,
+  decisionKind: ReviewCallKind,
   rows: Array<typeof decisionShadowLog.$inferInsert>,
   questionCount: number,
   reportedCostUsd: number | null,
@@ -798,12 +872,12 @@ async function persistAuditRows(
       // Provider-reported USD (usage.cost); 0 when absent — never inferred.
       baseCostUsd: reportedCostUsd ?? 0,
       gatewayHost: 'openrouter.ai',
-      context: `decision_shadow kinds=capture_audit items=${questionCount} surface=capture_review`,
+      context: `decision_shadow kinds=${decisionKind} items=${questionCount} surface=capture_review`,
       durationMs,
       cached,
     })
   } catch (err) {
-    console.error('[decision-plane] failed to record capture audit rows', err)
+    console.error(`[decision-plane] failed to record ${REVIEW_CALL_NOUN[decisionKind]} rows`, err)
   }
 }
 
@@ -954,8 +1028,9 @@ async function recordRows(
     // Ask turn kinds — bounded whole-question decisions with no chat-judge primary.
     capture_worthy: undefined,
     proposal_reply: undefined,
-    // Jev-only audit (runCaptureAudit) — never part of the generic shadow.
+    // Jev-only review calls (runCaptureAudit, runCaptureReasonLabel) — never part of the generic shadow.
     capture_audit: undefined,
+    capture_reason: undefined,
   }
 
   const rows: Array<typeof decisionShadowLog.$inferInsert> = []

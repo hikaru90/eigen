@@ -4,6 +4,7 @@ import { withDecisionRecorder } from '$lib/server/capture-review/decision-record
 import {
   dominantEntityType,
   runCaptureAudit,
+  runCaptureReasonLabel,
   runEnforcedBoundedDecisions,
   runEnforcedPerItemDecisions,
   startContentRoleDecision,
@@ -1384,6 +1385,184 @@ describe('runCaptureAudit', () => {
     resolveConfigMock.mockReturnValue(config)
     runDecisionMock.mockResolvedValue({ ...auditAnswers(), reportedCostUsd: 0, cached: true })
     await runCaptureAudit({ userId: 'user-1', request })
+    expect(logActivityCallMock.mock.calls[0][2]).toMatchObject({ baseCostUsd: 0, cached: true })
+  })
+})
+
+describe('runCaptureReasonLabel', () => {
+  const request = {
+    state:
+      'The user captured:\n<<<capture\nCall Mom on Friday\ncapture>>>\nEigen stored it as: Saved as Task · about Mom\nThe user says this is wrong:\n<<<reason\nit is my sister, not my mom\nreason>>>',
+    questions: {
+      reason: {
+        type: 'choice' as const,
+        instructions: 'What kind of mistake does the user describe?',
+        criteria: {
+          wrong_category: 'Wrong kind.',
+          wrong_name: 'A name is wrong.',
+          other: 'Anything else.',
+        },
+      },
+    },
+  }
+
+  function reasonAnswers(choice = 'wrong_name') {
+    return choiceAnswers({
+      reason: {
+        choice,
+        probabilities: { wrong_category: 0.05, wrong_name: 0.9, other: 0.05 },
+      },
+    })
+  }
+
+  it('asks Jev the request as built, in ONE call, and returns the kind with its probability', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(reasonAnswers())
+
+    const label = await runCaptureReasonLabel({ userId: 'user-1', request })
+
+    expect(runDecisionMock).toHaveBeenCalledTimes(1)
+    expect(runDecisionMock.mock.calls[0][0]).toEqual(config)
+    expect(runDecisionMock.mock.calls[0][1]).toBe(request)
+    expect(label).toEqual({ kind: 'wrong_name', probability: 0.9 })
+  })
+
+  it('is not gated by DECISION_ENFORCE_KINDS (Jev is the only labeller)', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    resolveEnforceMock.mockReturnValue(new Set())
+    runDecisionMock.mockResolvedValue(reasonAnswers())
+    await expect(runCaptureReasonLabel({ userId: 'user-1', request })).resolves.toMatchObject({
+      kind: 'wrong_name',
+    })
+  })
+
+  it('writes ONE decision_shadow_log row: kind capture_reason, surface capture_review, subject "reason", no text', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(reasonAnswers())
+
+    await runCaptureReasonLabel({ userId: 'user-1', request })
+
+    const rows = insertedRows()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      userId: 'user-1',
+      surface: 'capture_review',
+      decisionKind: 'capture_reason',
+      subjectRef: 'reason',
+      llmChoice: null,
+      llmConfidence: null,
+      decisionChoice: 'wrong_name',
+      decisionProbability: 0.9,
+      decisionAlternatives: { wrong_category: 0.05, other: 0.05 },
+      agree: null,
+      decisionError: null,
+      authoritativeEngine: 'decision_model',
+    })
+    const logged = JSON.stringify(rows)
+    expect(logged).not.toContain('Mom')
+    expect(logged).not.toContain('sister')
+    expect(logged).not.toContain('Saved as')
+  })
+
+  it('logs exactly one activity row for the call, with the provider-reported cost', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(reasonAnswers())
+
+    await runCaptureReasonLabel({ userId: 'user-1', request })
+
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+    expect(logActivityCallMock.mock.calls[0][1]).toBe('user-1')
+    expect(logActivityCallMock.mock.calls[0][2]).toMatchObject({
+      provider: 'openrouter',
+      operation: 'decision_shadow',
+      baseCostUsd: 0.0000421,
+      gatewayHost: 'openrouter.ai',
+      context: 'decision_shadow kinds=capture_reason items=1 surface=capture_review',
+      cached: false,
+    })
+    expect(JSON.stringify(logActivityCallMock.mock.calls[0][2])).not.toContain('sister')
+  })
+
+  it('throws before any call, row or activity when the decision-model config is unavailable', async () => {
+    resolveConfigMock.mockReturnValue(null)
+    await expect(runCaptureReasonLabel({ userId: 'user-1', request })).rejects.toThrow(
+      /capture reason label requires DECISION_SHADOW_ENABLED/,
+    )
+    expect(runDecisionMock).not.toHaveBeenCalled()
+    expect(dbMocks.insertValues).not.toHaveBeenCalled()
+    expect(logActivityCallMock).not.toHaveBeenCalled()
+  })
+
+  it('only takes the reason question: other or extra questions are refused before any call', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    await expect(
+      runCaptureReasonLabel({
+        userId: 'user-1',
+        request: { state: 'x', questions: { ...request.questions, wording: request.questions.reason } },
+      }),
+    ).rejects.toThrow(/exactly one question "reason"/)
+    await expect(
+      runCaptureReasonLabel({ userId: 'user-1', request: { state: 'x', questions: {} } }),
+    ).rejects.toThrow(/exactly one question "reason"/)
+    expect(runDecisionMock).not.toHaveBeenCalled()
+  })
+
+  it('writes an error row and the activity row, then throws, when the call fails', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockRejectedValue(new Error('502 bad gateway'))
+
+    await expect(runCaptureReasonLabel({ userId: 'user-1', request })).rejects.toThrow(
+      /capture reason label failed.*502/s,
+    )
+
+    expect(insertedRows()).toHaveLength(1)
+    expect(insertedRows()[0]).toMatchObject({
+      decisionKind: 'capture_reason',
+      decisionChoice: null,
+      decisionError: expect.stringContaining('502'),
+    })
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("throws when the answer is outside the question's own criteria, after writing the row", async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(reasonAnswers('wrong_vibes'))
+
+    await expect(runCaptureReasonLabel({ userId: 'user-1', request })).rejects.toThrow(
+      /reason.*off-catalog choice "wrong_vibes"/,
+    )
+    expect(insertedRows()[0]).toMatchObject({ subjectRef: 'reason', decisionChoice: null })
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('throws when the question criteria hold a kind that is not a capture reason kind', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    const odd = {
+      ...request,
+      questions: {
+        reason: { ...request.questions.reason, criteria: { wrong_vibes: 'Not a kind.' } },
+      },
+    }
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({ reason: { choice: 'wrong_vibes', probabilities: { wrong_vibes: 0.9 } } }),
+    )
+    await expect(runCaptureReasonLabel({ userId: 'user-1', request: odd })).rejects.toThrow(
+      /not a capture reason kind/,
+    )
+  })
+
+  it('throws when Jev left the question unanswered', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(choiceAnswers({}))
+    await expect(runCaptureReasonLabel({ userId: 'user-1', request })).rejects.toThrow(
+      /no answer for question "reason"/,
+    )
+  })
+
+  it('carries the cached flag into the activity row', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue({ ...reasonAnswers(), reportedCostUsd: 0, cached: true })
+    await runCaptureReasonLabel({ userId: 'user-1', request })
     expect(logActivityCallMock.mock.calls[0][2]).toMatchObject({ baseCostUsd: 0, cached: true })
   })
 })

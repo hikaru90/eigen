@@ -16,6 +16,7 @@ import {
   auditNameQuestionId,
   auditPieceQuestionId,
   buildCaptureAuditRequest,
+  describeStoredDates,
   type CaptureAuditInput,
 } from './audit-questions'
 
@@ -1006,5 +1007,53 @@ describe('buildCaptureAuditRequest: validation', () => {
     Object.freeze(frozen.dates)
     Object.freeze(frozen.pieces)
     expect(() => buildCaptureAuditRequest(frozen)).not.toThrow()
+  })
+})
+
+describe('describeStoredDates (the stored dates in words, for the 👎 reason label)', () => {
+  const when = { capturedAt: BASE.capturedAt, timezone: BASE.timezone }
+
+  it('is one phrase per date: the event, then the same words the date question says', () => {
+    expect(
+      describeStoredDates({
+        ...when,
+        dates: [
+          { ref: 'd1', event: 'Dentist', day: '2026-10-30', detail: 'at 09:00' },
+          { ref: 'd2', event: 'Yoga', day: null, detail: 'every Tuesday at 19:00' },
+          { ref: 'd3', event: 'Report', day: '2026-10-27', detail: 'as the deadline' },
+        ],
+      }),
+    ).toEqual([
+      'Dentist: the Friday after the capture day (3 days later) at 09:00, once (not repeating)',
+      'Yoga: every Tuesday at 19:00',
+      'Report: the capture day itself as the deadline, once (not repeating)',
+    ])
+  })
+
+  it('is the same phrase the audit question uses for that date', () => {
+    const date = BASE.dates[0]
+    const [phrase] = describeStoredDates({ ...when, dates: [date] })
+    const asked = buildCaptureAuditRequest(BASE).questions[auditDateQuestionId('d1')].instructions
+    expect(asked).toContain(phrase.slice(`${date.event}: `.length))
+  })
+
+  it('has nothing to say when no date was stored', () => {
+    expect(describeStoredDates({ ...when, dates: [] })).toEqual([])
+  })
+
+  it('fails loudly on a bad capture time, time zone or date item', () => {
+    const dates = BASE.dates
+    expect(() => describeStoredDates({ capturedAt: 'yesterday', timezone: 'Europe/Berlin', dates })).toThrow(
+      'capturedAt must be an ISO 8601 date-time',
+    )
+    expect(() => describeStoredDates({ ...when, timezone: 'Mars/Base', dates })).toThrow(
+      'timezone must be a valid IANA time zone',
+    )
+    expect(() =>
+      describeStoredDates({ ...when, dates: [{ ref: 'd1', event: 'a', day: null, detail: null }] }),
+    ).toThrow('dates[0] needs a day or a detail')
+    expect(() =>
+      describeStoredDates({ ...when, dates: [{ ref: 'd1', event: ' ', day: '2026-10-30', detail: null }] }),
+    ).toThrow('dates[0].event must not be empty')
   })
 })

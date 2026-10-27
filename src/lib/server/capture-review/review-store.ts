@@ -3,8 +3,9 @@
  * `getDb()` (RLS by user_id). Parts are validated by the strict schema on every write and read, so
  * user text cannot be stored in a review.
  *
- * The vote columns (verdict, voted_at, voted_on, reason_*, edit_applied_at) belong to phase C2:
- * nothing here ever writes them, and the enrichment upsert leaves them untouched.
+ * The vote columns (verdict, voted_at, voted_on, reason_*, edit_applied_at) belong to phase C2
+ * (`vote-store.ts`): nothing here ever writes them, and the enrichment upsert leaves them
+ * untouched. In turn the vote store never writes parts, score or status.
  */
 
 import { and, eq, sql } from 'drizzle-orm'
