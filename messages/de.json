@@ -513,5 +513,19 @@
   "ask_capture_check_failed": "Ich konnte diese Nachricht nicht auf Gedanken zum Behalten prüfen.",
   "ask_reply_check_failed": "Ich konnte deine Antwort auf den offenen Vorschlag nicht prüfen, deshalb wurde nichts gespeichert.",
   "ask_proposal_missing": "Ich konnte aus dieser Nachricht keine Gedanken zum Behalten entwerfen, deshalb wurde nichts vorgeschlagen.",
-  "ask_store_missing": "Ich konnte den Vorschlag nicht speichern, deshalb wurde nichts gespeichert."
+  "ask_store_missing": "Ich konnte den Vorschlag nicht speichern, deshalb wurde nichts gespeichert.",
+  "voice_start": "Spracheingabe starten",
+  "voice_message_label": "Sprachnachricht",
+  "voice_discard": "Aufnahme verwerfen",
+  "voice_send": "Sprachnachricht senden",
+  "voice_timer": "Aufnahmedauer",
+  "voice_transcribing": "Wird transkribiert…",
+  "voice_retry": "Erneut versuchen",
+  "voice_dismiss": "Schließen",
+  "voice_error_permission": "Zugriff auf das Mikrofon verweigert",
+  "voice_error_microphone": "Auf das Mikrofon konnte nicht zugegriffen werden",
+  "voice_error_recorder": "Aufnahme fehlgeschlagen",
+  "voice_error_interrupted": "Die Aufnahme wurde unterbrochen",
+  "voice_error_empty": "Keine Sprache erkannt",
+  "voice_error_transcribe": "Die Aufnahme konnte nicht transkribiert werden"
 }

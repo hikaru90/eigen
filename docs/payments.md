@@ -62,7 +62,7 @@ There is no user-facing billing currency picker; PayPal settlement is always USD
 | Surface            | Billable calls                                                                                                                                                                |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Capture**        | Ontology classify (`llmChatCompletion`) + embedding (`llmCreateEmbeddings`); pipeline pre-check requires at least **50 credits** (`MIN_CAPTURE_PIPELINE_CREDITS`, ~$0.05 USD) |
-| **Dictation**      | `POST /api/capture/transcribe-chunk` (one call per voice segment) → OpenRouter STT (`llmCreateTranscription`)                                                                                                |
+| **Dictation**      | `POST /api/capture/transcribe` (one call per voice message, the whole clip) → OpenRouter STT (`llmCreateTranscription`)                                                                                                |
 | **Chat / agent**   | `llmChatCompletion`                                                                                                                                                           |
 | **Retrieval / QA** | Embeddings and chat as used by retrieval and compose-answer                                                                                                                   |
 | **Enrichment**     | Background enrich paths that call the LLM                                                                                                                                     |
@@ -75,7 +75,6 @@ Each successful platform call debits only **provider-reported** `usage.cost` (no
 | -------------------------------------- | ------------------------------------------------------------------------------- |
 | `OPENROUTER_BASE_URL`                  | OpenRouter origin (platform STT and OpenRouter platform path)                   |
 | `SERVICE_API_KEY_OPENROUTER`           | OpenRouter service key for platform STT and OpenRouter platform chat/embeddings |
-| `LLM_MODEL_STT`                        | Optional STT model override (default: `qwen/qwen3-asr-1.7b`)    |
 
 ## Speech-to-text (dictation)
 

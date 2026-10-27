@@ -65,6 +65,10 @@ ARG EMBEDDING_COMPRESS_INTENSITY=full
 ENV EMBEDDING_COMPRESS_INTENSITY=${EMBEDDING_COMPRESS_INTENSITY}
 ENV HOST=0.0.0.0
 ENV PORT=3000
+# adapter-node rejects request bodies above this many bytes (its default is 512 KB, which
+# would refuse a whole voice message). Keep it above STT_CLIP_MAX_AUDIO_BYTES in
+# src/lib/server/llm/stt-audio.ts (8 MiB): 10 MiB.
+ENV BODY_SIZE_LIMIT=10485760
 
 COPY package*.json ./
 # Same as deps: package*.json only — do not run prepare (git hooks / paraglide).

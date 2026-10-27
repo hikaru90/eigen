@@ -14,7 +14,7 @@
   import { appendVoiceTranscript } from '$lib/capture/transcribe-audio'
   import { ASK_PHASE_INITIAL, askPhaseAfterEvent, type AskPhase } from '$lib/chat/ask-phase'
   import type { AskSuggestion } from '$lib/chat/ask-suggestions'
-  import { sanitizeFinalAnswerText, toolLabel } from '$lib/chat/chat-stream-types'
+  import { toolLabel } from '$lib/chat/chat-stream-types'
   import {
     consumeChatNdjsonStream,
     type ChatProgressEvent,
@@ -39,14 +39,9 @@
   import { chatSidebar } from '$lib/stores/chat-sidebar.svelte'
   import { pageInputDrafts } from '$lib/stores/page-input-drafts.svelte'
   import {
-    bumpInputEpoch,
-    createInputEpoch,
-    isFreshTranscript,
-    type InputEpoch,
-  } from './chat-input-epoch'
-  import {
     shouldApplyLoadedSessionMessages,
   } from './chat-session-lifecycle'
+  import { finalResponseText } from './final-response'
 
   type ChatEntry = ChatDisplayEntry & { _key?: string }
 
@@ -385,12 +380,7 @@
     return typeof label === 'string' && label.trim() ? label : fallback
   }
 
-  function pushStreamEvent(
-    event: ChatProgressEvent,
-    ctx: {
-      lastAnswerQuestionPreview: { current: string | undefined }
-    },
-  ) {
+  function pushStreamEvent(event: ChatProgressEvent) {
     advancePhase(askPhaseAfterEvent(phaseTarget, event))
 
     if (event.type === 'thinking') {
@@ -433,9 +423,6 @@
     }
     if (event.type === 'tool_result') {
       const preview = event.preview ?? ''
-      if (event.tool === 'answer_question') {
-        ctx.lastAnswerQuestionPreview.current = preview
-      }
       upsertToolTimeline({
         role: 'assistant',
         variant: 'timeline',
@@ -481,31 +468,21 @@
         throw new Error(errBody?.message ?? `HTTP ${res.status}`)
       }
 
-      const streamCtx = {
-        lastAnswerQuestionPreview: { current: undefined as string | undefined },
-      }
       const done = await consumeChatNdjsonStream(
         res,
         (event) => {
           resetStreamIdleTimeout(ac)
-          pushStreamEvent(event, streamCtx)
+          pushStreamEvent(event)
         },
         ac.signal,
       )
-      const responseText = sanitizeFinalAnswerText(
-        done.response ?? '',
-        streamCtx.lastAnswerQuestionPreview.current,
-      ).trim()
-      if (!responseText) {
-        throw new Error('The assistant returned an empty response.')
-      }
+      // the server's final text, appendix included, as it is (see final-response.ts)
+      const responseText = finalResponseText(done.response)
       if (done.sessionId) {
         activeSessionId = done.sessionId
         if (!isBriefingMode) setSessionUrl(done.sessionId)
       }
-      if (responseText) {
-        appendMessage({ role: 'assistant', variant: 'text', content: responseText })
-      }
+      appendMessage({ role: 'assistant', variant: 'text', content: responseText })
       loadSessions()
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') {
@@ -554,30 +531,18 @@
   function resend(text: string) {
     if (loading) return
     voiceStopFn?.()
-    bumpInputEpoch(inputEpoch)
     appendUserMessage(text)
     sendStreaming(text)
   }
 
+  /** Discards a running voice message; our own send calls it first (nothing late can arrive after). */
   let voiceStopFn = $state<(() => void) | undefined>(undefined)
-
-  /**
-   * Monotonic epoch used to drop stale voice transcripts after a submit. Bumped on
-   * every submit (send / resend) and on every new recording start.
-   * `recordEpoch` captures the epoch at the start of the current recording; a late
-   * partial/final transcript is applied only while it still matches `inputEpoch`.
-   */
-  const inputEpoch: InputEpoch = createInputEpoch()
-  let recordEpoch = 0
-  /** Draft text present when the current recording started; transcripts append to it. */
-  let voiceBaseText = ''
 
   async function send() {
     const text = input.trim()
     if (!text || loading) return
 
     voiceStopFn?.()
-    bumpInputEpoch(inputEpoch)
     syncChatDraft('')
     appendUserMessage(text)
     startLogoWork()
@@ -771,17 +736,9 @@
   onstop={stop}
   onsubmit={() => void send()}
   oninput={handleInput}
-  onvoicestart={() => {
-    voiceBaseText = input
-    recordEpoch = bumpInputEpoch(inputEpoch)
-  }}
   ontranscript={(text) => {
-    if (isFreshTranscript(inputEpoch, recordEpoch))
-      syncChatDraft(appendVoiceTranscript(voiceBaseText, text))
-  }}
-  onpartialtranscript={(text) => {
-    if (isFreshTranscript(inputEpoch, recordEpoch))
-      syncChatDraft(appendVoiceTranscript(voiceBaseText, text))
+    // the writer asks right after this: the transcript joins what was typed first
+    syncChatDraft(appendVoiceTranscript(input, text))
   }}
   onvoiceerror={(message) => {
     console.error('voice input failed', message)

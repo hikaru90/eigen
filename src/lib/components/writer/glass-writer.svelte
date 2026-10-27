@@ -1,17 +1,29 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte'
   import CornerDownLeft from '@lucide/svelte/icons/corner-down-left'
   import Square from '@lucide/svelte/icons/square'
+  import { onDestroy, type Snippet } from 'svelte'
+  import { transcribeVoiceClip } from '$lib/capture/transcribe-audio'
+  import { voiceFailureMessage } from '$lib/capture/voice-failure-message'
+  import {
+    createVoiceMessageSession,
+    IDLE_VOICE_VIEW,
+    type VoiceMessageView,
+  } from '$lib/capture/voice-message'
   import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import { portal } from '$lib/components/chrome/portal'
   import VoiceInputButton from '$lib/components/voice-input-button.svelte'
+  import VoiceMessageBar from '$lib/components/voice-message-bar.svelte'
   import { hapticPress } from '$lib/haptics'
 
   /**
    * The one writer (Ask, Capture, Contribute): a wide glass pill docked above the bottom
    * nav, outside the page mask. The right-hand slot holds the mic (when the page takes voice)
-   * and, once there are words and no recording runs, send beside it — so a second recording
-   * can follow the first; while `busy` with an `onstop`, it holds Stop. Small page controls go in `above`, a quiet row over the field.
+   * and, once there are words, send beside it — so a second recording can follow the first;
+   * while `busy` with an `onstop`, it holds Stop. Small page controls go in `above`, a quiet row over the field.
+   * Voice: tapping the mic turns the field into a voice-message bar (waveform, timer, discard,
+   * send); Send transcribes the whole clip once, appends it through `ontranscript` (the page
+   * puts it into `value`) and then sends straight away through the same submit as a typed
+   * message. A failed clip stays in the bar with Retry / Discard (docs/planning/feature-voice-message-stt.md).
    * On a keyboard Enter submits and Shift+Enter is a newline; on touch (coarse pointer) Enter
    * is always a newline and the send button sends. With `busyLabel`, `busy` lays a veil with
    * that label over the field and locks it, so nothing is sent twice. The send action sits
@@ -39,11 +51,13 @@
     /** Runs before the writer's own Enter handling; `preventDefault()` claims the key. */
     onkeydown?: (event: KeyboardEvent) => void
     onfocus?: () => void
-    /** Voice: present when `ontranscript` is given. */
+    /** Voice: present when `ontranscript` is given. A recording began. */
     onvoicestart?: () => void
+    /** Once per successful clip: the page puts the transcript into `value`; the writer then sends. */
     ontranscript?: (text: string) => void
-    onpartialtranscript?: (text: string) => void
+    /** A voice message failed (also shown in the bar): the plain message. */
     onvoiceerror?: (message: string) => void
+    /** Set while a voice message exists; calling it discards that message (the page's own send does). */
     voiceStop?: (() => void) | undefined
     /** The textarea, for focus / caret / the capture fly. */
     input?: HTMLTextAreaElement | null
@@ -72,7 +86,6 @@
     onfocus,
     onvoicestart,
     ontranscript,
-    onpartialtranscript,
     onvoiceerror,
     voiceStop = $bindable(),
     input = $bindable(null),
@@ -85,11 +98,10 @@
 
   const hasText = $derived(value.trim().length > 0)
   const hasVoice = $derived(ontranscript !== undefined)
-  const recording = $derived(voiceStop !== undefined)
-  /** Stop while busy; otherwise the mic (with voice) and send (with words, not while recording). */
+  /** Stop while busy; otherwise the mic (with voice) and send (with words). */
   const stopping = $derived(busy && !!onstop)
   const showMic = $derived(!stopping && hasVoice)
-  const showSend = $derived(!stopping && (!hasVoice || (hasText && !recording)))
+  const showSend = $derived(!stopping && (!hasVoice || hasText))
   const canSend = $derived(hasText && !disabled && !busy && !submitDisabled)
   const veiled = $derived(busy && !!busyLabel)
   /** The text wraps past one line: the action drops to the bottom. Set by `trackLines`. */
@@ -104,6 +116,37 @@
     hapticPress() // in the gesture, before any await: both haptic channels need that
     onsubmit()
   }
+
+  /* ————— the voice message ————— */
+
+  let voice = $state.raw<VoiceMessageView>(IDLE_VOICE_VIEW)
+  /** The bar replaces the field while a message is recording, transcribing or failed. */
+  const voiceActive = $derived(
+    voice.phase === 'recording' || voice.phase === 'transcribing' || voice.phase === 'failed',
+  )
+
+  const voiceSession = createVoiceMessageSession({
+    transcribe: (clip, signal) => transcribeVoiceClip(clip, { signal }),
+    onchange: (view) => {
+      voice = view
+      // set from the event, not reactively: pages call it before their own send
+      const stop = view.phase === 'idle' ? undefined : discardVoice
+      if (voiceStop !== stop) voiceStop = stop
+    },
+    onstart: () => onvoicestart?.(),
+    ontranscript: (text) => {
+      ontranscript?.(text)
+      // the transcript is in `value` now: send it as if it had been typed (no gesture left, so no haptic)
+      if (canSend) onsubmit()
+    },
+    onerror: (failure) => onvoiceerror?.(voiceFailureMessage(failure)),
+  })
+
+  function discardVoice(): void {
+    voiceSession.discard()
+  }
+
+  onDestroy(() => voiceSession.destroy())
 
   function handleKeydown(e: KeyboardEvent): void {
     onkeydown?.(e)
@@ -179,8 +222,12 @@
       bind:this={input}
       use:trackLines
       bind:value
-      class="block flex-1 min-w-0 [field-sizing:content] max-h-[min(40svh,240px)] py-1.5 border-0 outline-none resize-none overflow-y-auto [scrollbar-width:none] bg-transparent font-mesh text-[17px] leading-6 text-ink caret-signal placeholder:text-ink-2 disabled:opacity-55"
+      class={[
+        voiceActive ? 'hidden' : 'block',
+        'flex-1 min-w-0 [field-sizing:content] max-h-[min(40svh,240px)] py-1.5 border-0 outline-none resize-none overflow-y-auto [scrollbar-width:none] bg-transparent font-mesh text-[17px] leading-6 text-ink caret-signal placeholder:text-ink-2 disabled:opacity-55',
+      ]}
       rows="1"
+      hidden={voiceActive}
       {placeholder}
       aria-label={label ?? placeholder}
       maxlength={maxLength}
@@ -189,51 +236,57 @@
       data-testid={inputTestId}
       {oninput}
       onkeydown={handleKeydown}
-      onfocus={() => {
-        voiceStop?.()
-        onfocus?.()
-      }}></textarea>
-    <!-- the action slot: centred with one line of text, on the last line once it wraps -->
-    <div
-      class={['flex shrink-0 gap-1.5', multiline && 'self-end']}
-      data-testid="glass-writer-slot"
-      data-multiline={multiline}
-    >
-      {#if stopping}
-        <button
-          type="button"
-          class={slotButton}
-          aria-label="Stop"
-          data-testid="glass-writer-stop"
-          onclick={() => onstop?.()}
-        >
-          <Square size={12} strokeWidth={2} aria-hidden="true" />
-        </button>
-      {/if}
-      {#if showMic}
-        <VoiceInputButton
-          disabled={disabled || busy}
-          class="size-9 rounded-full bg-ink text-paper pointer-fine:hover:bg-ink pointer-fine:hover:text-paper disabled:opacity-40"
-          bind:stopRef={voiceStop}
-          onstart={onvoicestart}
-          ontranscript={(text) => ontranscript?.(text)}
-          {onpartialtranscript}
-          onerror={onvoiceerror}
-        />
-      {/if}
-      {#if showSend}
-        <button
-          type="submit"
-          class={slotButton}
-          aria-label={submitLabel}
-          title={submitLabel}
-          disabled={!canSend}
-          data-testid={submitTestId}
-        >
-          <CornerDownLeft size={16} strokeWidth={1.75} aria-hidden="true" />
-        </button>
-      {/if}
-    </div>
+      onfocus={() => onfocus?.()}></textarea>
+    {#if voiceActive}
+      <VoiceMessageBar
+        view={voice}
+        onsend={() => {
+          hapticPress() // the tap is the gesture; the send after the transcript has none
+          void voiceSession.send()
+        }}
+        ondiscard={discardVoice}
+        onretry={() => void voiceSession.retry()}
+      />
+    {:else}
+      <!-- the action slot: centred with one line of text, on the last line once it wraps -->
+      <div
+        class={['flex shrink-0 gap-1.5', multiline && 'self-end']}
+        data-testid="glass-writer-slot"
+        data-multiline={multiline}
+      >
+        {#if stopping}
+          <button
+            type="button"
+            class={slotButton}
+            aria-label="Stop"
+            data-testid="glass-writer-stop"
+            onclick={() => onstop?.()}
+          >
+            <Square size={12} strokeWidth={2} aria-hidden="true" />
+          </button>
+        {/if}
+        {#if showMic}
+          <VoiceInputButton
+            disabled={disabled || busy}
+            starting={voice.phase === 'starting'}
+            class="size-9 rounded-full bg-ink text-paper pointer-fine:hover:bg-ink pointer-fine:hover:text-paper disabled:opacity-40"
+            onclick={() => void voiceSession.start()}
+          />
+        {/if}
+        {#if showSend}
+          <button
+            type="submit"
+            class={slotButton}
+            aria-label={submitLabel}
+            title={submitLabel}
+            disabled={!canSend}
+            data-testid={submitTestId}
+          >
+            <CornerDownLeft size={16} strokeWidth={1.75} aria-hidden="true" />
+          </button>
+        {/if}
+      </div>
+    {/if}
     {#if veiled}
       <!-- the veil: what is happening, over the field, so the same words aren't sent twice -->
       <div

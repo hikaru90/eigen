@@ -1,5 +1,7 @@
 # Research: true realtime Qwen ASR streaming
 
+Status 2026-10-27: not pursued — voice input records a whole clip and transcribes it once, see [feature-voice-message-stt.md](feature-voice-message-stt.md); this research is kept as background.
+
 Status: **research only — no code changed.** Date: 2026-10-23.
 
 ## Where we are today

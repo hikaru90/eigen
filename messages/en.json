@@ -513,5 +513,19 @@
   "ask_capture_check_failed": "I couldn't check this message for thoughts to keep.",
   "ask_reply_check_failed": "I couldn't check your reply to the open proposal, so nothing was stored.",
   "ask_proposal_missing": "I couldn't draft thoughts to keep from this message, so nothing was proposed.",
-  "ask_store_missing": "I couldn't store the proposal, so nothing was stored."
+  "ask_store_missing": "I couldn't store the proposal, so nothing was stored.",
+  "voice_start": "Start voice input",
+  "voice_message_label": "Voice message",
+  "voice_discard": "Discard recording",
+  "voice_send": "Send voice message",
+  "voice_timer": "Recording time",
+  "voice_transcribing": "Transcribing…",
+  "voice_retry": "Retry",
+  "voice_dismiss": "Dismiss",
+  "voice_error_permission": "Microphone permission denied",
+  "voice_error_microphone": "Couldn't access the microphone",
+  "voice_error_recorder": "Recording failed",
+  "voice_error_interrupted": "The recording was interrupted",
+  "voice_error_empty": "No speech detected",
+  "voice_error_transcribe": "Couldn't transcribe the recording"
 }

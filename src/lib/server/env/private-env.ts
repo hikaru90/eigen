@@ -26,7 +26,6 @@ export type ExtendedPrivateEnv = typeof kitEnv & {
   GITHUB_CLIENT_SECRET?: string
   GRAPH_SCALE_QUIET?: string
   GRAPH_SCALE_SPEND?: string
-  LLM_MODEL_STT?: string
   LLM_ORCHESTRATION_CONCURRENCY?: string
   LLM_REQUEST_TIMEOUT_MS?: string
   LLM_SERIAL_REQUESTS?: string

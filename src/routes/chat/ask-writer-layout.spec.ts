@@ -29,9 +29,11 @@ describe('Ask uses the shared bottom-docked writer', () => {
 
   it('wires send, stop and voice through the writer', () => {
     const tag = source.slice(source.indexOf('<GlassWriter'), source.indexOf('{#snippet above()}'))
-    for (const prop of ['bind:value={input}', 'onsubmit=', 'onstop={stop}', 'busy={loading}', 'ontranscript=', 'onpartialtranscript=', 'bind:voiceStop={voiceStopFn}']) {
+    for (const prop of ['bind:value={input}', 'onsubmit=', 'onstop={stop}', 'busy={loading}', 'ontranscript=', 'bind:voiceStop={voiceStopFn}']) {
       expect(tag, prop).toContain(prop)
     }
+    // a voice message is transcribed whole after Send: there is no live partial text
+    expect(tag).not.toContain('onpartialtranscript')
   })
 
   it('at rest mirrors Capture: the heading in the same place and voice, suggestions beneath it', () => {

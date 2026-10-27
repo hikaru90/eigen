@@ -93,6 +93,7 @@ export default defineConfig({
       'src/lib/components/chat-memory-reference-card.svelte.spec.ts',
       'src/lib/components/chat-timeline-step.svelte.spec.ts',
       'src/lib/components/voice-input-button.svelte.spec.ts',
+      'src/lib/components/voice-message-bar.svelte.spec.ts',
       'src/lib/components/writer/glass-writer.svelte.spec.ts',
       'src/lib/feedback/share-composer.svelte.spec.ts',
       'src/lib/components/mesh/thought-row.svelte.spec.ts',
