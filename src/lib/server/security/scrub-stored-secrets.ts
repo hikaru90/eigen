@@ -1,11 +1,3 @@
-import {
-  redactSecrets,
-  redactSecretsDeep,
-  SECRET_PLACEHOLDER,
-  summarizeRedactedSecrets,
-  type RedactedSecretSummary,
-  type SecretFinding,
-} from '$lib/server/security/detect-secrets'
 /**
  * Scrub secrets that were stored before secret hygiene existed (docs/planning/secret-hygiene.md,
  * Design 5). Pure planning + a small runner over an injected store, so the logic is tested on
@@ -21,8 +13,15 @@ import {
  *
  * Dry-run is the default. Reports carry ids, kinds and credential names — never a value.
  */
-import { noteIndexSurfaces } from '$lib/server/security/note-secrets'
-import { chunkNoteIntoPassages } from '$lib/server/text-files/chunk-note-passages'
+import { computeLexicalText } from '$lib/server/memory/lexical-text'
+import {
+  redactSecrets,
+  redactSecretsDeep,
+  SECRET_PLACEHOLDER,
+  summarizeRedactedSecrets,
+  type RedactedSecretSummary,
+  type SecretFinding,
+} from '$lib/server/security/detect-secrets'
 
 export type ScrubThought = {
   id: string
@@ -132,10 +131,9 @@ export function planThoughtScrub(thought: ScrubThought): ThoughtScrubPlan | null
 }
 
 /**
- * A note needs a scrub when its saved title/body hold a secret AND its index (lexical text or
- * the passages) is not what the current index rules derive from it: a value built into the index,
- * or passages from before secrets were numbered (`[redacted secret #n]`, Part 2). After a scrub the
- * index matches the redacted body, so the plan is null again while the body itself stays verbatim.
+ * A note needs a scrub when its saved title/body hold a secret AND its index (lexical text or a
+ * passage) was built from it. After a scrub the index matches the redacted body, so the plan is
+ * null again while the body itself stays verbatim.
  */
 export function planNoteScrub(note: ScrubNote): NoteScrubPlan | null {
   const title = redactSecrets(note.title)
@@ -143,12 +141,8 @@ export function planNoteScrub(note: ScrubNote): NoteScrubPlan | null {
   const findings = [...title.findings, ...body.findings]
   if (findings.length === 0) return null
 
-  const expected = noteIndexSurfaces(note.title, note.body)
-  const expectedPassages = chunkNoteIntoPassages(expected.passageBody).map((p) => p.text)
-  const passagesAreStale =
-    note.passages.length !== expectedPassages.length ||
-    note.passages.some((text, index) => text !== expectedPassages[index])
-  const indexIsStale = note.lexicalText !== expected.lexicalText || passagesAreStale
+  const expectedLexical = computeLexicalText(`${title.text} ${body.text}`)
+  const indexIsStale = note.lexicalText !== expectedLexical || note.passages.some(hasSecret)
   if (!indexIsStale) return null
   return { noteId: note.id, findings: summarizeRedactedSecrets(findings) }
 }

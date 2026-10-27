@@ -17,24 +17,6 @@ import { isSensitiveFieldName } from '$lib/server/observability/redact-for-log'
 
 export const SECRET_PLACEHOLDER = '[redacted secret]'
 
-/**
- * A placeholder that carries the secret's ordinal in the text it was cut from
- * (`[redacted secret #2]`). Note text served to the chat agent uses these, so the agent can write
- * a placeholder back and the server can restore the real value (docs/planning/secret-hygiene.md,
- * Part 2). The ordinal is 1-based, in text order.
- */
-export function numberedSecretPlaceholder(ordinal: number): string {
-  return `[redacted secret #${ordinal}]`
-}
-
-/** Either placeholder form at a position — "already redacted" for the readers below. */
-const PLACEHOLDER_AT = /\[redacted secret(?: #[1-9]\d*)?\]/y
-
-function placeholderAt(text: string, from: number): boolean {
-  PLACEHOLDER_AT.lastIndex = from
-  return PLACEHOLDER_AT.test(text)
-}
-
 export type SecretKind =
   | 'api_key'
   | 'access_token'
@@ -141,14 +123,15 @@ function readValue(
   const first = text[from]
   if (first === undefined || first === '\n' || first === '\r') return null
   // already redacted (the placeholder holds a space, so a token read would cut it short)
-  if (placeholderAt(text, from)) return null
+  if (text.startsWith(SECRET_PLACEHOLDER, from)) return null
 
   if (QUOTES.has(first)) {
     let close = from + 1
     while (close < text.length && text[close] !== first && text[close] !== '\n') close += 1
     if (text[close] !== first || close === from + 1) return null
     const inner = text.slice(from + 1, close)
-    if (inner.trim() === '' || isReference(inner) || placeholderAt(inner, 0)) return null
+    if (inner.trim() === '' || isReference(inner) || inner.startsWith(SECRET_PLACEHOLDER))
+      return null
     return { start: from + 1, end: close }
   }
 
@@ -246,39 +229,23 @@ function mergeFindings(raw: RawFinding[]): SecretFinding[] {
   })
 }
 
-function redactWith(
-  text: string,
-  placeholder: (ordinal: number) => string,
-): { text: string; findings: SecretFinding[] } {
+/**
+ * Replaces every detected secret VALUE with `[redacted secret]`, keeping surrounding text and
+ * non-secret names. Idempotent. Returns the findings (kind, name, span in `text`) — never values.
+ */
+export function redactSecrets(text: string): { text: string; findings: SecretFinding[] } {
   if (text.length === 0) return { text, findings: [] }
   const findings = mergeFindings([...findFormats(text), ...findAssignments(text)])
   if (findings.length === 0) return { text, findings }
 
   let out = ''
   let cursor = 0
-  findings.forEach((finding, index) => {
-    out += text.slice(cursor, finding.start) + placeholder(index + 1)
+  for (const finding of findings) {
+    out += text.slice(cursor, finding.start) + SECRET_PLACEHOLDER
     cursor = finding.end
-  })
+  }
   out += text.slice(cursor)
   return { text: out, findings }
-}
-
-/**
- * Replaces every detected secret VALUE with `[redacted secret]`, keeping surrounding text and
- * non-secret names. Idempotent. Returns the findings (kind, name, span in `text`) — never values.
- */
-export function redactSecrets(text: string): { text: string; findings: SecretFinding[] } {
-  return redactWith(text, () => SECRET_PLACEHOLDER)
-}
-
-/**
- * Like `redactSecrets`, but each placeholder carries its 1-based ordinal in `text`
- * (`[redacted secret #n]`, n = index into `findings`). Deterministic: the same text always
- * yields the same ordinals. Idempotent on its own output.
- */
-export function redactSecretsNumbered(text: string): { text: string; findings: SecretFinding[] } {
-  return redactWith(text, numberedSecretPlaceholder)
 }
 
 /** Just the redacted text — for call sites that do not report findings. */

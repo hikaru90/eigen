@@ -1,18 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { withEvalClock } from '$lib/server/llm/eval-clock'
-import {
-  BARE_SECRET_PLACEHOLDER_ERROR,
-  unknownSecretPlaceholderError,
-} from '$lib/server/security/note-secrets'
 import { envPaste, FAKE_SECRETS, guardWouldTrip, leaks } from '$lib/test/secret-fixtures'
 import {
   runAnswerQuestionTool,
-  runAppendTextFileTool,
   runCaptureThoughtTool,
   runCreateTextFileTool,
-  runGetTextFileTool,
-  runListTextFilesTool,
-  runUpdateTextFileTool,
   runDeleteThoughtTool,
   runDeleteThoughtsByRequestTool,
   runEditThoughtTool,
@@ -29,10 +21,6 @@ const {
   getDbSelectMock,
   loadTemporalContextByThoughtIdsMock,
   createTextFileMock,
-  getTextFileMock,
-  listTextFilesMock,
-  updateTextFileMock,
-  appendTextFileMock,
   searchTextFilesMock,
   resolveMcpCaptureAuthorshipMock,
   listProjectsForUserMock,
@@ -59,10 +47,6 @@ const {
   getDbSelectMock: vi.fn(),
   loadTemporalContextByThoughtIdsMock: vi.fn(),
   createTextFileMock: vi.fn(),
-  getTextFileMock: vi.fn(),
-  listTextFilesMock: vi.fn(),
-  updateTextFileMock: vi.fn(),
-  appendTextFileMock: vi.fn(),
   searchTextFilesMock: vi.fn(),
   resolveMcpCaptureAuthorshipMock: vi.fn(),
   listProjectsForUserMock: vi.fn(),
@@ -197,10 +181,6 @@ vi.mock('$lib/server/llm/embedding', () => ({
 
 vi.mock('$lib/server/text-files/service', () => ({
   createTextFile: createTextFileMock,
-  getTextFile: getTextFileMock,
-  listTextFiles: listTextFilesMock,
-  updateTextFile: updateTextFileMock,
-  appendTextFile: appendTextFileMock,
   searchTextFiles: searchTextFilesMock,
 }))
 
@@ -1542,162 +1522,5 @@ describe('MCP tools secret hygiene (docs/planning/secret-hygiene.md)', () => {
     expect(leaks(JSON.stringify(out))).toBe(false)
     expect(leaks(JSON.stringify(info.mock.calls))).toBe(false)
     info.mockRestore()
-  })
-})
-
-describe('MCP note tools: numbered placeholders for the chat agent (docs/planning/secret-hygiene.md, Part 2)', () => {
-  const STORED = [
-    'Deploy runbook, versoin 3',
-    `LLM_API_KEY=${FAKE_SECRETS.openai}`,
-    'Restart the worker afterwards.',
-    `GITHUB_TOKEN=${FAKE_SECRETS.githubClassic}`,
-  ].join('\n')
-  const SHOWN = [
-    'Deploy runbook, versoin 3',
-    'LLM_API_KEY=[redacted secret #1]',
-    'Restart the worker afterwards.',
-    'GITHUB_TOKEN=[redacted secret #2]',
-  ].join('\n')
-
-  function note(body: string) {
-    return {
-      id: 'f1',
-      title: 'Runbook',
-      body,
-      author: 'user',
-      authorLabel: null,
-      authorKeyId: null,
-      createdAt: '2026-07-16T00:00:00.000Z',
-      updatedAt: '2026-07-16T00:00:00.000Z',
-    }
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    resolveMcpCaptureAuthorshipMock.mockResolvedValue({
-      author: 'user',
-      authorLabel: null,
-      authorKeyId: null,
-    })
-  })
-
-  it('get_text_file shows each secret as [redacted secret #n], in order, and no value', async () => {
-    getTextFileMock.mockResolvedValue(note(STORED))
-
-    const out = await runGetTextFileTool({ userId: 'u1' }, { text_file_id: 'f1' })
-
-    expect(out.textFile.body).toBe(SHOWN)
-    expect(leaks(JSON.stringify(out))).toBe(false)
-    expect(guardWouldTrip(out)).toBe(false)
-  })
-
-  it('list_text_files numbers the secrets of every note', async () => {
-    listTextFilesMock.mockResolvedValue([note(STORED), { ...note('plain'), id: 'f2' }])
-
-    const out = await runListTextFilesTool({ userId: 'u1' }, {})
-
-    expect(out.textFiles.map((file: { body: string }) => file.body)).toEqual([SHOWN, 'plain'])
-    expect(leaks(JSON.stringify(out))).toBe(false)
-  })
-
-  it('update_text_file is an agent write: the service restores, and the result shows placeholders again', async () => {
-    const fixed = STORED.replace('versoin', 'version')
-    updateTextFileMock.mockResolvedValue(note(fixed))
-
-    const out = await runUpdateTextFileTool(
-      { userId: 'u1' },
-      { text_file_id: 'f1', body: SHOWN.replace('versoin', 'version') },
-    )
-
-    expect(updateTextFileMock).toHaveBeenCalledWith(
-      'u1',
-      'f1',
-      { title: undefined, body: SHOWN.replace('versoin', 'version') },
-      { agentWrite: true },
-    )
-    expect(out.textFile.body).toBe(SHOWN.replace('versoin', 'version'))
-    expect(leaks(JSON.stringify(out))).toBe(false)
-  })
-
-  it('append_text_file is an agent write and its result shows placeholders, not values', async () => {
-    appendTextFileMock.mockResolvedValue(note(`${STORED}\nRotate the keys.`))
-
-    const out = await runAppendTextFileTool(
-      { userId: 'u1' },
-      { text_file_id: 'f1', text: 'Rotate the keys.' },
-    )
-
-    expect(appendTextFileMock).toHaveBeenCalledWith(
-      'u1',
-      'f1',
-      { text: 'Rotate the keys.', separator: undefined },
-      { agentWrite: true },
-    )
-    expect(out.textFile.body).toBe(`${SHOWN}\nRotate the keys.`)
-    expect(leaks(JSON.stringify(out))).toBe(false)
-  })
-
-  it('a service refusal (unknown ordinal / bare placeholder) surfaces as the tool error, unchanged', async () => {
-    updateTextFileMock.mockRejectedValue(new Error(unknownSecretPlaceholderError('7')))
-    await expect(
-      runUpdateTextFileTool(
-        { userId: 'u1' },
-        { text_file_id: 'f1', body: 'x [redacted secret #7]' },
-      ),
-    ).rejects.toThrow(
-      'placeholder #7 does not exist in this note; keep placeholders exactly as returned',
-    )
-
-    appendTextFileMock.mockRejectedValue(new Error(BARE_SECRET_PLACEHOLDER_ERROR))
-    await expect(
-      runAppendTextFileTool({ userId: 'u1' }, { text_file_id: 'f1', text: 'k: [redacted secret]' }),
-    ).rejects.toThrow(/Notes editor/)
-  })
-
-  it('create_text_file rejects any placeholder (a new note has no secrets to restore) and saves nothing', async () => {
-    await expect(
-      runCreateTextFileTool({ userId: 'u1' }, { title: 'T', body: 'key [redacted secret #1]' }),
-    ).rejects.toThrow(unknownSecretPlaceholderError('1'))
-    await expect(
-      runCreateTextFileTool({ userId: 'u1' }, { title: 'T', body: 'key [redacted secret]' }),
-    ).rejects.toThrow(BARE_SECRET_PLACEHOLDER_ERROR)
-    await expect(
-      runCreateTextFileTool({ userId: 'u1' }, { title: 'key [redacted secret]' }),
-    ).rejects.toThrow(BARE_SECRET_PLACEHOLDER_ERROR)
-    expect(createTextFileMock).not.toHaveBeenCalled()
-  })
-
-  it('create_text_file result numbers the secrets of the saved body', async () => {
-    createTextFileMock.mockResolvedValue(note(STORED))
-    const out = await runCreateTextFileTool({ userId: 'u1' }, { title: 'Runbook', body: STORED })
-    expect(out.textFile.body).toBe(SHOWN)
-    expect(leaks(JSON.stringify(out))).toBe(false)
-  })
-
-  it('search_text_files and retrieve_thoughts keep the numbered placeholders of an excerpt intact', async () => {
-    const hit = {
-      id: 'f1',
-      title: 'Runbook',
-      preview: 'LLM_API_KEY=[redacted secret #1]',
-      excerpt: SHOWN,
-      matchedOrdinals: [0],
-      score: 0.5,
-      createdAt: '2026-03-01T00:00:00.000Z',
-      updatedAt: '2026-03-02T00:00:00.000Z',
-    }
-    searchTextFilesMock.mockResolvedValue([hit])
-    searchThoughtsMock.mockResolvedValue([])
-
-    const searched = await runSearchTextFilesTool({ userId: 'u1' }, { query: 'runbook' })
-    expect(searched.results[0].excerpt).toBe(SHOWN)
-
-    for (const detail of ['snippet', 'full']) {
-      const retrieved = await runRetrieveThoughtsTool(
-        { userId: 'u1' },
-        { query: 'runbook', detail },
-      )
-      expect(retrieved.textFiles[0].excerpt).toBe(SHOWN)
-      expect(guardWouldTrip(retrieved)).toBe(false)
-    }
   })
 })

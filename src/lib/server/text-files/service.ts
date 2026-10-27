@@ -1,32 +1,18 @@
-import { and, desc, eq, inArray, lt, or } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm'
 import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { textFile, thought, thoughtTextFile } from '$lib/server/db/schema'
-import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import type { MemoryAuthorship } from '$lib/server/memory/authorship'
 import {
   authorshipInsertValues,
   USER_AUTHORSHIP,
   resolveAuthorSqlCondition,
 } from '$lib/server/memory/authorship'
-import { relevanceFloorFor } from '$lib/server/retrieval/relevance-floor'
-import { redactedText } from '$lib/server/security/detect-secrets'
-import {
-  assertNoSecretPlaceholders,
-  noteIndexSurfaces,
-  restoreNoteSecrets,
-} from '$lib/server/security/note-secrets'
-import {
-  applyPassageSync,
-  createDbNoteSearchSources,
-  loadStoredPassages,
-  preparePassageSync,
-} from './note-passages'
-import { runNoteSearch, TEXT_FILE_PREVIEW_LEN, type TextFileSearchHit } from './note-search'
+import { computeLexicalText } from '$lib/server/memory/lexical-text'
+import { buildLexicalTsQuery } from '$lib/server/retrieval/lexical'
 
 export const MAX_TEXT_FILE_BODY_BYTES = 512 * 1024
-export { TEXT_FILE_PREVIEW_LEN }
-export type { TextFileSearchHit }
+export const TEXT_FILE_PREVIEW_LEN = 200
 
 export type TextFileRecord = {
   id: string
@@ -44,6 +30,17 @@ export type TextFileAttachmentPreview = {
   title: string
   preview: string
   updatedAt: string
+}
+
+export type TextFileSearchHit = {
+  id: string
+  title: string
+  preview: string
+  lexicalScore: number
+  updatedAt: string
+  author: 'user' | 'agent'
+  authorLabel: string | null
+  authorKeyId: string | null
 }
 
 export type TextFileLinkedThought = {
@@ -68,29 +65,6 @@ function assertTitleOrBody(title: string, body: string): void {
   if (!title && !body) {
     throw new Error('title or body is required')
   }
-}
-
-export type TextFileWriteOptions = {
-  /**
-   * The write comes from the in-app chat agent. It is shown `[redacted secret #n]` for the
-   * secrets in a note, so its text is restored against the note's current stored body before it
-   * is saved, and a placeholder that cannot be restored fails the write
-   * (docs/planning/secret-hygiene.md, Part 2). Absent: the text is what the user typed (Notes
-   * editor) and is saved exactly as given.
-   */
-  agentWrite?: boolean
-}
-
-/**
- * What a note's search surfaces are built from (docs/planning/secret-hygiene.md). The body the
- * user saved is stored verbatim (encrypted) and shown back to them; the lexical text, the
- * passages and their embeddings come from the redacted text, so a pasted credential is never
- * indexed or sent to the embedding gateway. Passages carry numbered placeholders so an excerpt
- * shown to the agent can be written back.
- */
-function indexSurfaces(title: string, body: string): { indexBody: string; lexicalText: string } {
-  const { passageBody, lexicalText } = noteIndexSurfaces(title, body)
-  return { indexBody: passageBody, lexicalText }
 }
 
 function toPreview(body: string): string {
@@ -130,18 +104,6 @@ async function decryptTextFileRow<
   }
 }
 
-const TEXT_FILE_RETURNING = {
-  id: textFile.id,
-  title: textFile.title,
-  bodyText: textFile.bodyText,
-  bodyTextEncrypted: textFile.bodyTextEncrypted,
-  author: textFile.author,
-  authorLabel: textFile.authorLabel,
-  authorKeyId: textFile.authorKeyId,
-  createdAt: textFile.createdAt,
-  updatedAt: textFile.updatedAt,
-}
-
 export async function createTextFile(
   userId: string,
   input: {
@@ -155,7 +117,7 @@ export async function createTextFile(
   const title = normalizeTitle(input.title)
   const body = assertBodyWithinLimit(typeof input.body === 'string' ? input.body : '')
   assertTitleOrBody(title, body)
-  const { indexBody, lexicalText } = indexSurfaces(title, body)
+  const lexicalText = computeLexicalText(`${title} ${body}`)
   const authorValues = authorshipInsertValues(input.authorship ?? USER_AUTHORSHIP)
   const bodyTextEncrypted = await encryptTenantValue({
     userId,
@@ -163,25 +125,29 @@ export async function createTextFile(
     column: 'body_text',
     plaintext: body,
   })
-  // Embed before writing: a gateway failure fails the create instead of leaving an unsearchable note.
-  const passages = await preparePassageSync(userId, { body: indexBody, stored: [] })
 
-  const row = await getDb().transaction(async (tx) => {
-    const [inserted] = await tx
-      .insert(textFile)
-      .values({
-        userId,
-        title,
-        bodyText: '',
-        bodyTextEncrypted,
-        lexicalText,
-        ...authorValues,
-        ...(input.createdAt ? { createdAt: input.createdAt, updatedAt: input.createdAt } : {}),
-      })
-      .returning(TEXT_FILE_RETURNING)
-    await applyPassageSync(tx, userId, inserted.id, passages)
-    return inserted
-  })
+  const [row] = await getDb()
+    .insert(textFile)
+    .values({
+      userId,
+      title,
+      bodyText: '',
+      bodyTextEncrypted,
+      lexicalText,
+      ...authorValues,
+      ...(input.createdAt ? { createdAt: input.createdAt, updatedAt: input.createdAt } : {}),
+    })
+    .returning({
+      id: textFile.id,
+      title: textFile.title,
+      bodyText: textFile.bodyText,
+      bodyTextEncrypted: textFile.bodyTextEncrypted,
+      author: textFile.author,
+      authorLabel: textFile.authorLabel,
+      authorKeyId: textFile.authorKeyId,
+      createdAt: textFile.createdAt,
+      updatedAt: textFile.updatedAt,
+    })
 
   return decryptTextFileRow(userId, row)
 }
@@ -190,7 +156,6 @@ export async function updateTextFile(
   userId: string,
   fileId: string,
   input: { title?: string; body?: string },
-  options: TextFileWriteOptions = {},
 ): Promise<TextFileRecord | null> {
   const [existing] = await getDb()
     .select({
@@ -211,41 +176,38 @@ export async function updateTextFile(
   if (!existing) return null
 
   const current = await decryptTextFileRow(userId, existing)
-  if (options.agentWrite && input.title !== undefined) assertNoSecretPlaceholders(input.title)
-  const writtenBody =
-    input.body !== undefined && options.agentWrite
-      ? restoreNoteSecrets(input.body, current.body)
-      : input.body
   const nextTitle = input.title !== undefined ? normalizeTitle(input.title) : current.title
-  const nextBody = writtenBody !== undefined ? assertBodyWithinLimit(writtenBody) : current.body
+  const nextBody = input.body !== undefined ? assertBodyWithinLimit(input.body) : current.body
   assertTitleOrBody(nextTitle, nextBody)
-  const { indexBody, lexicalText } = indexSurfaces(nextTitle, nextBody)
+  const lexicalText = computeLexicalText(`${nextTitle} ${nextBody}`)
   const bodyTextEncrypted = await encryptTenantValue({
     userId,
     table: 'text_file',
     column: 'body_text',
     plaintext: nextBody,
   })
-  const passages = await preparePassageSync(userId, {
-    body: indexBody,
-    stored: await loadStoredPassages(userId, fileId),
-  })
 
-  const row = await getDb().transaction(async (tx) => {
-    const [updated] = await tx
-      .update(textFile)
-      .set({
-        title: nextTitle,
-        bodyText: '',
-        bodyTextEncrypted,
-        lexicalText,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(textFile.id, fileId), eq(textFile.userId, userId)))
-      .returning(TEXT_FILE_RETURNING)
-    await applyPassageSync(tx, userId, fileId, passages)
-    return updated
-  })
+  const [row] = await getDb()
+    .update(textFile)
+    .set({
+      title: nextTitle,
+      bodyText: '',
+      bodyTextEncrypted,
+      lexicalText,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(textFile.id, fileId), eq(textFile.userId, userId)))
+    .returning({
+      id: textFile.id,
+      title: textFile.title,
+      bodyText: textFile.bodyText,
+      bodyTextEncrypted: textFile.bodyTextEncrypted,
+      author: textFile.author,
+      authorLabel: textFile.authorLabel,
+      authorKeyId: textFile.authorKeyId,
+      createdAt: textFile.createdAt,
+      updatedAt: textFile.updatedAt,
+    })
 
   return decryptTextFileRow(userId, row)
 }
@@ -258,7 +220,6 @@ export async function appendTextFile(
   userId: string,
   fileId: string,
   input: { text: string; separator?: string },
-  options: TextFileWriteOptions = {},
 ): Promise<TextFileRecord | null> {
   const appendText = typeof input.text === 'string' ? input.text.trim() : ''
   if (!appendText) {
@@ -284,44 +245,42 @@ export async function appendTextFile(
   if (!existing) return null
 
   const current = await decryptTextFileRow(userId, existing)
-  const restore = (text: string) =>
-    options.agentWrite ? restoreNoteSecrets(text, current.body) : text
   const separator =
     input.separator !== undefined
-      ? restore(input.separator)
+      ? input.separator
       : current.body.length === 0 || current.body.endsWith('\n')
         ? ''
         : '\n'
-  const nextBody = assertBodyWithinLimit(`${current.body}${separator}${restore(appendText)}`)
+  const nextBody = assertBodyWithinLimit(`${current.body}${separator}${appendText}`)
   assertTitleOrBody(current.title, nextBody)
-  const { indexBody, lexicalText } = indexSurfaces(current.title, nextBody)
+  const lexicalText = computeLexicalText(`${current.title} ${nextBody}`)
   const bodyTextEncrypted = await encryptTenantValue({
     userId,
     table: 'text_file',
     column: 'body_text',
     plaintext: nextBody,
   })
-  // Tail-only: the passages before the appended text are unchanged and are neither deleted
-  // nor re-embedded; only the changed tail is embedded.
-  const passages = await preparePassageSync(userId, {
-    body: indexBody,
-    stored: await loadStoredPassages(userId, fileId),
-  })
 
-  const row = await getDb().transaction(async (tx) => {
-    const [updated] = await tx
-      .update(textFile)
-      .set({
-        bodyText: '',
-        bodyTextEncrypted,
-        lexicalText,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(textFile.id, fileId), eq(textFile.userId, userId)))
-      .returning(TEXT_FILE_RETURNING)
-    await applyPassageSync(tx, userId, fileId, passages)
-    return updated
-  })
+  const [row] = await getDb()
+    .update(textFile)
+    .set({
+      bodyText: '',
+      bodyTextEncrypted,
+      lexicalText,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(textFile.id, fileId), eq(textFile.userId, userId)))
+    .returning({
+      id: textFile.id,
+      title: textFile.title,
+      bodyText: textFile.bodyText,
+      bodyTextEncrypted: textFile.bodyTextEncrypted,
+      author: textFile.author,
+      authorLabel: textFile.authorLabel,
+      authorKeyId: textFile.authorKeyId,
+      createdAt: textFile.createdAt,
+      updatedAt: textFile.updatedAt,
+    })
 
   return decryptTextFileRow(userId, row)
 }
@@ -407,12 +366,6 @@ export async function listTextFiles(
   return Promise.all(rows.map((row) => decryptTextFileRow(userId, row)))
 }
 
-/**
- * Hybrid note search: pgvector + FTS over `note_passage`, plus a whole-note keyword match (so a
- * title still finds its note). One hit per note, carrying the matched passage(s) with their +-1
- * neighbours; the hit id is the note's id. `queryEmbedding` lets a caller that already embedded
- * the query (composeAnswer) skip a second embedding.
- */
 export async function searchTextFiles(
   userId: string,
   input: {
@@ -420,29 +373,57 @@ export async function searchTextFiles(
     topK?: number
     authorFilter?: 'user' | 'agent'
     authorLayerKey?: string | null
-    queryEmbedding?: number[]
-    /** Relevance floor on the 0..1 hit score. Default: the Q&A context floor for thoughts (eval harness: its override). */
-    minScore?: number
-    /** Eval observability: the best passage score the floor dropped (null: none). */
-    onBelowFloor?: (best: number | null) => void
   },
 ): Promise<TextFileSearchHit[]> {
   const limit = Math.max(1, Math.min(input.topK ?? 10, 50))
-  // a credential pasted into a question is neither embedded nor keyword-matched
-  const query = redactedText(input.query)
-  const queryEmbedding = input.queryEmbedding ?? (await createThoughtEmbedding(userId, query))
-  return runNoteSearch(
-    createDbNoteSearchSources(userId, {
-      query,
-      queryEmbedding,
-      authorFilter: input.authorFilter,
-      authorLayerKey: input.authorLayerKey,
-    }),
+  const tsQueryString = buildLexicalTsQuery(input.query)
+  if (tsQueryString.length === 0) return []
+
+  const lexicalVector = sql`to_tsvector('simple', coalesce(${textFile.lexicalText}, ''))`
+  const tsQueryExpr = sql`to_tsquery('simple', ${tsQueryString})`
+  const rankExpr = sql<number>`ts_rank_cd(${lexicalVector}, ${tsQueryExpr})`
+  const matchExpr = sql<boolean>`${lexicalVector} @@ ${tsQueryExpr}`
+  const authorSql = resolveAuthorSqlCondition(
     {
-      minScore: input.minScore ?? relevanceFloorFor(userId),
-      noteLimit: limit,
-      onBelowFloor: input.onBelowFloor,
+      author: textFile.author,
+      authorKeyId: textFile.authorKeyId,
+      authorLabel: textFile.authorLabel,
     },
+    { author: input.authorFilter, authorLayerKey: input.authorLayerKey },
+  )
+
+  const rows = await getDb()
+    .select({
+      id: textFile.id,
+      title: textFile.title,
+      bodyText: textFile.bodyText,
+      bodyTextEncrypted: textFile.bodyTextEncrypted,
+      author: textFile.author,
+      authorLabel: textFile.authorLabel,
+      authorKeyId: textFile.authorKeyId,
+      createdAt: textFile.createdAt,
+      updatedAt: textFile.updatedAt,
+      lexicalScore: rankExpr,
+    })
+    .from(textFile)
+    .where(and(eq(textFile.userId, userId), matchExpr, authorSql))
+    .orderBy(desc(rankExpr))
+    .limit(limit)
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const file = await decryptTextFileRow(userId, row)
+      return {
+        id: file.id,
+        title: file.title,
+        preview: toPreview(file.body),
+        lexicalScore: row.lexicalScore ?? 0,
+        updatedAt: file.updatedAt,
+        author: file.author,
+        authorLabel: file.authorLabel,
+        authorKeyId: file.authorKeyId,
+      }
+    }),
   )
 }
 

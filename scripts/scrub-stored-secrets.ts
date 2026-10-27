@@ -40,7 +40,7 @@ import {
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import { pruneCanonicalEntitiesWithNoThoughtLinks } from '$lib/server/memory/canonical-entity-admin'
 import { computeLexicalText } from '$lib/server/memory/lexical-text'
-import { noteIndexSurfaces } from '$lib/server/security/note-secrets'
+import { redactedText } from '$lib/server/security/detect-secrets'
 import {
   runStoredSecretScrub,
   type NoteScrubPlan,
@@ -271,16 +271,17 @@ async function applyNoteScrub(userId: string, plan: NoteScrubPlan): Promise<void
   await withDbUser(userId, async () => {
     const note = await getTextFile(userId, plan.noteId)
     if (!note) throw new Error(`note ${plan.noteId} not found`)
-    const { passageBody, lexicalText } = noteIndexSurfaces(note.title, note.body)
+    const title = redactedText(note.title)
+    const body = redactedText(note.body)
     // embed the changed passages first, then swap lexical text and passages in one transaction
     const prepared = await preparePassageSync(userId, {
-      body: passageBody,
+      body,
       stored: await loadStoredPassages(userId, plan.noteId),
     })
     await getDb().transaction(async (tx) => {
       await tx
         .update(textFile)
-        .set({ lexicalText })
+        .set({ lexicalText: computeLexicalText(`${title} ${body}`) })
         .where(and(eq(textFile.id, plan.noteId), eq(textFile.userId, userId)))
       await applyPassageSync(tx, userId, plan.noteId, prepared)
     })

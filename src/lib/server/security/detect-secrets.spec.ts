@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { envPaste, FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 import {
-  numberedSecretPlaceholder,
   redactSecrets,
   redactSecretsDeep,
-  redactSecretsNumbered,
   SECRET_PLACEHOLDER,
   summarizeRedactedSecrets,
 } from './detect-secrets'
@@ -285,66 +283,5 @@ describe('redactSecretsDeep', () => {
 describe('kind helper', () => {
   it('detects a kind per finding', () => {
     expect(kindsOf(FAKE_SECRETS.openai)).toEqual(['api_key'])
-  })
-})
-
-describe('numbered placeholders (docs/planning/secret-hygiene.md, Part 2)', () => {
-  it('renders a placeholder with its 1-based ordinal', () => {
-    expect(numberedSecretPlaceholder(1)).toBe('[redacted secret #1]')
-    expect(numberedSecretPlaceholder(12)).toBe('[redacted secret #12]')
-  })
-
-  it('redactSecretsNumbered numbers each secret by its order in the text and keeps the names', () => {
-    const out = redactSecretsNumbered(envPaste())
-    expect(out.text).toBe(
-      'DATABASE_URL=postgres://user:[redacted secret #1]@localhost:5432/mydb LLM_API_KEY=[redacted secret #2] PORT=3000',
-    )
-    // same findings (spans in the input) as the unnumbered pass
-    expect(out.findings).toEqual(redactSecrets(envPaste()).findings)
-    expect(leaks(out.text)).toBe(false)
-  })
-
-  it('numbering is stable: the same text always yields the same ordinals', () => {
-    const text = `a ${FAKE_SECRETS.githubClassic} b ${FAKE_SECRETS.openai} c`
-    expect(redactSecretsNumbered(text)).toEqual(redactSecretsNumbered(text))
-    expect(redactSecretsNumbered(text).text).toBe('a [redacted secret #1] b [redacted secret #2] c')
-  })
-
-  it('returns the text unchanged when nothing is secret', () => {
-    expect(redactSecretsNumbered('commit 9f3a2c1, order #A12B')).toEqual({
-      text: 'commit 9f3a2c1, order #A12B',
-      findings: [],
-    })
-  })
-
-  it('treats a numbered placeholder as already redacted wherever a value can sit', () => {
-    for (const text of [
-      'LLM_API_KEY=[redacted secret #1]',
-      'password: [redacted secret #2]',
-      '{"client_secret": "[redacted secret #3]"}',
-      "token = '[redacted secret #1]'",
-      'Authorization: Bearer [redacted secret #4]',
-      'DATABASE_URL=postgres://user:[redacted secret #1]@localhost:5432/mydb',
-      '--api-key [redacted secret #1]',
-    ]) {
-      expect(redactSecrets(text)).toEqual({ text, findings: [] })
-    }
-  })
-
-  it('is idempotent on numbered text (a numbered body redacts to itself, bare and numbered mixed too)', () => {
-    const numbered = redactSecretsNumbered(
-      `${envPaste()} {"client_secret": "${FAKE_SECRETS.plainPassword}"}`,
-    ).text
-    expect(redactSecrets(numbered)).toEqual({ text: numbered, findings: [] })
-    expect(redactSecretsNumbered(numbered)).toEqual({ text: numbered, findings: [] })
-    const mixed = `LLM_API_KEY=${SECRET_PLACEHOLDER} and API_KEY=[redacted secret #1]`
-    expect(redactSecrets(mixed)).toEqual({ text: mixed, findings: [] })
-  })
-
-  it('does not mistake a malformed ordinal for a placeholder', () => {
-    // "#0" / "#x" are not placeholders: the assignment below still carries a value to hide
-    expect(redactSecrets('password: [redacted secret #x] hunter2').findings.length).toBeGreaterThan(
-      0,
-    )
   })
 })
