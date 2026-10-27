@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { STRONG_RETRIEVE_MATCH_MIN } from '$lib/server/llm/agent-tool-result-compact'
 import {
   buildDeleteTargetCandidates,
-  DeleteGateAmbiguousError,
   parseDeleteTargetsResponse,
   resolveDeleteTargets,
   strongDeleteTargetCandidates,
@@ -221,12 +220,7 @@ describe('resolveDeleteTargets (enforced delete_target)', () => {
         deleteRequest: 'delete the recipes',
         candidates,
       }),
-    ).rejects.toThrow(
-      '[delete-gate] ambiguous delete request — refine it (best match confidence 0.90)',
-    )
-    await expect(
-      resolveDeleteTargets({ userId: 'u1', deleteRequest: 'delete the recipes', candidates }),
-    ).rejects.toBeInstanceOf(DeleteGateAmbiguousError)
+    ).rejects.toThrow('[delete-gate] ambiguous delete request — refine it (best match confidence 0.90)')
     expect(llmChatCompletionMock).not.toHaveBeenCalled()
   })
 
@@ -265,11 +259,7 @@ describe('resolveDeleteTargets (enforced delete_target)', () => {
     )
 
     await expect(
-      resolveDeleteTargets({
-        userId: 'u1',
-        deleteRequest: 'delete my childhood photos',
-        candidates,
-      }),
+      resolveDeleteTargets({ userId: 'u1', deleteRequest: 'delete my childhood photos', candidates }),
     ).resolves.toEqual([])
     expect(llmChatCompletionMock).not.toHaveBeenCalled()
   })

@@ -22,7 +22,6 @@ const {
   resolveEnforceKindsMock,
   runDecisionModelMock,
   logActivityCallMock,
-  applyForgetRequestMock,
 } = vi.hoisted(() => ({
   getDbMock: vi.fn(),
   createThoughtEmbeddingMock: vi.fn(),
@@ -44,7 +43,6 @@ const {
   resolveEnforceKindsMock: vi.fn(),
   runDecisionModelMock: vi.fn(),
   logActivityCallMock: vi.fn(),
-  applyForgetRequestMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }))
@@ -89,9 +87,6 @@ vi.mock('$lib/server/agents/notify', () => ({
 }))
 vi.mock('$lib/server/agents/project-context', () => ({
   loadProjectContextForThought: loadProjectContextForThoughtMock,
-}))
-vi.mock('$lib/server/capture/apply-forget-request', () => ({
-  applyForgetRequest: applyForgetRequestMock,
 }))
 vi.mock('$lib/server/activity/log-call', () => ({
   logActivityCall: logActivityCallMock,
@@ -223,11 +218,7 @@ describe('enrichQueuedThought', () => {
     return {
       model: 'typesafe/jev-1.13',
       answers: Object.fromEntries(
-        Object.entries({
-          // shadow capture_intent rides along with the generic call: the pipeline stores (default)
-          capture_intent: { choice: 'store', probabilities: { store: 0.95, forget: 0.05 } },
-          ...answers,
-        }).map(([id, a]) => [
+        Object.entries(answers).map(([id, a]) => [
           id,
           { type: 'choice', choice: a.choice, probabilities: a.probabilities, confidence: 0.5 },
         ]),
@@ -429,11 +420,11 @@ describe('enrichQueuedThought', () => {
 
     await enrichQueuedThought('u1', 't1')
 
-    // Two Decisions calls: early content_role, then main shadow (category + the shadow-only
-    // capture_intent — content_role is excluded because the early call already decided it).
+    // Two Decisions calls: early content_role, then main shadow (category only —
+    // content_role is excluded because the early call already decided it).
     expect(runDecisionModelMock).toHaveBeenCalledTimes(2)
     expect(Object.keys(runDecisionModelMock.mock.calls[0][1].questions)).toEqual(['content_role'])
-    expect(Object.keys(runDecisionModelMock.mock.calls[1][1].questions)).toEqual(['category', 'capture_intent'])
+    expect(Object.keys(runDecisionModelMock.mock.calls[1][1].questions)).toEqual(['category'])
 
     expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledWith(
       expect.objectContaining({ decidedRole: 'reference' }),
@@ -1038,189 +1029,6 @@ describe('enrichQueuedThought', () => {
         },
       }),
     )
-  })
-
-  describe('forget requests at capture (S2, capture_intent)', () => {
-    const FORGET_AT = baseRow.createdAt
-
-    function intentDb(opts: { text?: string; metadata?: Record<string, unknown>; store?: boolean }) {
-      const row = {
-        ...baseRow,
-        rawText: opts.text ?? baseRow.rawText,
-        normalizedText: opts.text ?? baseRow.normalizedText,
-        ...(opts.metadata
-          ? { metadata: { encrypted: true }, metadataEncrypted: `enc:${JSON.stringify(opts.metadata)}` }
-          : {}),
-      }
-      const decidedNow = opts.metadata?.captureIntent === undefined
-      return makeDb([
-        [row],
-        ...(decidedNow ? [[{ metadata: {}, metadataEncrypted: null }]] : []), // persist captureIntent
-        ...(opts.store
-          ? [
-              [{ metadata: {}, metadataEncrypted: null }], // classify/embed patch
-              [{ n: 5 }],
-              [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-            ]
-          : []),
-        [{ normalizedText: 'x', category: 'idea', enrichedAt: opts.store ? new Date() : null }],
-      ])
-    }
-
-    function intentPersisted(): unknown[] {
-      return encryptTenantValueMock.mock.calls
-        .map((c) => c[0] as { column?: string; plaintext?: string })
-        .filter((a) => a.column === 'metadata' && a.plaintext?.includes('captureIntent'))
-        .map((a) => JSON.parse(a.plaintext ?? '{}').captureIntent)
-    }
-
-    beforeEach(() => {
-      resolveEnforceKindsMock.mockReturnValue(new Set(['capture_intent']))
-      resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
-      applyForgetRequestMock.mockResolvedValue({ status: 'applied', archived: ['x'], edited: [] })
-    })
-
-    it('forget: the early call asks capture_intent, the forget is applied against EARLIER thoughts and nothing is enriched', async () => {
-      runDecisionModelMock.mockResolvedValueOnce(
-        decisionResponse({ capture_intent: { choice: 'forget', probabilities: { forget: 0.95, store: 0.05 } } }),
-      )
-      const db = intentDb({ text: 'Please forget that I like surfing' })
-      getDbMock.mockReturnValue(db)
-
-      await enrichQueuedThought('u1', 't1')
-
-      expect(runDecisionModelMock).toHaveBeenCalledTimes(1)
-      expect(Object.keys(runDecisionModelMock.mock.calls[0][1].questions)).toEqual(['capture_intent'])
-      expect(applyForgetRequestMock).toHaveBeenCalledWith({
-        userId: 'u1',
-        captureThoughtId: 't1',
-        captureCreatedAt: FORGET_AT,
-        request: 'Please forget that I like surfing',
-      })
-      expect(intentPersisted()).toEqual(['forget'])
-      // a forget capture is not memory: no split, no embedding, no enrichment, no notify
-      expect(applyCaptureContentSplitIfNeededMock).not.toHaveBeenCalled()
-      expect(createThoughtEmbeddingMock).not.toHaveBeenCalled()
-      expect(extractEnrichThoughtBundleMock).not.toHaveBeenCalled()
-      expect(enrichThoughtMock).not.toHaveBeenCalled()
-      expect(notifyThoughtEnrichedMock).not.toHaveBeenCalled()
-      expect(markEnrichQueueCompleteMock).toHaveBeenCalledWith('t1')
-    })
-
-    it('regression: a capture merely MENTIONING forgetting ("I forgot my keys") is store and runs the normal pipeline', async () => {
-      runDecisionModelMock.mockResolvedValueOnce(
-        decisionResponse({ capture_intent: { choice: 'store', probabilities: { store: 0.97, forget: 0.03 } } }),
-      )
-      const db = intentDb({ text: 'I forgot my keys', store: true })
-      getDbMock.mockReturnValue(db)
-
-      await enrichQueuedThought('u1', 't1')
-
-      expect(applyForgetRequestMock).not.toHaveBeenCalled()
-      expect(intentPersisted()).toEqual(['store'])
-      expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledTimes(1)
-      expect(enrichThoughtMock).toHaveBeenCalledTimes(1)
-    })
-
-    it('asks capture_intent together with content_role in the same early call', async () => {
-      resolveEnforceKindsMock.mockReturnValue(new Set(['capture_intent', 'content_role']))
-      runDecisionModelMock
-        .mockResolvedValueOnce(
-          decisionResponse({
-            capture_intent: { choice: 'store', probabilities: { store: 0.9, forget: 0.1 } },
-            content_role: { choice: 'personal', probabilities: { personal: 0.8, reference: 0.1, mixed: 0.1 } },
-          }),
-        )
-        .mockResolvedValue(decisionResponse({ category: { choice: 'task', probabilities: { task: 0.7 } } }))
-      getDbMock.mockReturnValue(intentDb({ text: 'I forgot my keys', store: true }))
-
-      await enrichQueuedThought('u1', 't1')
-
-      expect(Object.keys(runDecisionModelMock.mock.calls[0][1].questions).sort()).toEqual([
-        'capture_intent',
-        'content_role',
-      ])
-      expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledWith(
-        expect.objectContaining({ decidedRole: 'personal' }),
-      )
-    })
-
-    it('a retried attempt resumes the persisted intent without asking again', async () => {
-      getDbMock.mockReturnValue(
-        intentDb({ text: 'Please forget that I like surfing', metadata: { captureIntent: 'forget' } }),
-      )
-
-      await enrichQueuedThought('u1', 't1')
-
-      expect(runDecisionModelMock).not.toHaveBeenCalled()
-      expect(applyForgetRequestMock).toHaveBeenCalledTimes(1)
-    })
-
-    it('a span child asks no capture_intent question and never forgets', async () => {
-      runDecisionModelMock.mockResolvedValue(
-        decisionResponse({ category: { choice: 'task', probabilities: { task: 0.7 } } }),
-      )
-      getDbMock.mockReturnValue(
-        makeDb([
-          [{ ...baseRow, metadata: { encrypted: true }, metadataEncrypted: `enc:${JSON.stringify({ splitFrom: 'p' })}` }],
-          [{ metadata: {}, metadataEncrypted: null }],
-          [{ n: 5 }],
-          [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-          [{ normalizedText: 'x', category: 'idea', enrichedAt: new Date() }],
-        ]),
-      )
-
-      await enrichQueuedThought('u1', 'child-1')
-
-      for (const [, req] of runDecisionModelMock.mock.calls) {
-        expect(Object.keys(req.questions)).not.toContain('capture_intent')
-      }
-      expect(applyForgetRequestMock).not.toHaveBeenCalled()
-    })
-
-    it('a failure while forgetting fails the enrich loudly (no silent store, no partial success)', async () => {
-      runDecisionModelMock.mockResolvedValueOnce(
-        decisionResponse({ capture_intent: { choice: 'forget', probabilities: { forget: 0.95, store: 0.05 } } }),
-      )
-      applyForgetRequestMock.mockRejectedValue(new Error('gateway 502'))
-      getDbMock.mockReturnValue(intentDb({ text: 'Please forget that I like surfing' }))
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-      await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow(/gateway 502/)
-      expect(markEnrichQueueFailedMock).toHaveBeenCalledWith('t1', expect.stringContaining('gateway 502'))
-      expect(enrichThoughtMock).not.toHaveBeenCalled()
-      errorSpy.mockRestore()
-    })
-
-    it('an off-catalog intent fails the enrich loudly', async () => {
-      runDecisionModelMock.mockResolvedValueOnce(
-        decisionResponse({ capture_intent: { choice: 'erase', probabilities: { erase: 1 } } }),
-      )
-      getDbMock.mockReturnValue(intentDb({ text: 'x' }))
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-      await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow(/off-catalog choice "erase"/)
-      expect(applyForgetRequestMock).not.toHaveBeenCalled()
-      errorSpy.mockRestore()
-    })
-
-    it('shadow only (not enforced): the later call carries capture_intent, the pipeline stays store and forgets nothing', async () => {
-      resolveEnforceKindsMock.mockReturnValue(new Set())
-      runDecisionModelMock.mockResolvedValue(
-        decisionResponse({
-          category: { choice: 'task', probabilities: { task: 0.7 } },
-          content_role: { choice: 'personal', probabilities: { personal: 1 } },
-          capture_intent: { choice: 'forget', probabilities: { forget: 0.9, store: 0.1 } },
-        }),
-      )
-      getDbMock.mockReturnValue(standardDbQueue())
-
-      await enrichQueuedThought('u1', 't1')
-
-      expect(Object.keys(runDecisionModelMock.mock.calls[0][1].questions)).toContain('capture_intent')
-      expect(applyForgetRequestMock).not.toHaveBeenCalled()
-      expect(enrichThoughtMock).toHaveBeenCalledTimes(1)
-    })
   })
 
   it('runs the full pipeline, persists classify/embed, and notifies on success', async () => {

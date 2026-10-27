@@ -45,20 +45,6 @@ const SNIPPET_MAX = 200
  */
 const DELETE_TARGET_MIN_CONFIDENCE = 0.8
 
-/**
- * Thrown by the delete gate when a request selects a candidate below the confidence floor: the
- * request is ambiguous and NOTHING may be removed. A class (not a message match) so callers —
- * the forget flow at capture — can tell it apart from a transport failure.
- */
-export class DeleteGateAmbiguousError extends Error {
-  constructor(readonly bestConfidence: number) {
-    super(
-      `[delete-gate] ambiguous delete request — refine it (best match confidence ${bestConfidence.toFixed(2)})`,
-    )
-    this.name = 'DeleteGateAmbiguousError'
-  }
-}
-
 const DELETE_GATE_CRITERIA = {
   delete: 'This thought matches the delete request — the user means this one.',
   keep: 'This thought does not match the request.',
@@ -188,12 +174,10 @@ export async function resolveDeleteTargets(params: {
     // an ambiguous request deletes nothing.
     for (let i = 0; i < params.candidates.length; i++) {
       const answer = answers.get(`d${i + 1}`)
-      if (
-        answer &&
-        answer.choice === 'delete' &&
-        answer.probability < DELETE_TARGET_MIN_CONFIDENCE
-      ) {
-        throw new DeleteGateAmbiguousError(bestConfidence)
+      if (answer && answer.choice === 'delete' && answer.probability < DELETE_TARGET_MIN_CONFIDENCE) {
+        throw new Error(
+          `[delete-gate] ambiguous delete request — refine it (best match confidence ${bestConfidence.toFixed(2)})`,
+        )
       }
     }
 

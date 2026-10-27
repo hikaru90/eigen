@@ -4,7 +4,7 @@ import {
   dominantEntityType,
   runEnforcedBoundedDecisions,
   runEnforcedPerItemDecisions,
-  startEarlyCaptureDecisions,
+  startContentRoleDecision,
   startDecisionShadow,
   type BoundedDecisionSpec,
   type DecisionShadowContext,
@@ -341,18 +341,18 @@ describe('dominantEntityType', () => {
   })
 })
 
-describe('enforcement — startEarlyCaptureDecisions content_role (early, pre-split call)', () => {
+describe('enforcement — startContentRoleDecision (early, pre-split call)', () => {
   const ENFORCED = new Set(['category', 'content_role'] as const)
 
   it('returns null when content_role is not enforced (today\u2019s shadow-only flow)', () => {
     resolveEnforceMock.mockReturnValue(new Set(['category'] as const))
-    expect(startEarlyCaptureDecisions({ userId: 'user-1', state: 'text', contentRole: true, captureIntent: false })).toBeNull()
+    expect(startContentRoleDecision({ userId: 'user-1', state: 'text' })).toBeNull()
   })
 
   it('throws when enforced but the decision-model config is disabled', () => {
     resolveEnforceMock.mockReturnValue(ENFORCED)
     resolveConfigMock.mockReturnValue(null)
-    expect(() => startEarlyCaptureDecisions({ userId: 'user-1', state: 'text', contentRole: true, captureIntent: false })).toThrow(
+    expect(() => startContentRoleDecision({ userId: 'user-1', state: 'text' })).toThrow(
       /content_role/,
     )
   })
@@ -361,7 +361,7 @@ describe('enforcement — startEarlyCaptureDecisions content_role (early, pre-sp
     resolveEnforceMock.mockReturnValue(ENFORCED)
     resolveConfigMock.mockReturnValue(config)
     runDecisionMock.mockReturnValue(new Promise(() => {}))
-    startEarlyCaptureDecisions({ userId: 'user-1', state: 'recipe text', contentRole: true, captureIntent: false })
+    startContentRoleDecision({ userId: 'user-1', state: 'recipe text' })
     expect(runDecisionMock).toHaveBeenCalledTimes(1)
     const [, req] = runDecisionMock.mock.calls[0]
     expect(req.state).toBe('recipe text')
@@ -376,13 +376,12 @@ describe('enforcement — startEarlyCaptureDecisions content_role (early, pre-sp
         content_role: { choice: 'reference', probabilities: { reference: 0.9, personal: 0.06, mixed: 0.04 } },
       }),
     )
-    const handle = startEarlyCaptureDecisions({ userId: 'user-1', state: 'recipe text', contentRole: true, captureIntent: false })
+    const handle = startContentRoleDecision({ userId: 'user-1', state: 'recipe text' })
     const decided = await handle!.decide()
-    expect(decided.contentRole?.role).toBe('reference')
-    expect(decided.contentRole?.probability).toBe(0.9)
-    expect(decided.contentRole?.alternatives).toEqual({ personal: 0.06, mixed: 0.04 })
-    expect(decided.contentRole?.durationMs).toBeTypeOf('number')
-    expect(decided.captureIntent).toBeUndefined()
+    expect(decided.role).toBe('reference')
+    expect(decided.probability).toBe(0.9)
+    expect(decided.alternatives).toEqual({ personal: 0.06, mixed: 0.04 })
+    expect(decided.durationMs).toBeTypeOf('number')
     expect(logActivityCallMock).toHaveBeenCalledTimes(1)
     expect(logActivityCallMock.mock.calls[0][1]).toBe('user-1')
     expect(logActivityCallMock.mock.calls[0][2].baseCostUsd).toBe(0.0000421)
@@ -396,7 +395,7 @@ describe('enforcement — startEarlyCaptureDecisions content_role (early, pre-sp
         content_role: { choice: 'both_somehow', probabilities: { both_somehow: 1 } },
       }),
     )
-    const handle = startEarlyCaptureDecisions({ userId: 'user-1', state: 'text', contentRole: true, captureIntent: false })
+    const handle = startContentRoleDecision({ userId: 'user-1', state: 'text' })
     await expect(handle!.decide()).rejects.toThrow(/off-catalog choice "both_somehow"/)
   })
 
@@ -408,7 +407,7 @@ describe('enforcement — startEarlyCaptureDecisions content_role (early, pre-sp
       runDecisionMock.mockResolvedValue(
         choiceAnswers({ content_role: { choice: retired, probabilities: { [retired]: 1 } } }),
       )
-      const handle = startEarlyCaptureDecisions({ userId: 'user-1', state: 'text', contentRole: true, captureIntent: false })
+      const handle = startContentRoleDecision({ userId: 'user-1', state: 'text' })
       await expect(handle!.decide()).rejects.toThrow(
         new RegExp(`off-catalog choice "${retired}"`),
       )
@@ -421,162 +420,16 @@ describe('enforcement — startEarlyCaptureDecisions content_role (early, pre-sp
     runDecisionMock.mockResolvedValue(
       choiceAnswers({ content_role: { choice: role, probabilities: { [role]: 0.7 } } }),
     )
-    const decided = await startEarlyCaptureDecisions({ userId: 'user-1', state: 'text', contentRole: true, captureIntent: false })!.decide()
-    expect(decided.contentRole?.role).toBe(role)
+    const decided = await startContentRoleDecision({ userId: 'user-1', state: 'text' })!.decide()
+    expect(decided.role).toBe(role)
   })
 
   it('decide() throws when the call fails (into the ingest retry ladder)', async () => {
     resolveEnforceMock.mockReturnValue(ENFORCED)
     resolveConfigMock.mockReturnValue(config)
     runDecisionMock.mockRejectedValue(new Error('502 bad gateway'))
-    const handle = startEarlyCaptureDecisions({ userId: 'user-1', state: 'text', contentRole: true, captureIntent: false })
+    const handle = startContentRoleDecision({ userId: 'user-1', state: 'text' })
     await expect(handle!.decide()).rejects.toThrow(/enforced content_role decision failed.*502/s)
-  })
-})
-
-describe('enforcement — capture_intent in the early pre-split call', () => {
-  const BOTH = new Set(['capture_intent', 'content_role'] as const)
-  const INTENT_ONLY = new Set(['capture_intent'] as const)
-  const intentAnswer = (choice: string, probs: Record<string, number>) => ({
-    capture_intent: { choice, probabilities: probs },
-  })
-
-  it('asks capture_intent and content_role in ONE call when both are enforced', () => {
-    resolveEnforceMock.mockReturnValue(BOTH)
-    resolveConfigMock.mockReturnValue(config)
-    runDecisionMock.mockReturnValue(new Promise(() => {}))
-    startEarlyCaptureDecisions({ userId: 'user-1', state: 'Please forget my diet', contentRole: true, captureIntent: true })
-    expect(runDecisionMock).toHaveBeenCalledTimes(1)
-    const [, req] = runDecisionMock.mock.calls[0]
-    expect(req.state).toBe('Please forget my diet')
-    expect(Object.keys(req.questions).sort()).toEqual(['capture_intent', 'content_role'])
-    expect(Object.keys(req.questions.capture_intent.criteria)).toEqual(['store', 'forget'])
-  })
-
-  it('asks only capture_intent when content_role is not requested or not enforced', () => {
-    resolveEnforceMock.mockReturnValue(INTENT_ONLY)
-    resolveConfigMock.mockReturnValue(config)
-    runDecisionMock.mockReturnValue(new Promise(() => {}))
-    startEarlyCaptureDecisions({ userId: 'user-1', state: 't', contentRole: true, captureIntent: true })
-    expect(Object.keys(runDecisionMock.mock.calls[0][1].questions)).toEqual(['capture_intent'])
-  })
-
-  it('returns null when capture_intent is requested but not enforced (shadow rides the later call)', () => {
-    resolveEnforceMock.mockReturnValue(new Set(['category'] as const))
-    expect(
-      startEarlyCaptureDecisions({ userId: 'user-1', state: 't', contentRole: false, captureIntent: true }),
-    ).toBeNull()
-  })
-
-  it('does not ask capture_intent when the caller already has the intent (retry / span child)', () => {
-    resolveEnforceMock.mockReturnValue(BOTH)
-    resolveConfigMock.mockReturnValue(config)
-    runDecisionMock.mockReturnValue(new Promise(() => {}))
-    startEarlyCaptureDecisions({ userId: 'user-1', state: 't', contentRole: true, captureIntent: false })
-    expect(Object.keys(runDecisionMock.mock.calls[0][1].questions)).toEqual(['content_role'])
-  })
-
-  it('throws when enforced but the decision-model config is disabled', () => {
-    resolveEnforceMock.mockReturnValue(INTENT_ONLY)
-    resolveConfigMock.mockReturnValue(null)
-    expect(() =>
-      startEarlyCaptureDecisions({ userId: 'user-1', state: 't', contentRole: false, captureIntent: true }),
-    ).toThrow(/capture_intent/)
-  })
-
-  it('decide() returns the intent with its probability, logs ONE activity row and a metadata-only decision row', async () => {
-    resolveEnforceMock.mockReturnValue(INTENT_ONLY)
-    resolveConfigMock.mockReturnValue(config)
-    runDecisionMock.mockResolvedValue(
-      choiceAnswers(intentAnswer('forget', { forget: 0.93, store: 0.07 })),
-    )
-    const decided = await startEarlyCaptureDecisions({
-      userId: 'user-1',
-      state: 'secret diet text',
-      contentRole: false,
-      captureIntent: true,
-    })!.decide()
-
-    expect(decided.captureIntent).toMatchObject({ intent: 'forget', probability: 0.93, alternatives: { store: 0.07 } })
-    expect(decided.contentRole).toBeUndefined()
-    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
-    expect(logActivityCallMock.mock.calls[0][2].context).toContain('capture_intent')
-    const rows = insertedRows()
-    expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({
-      userId: 'user-1',
-      surface: 'enrich_queued',
-      decisionKind: 'capture_intent',
-      llmChoice: null,
-      decisionChoice: 'forget',
-      decisionProbability: 0.93,
-      decisionAlternatives: { store: 0.07 },
-      agree: null,
-      decisionError: null,
-      authoritativeEngine: 'decision_model',
-    })
-    expect(JSON.stringify(rows)).not.toContain('secret diet text')
-  })
-
-  it('decide() throws on an off-catalog intent (fail loud, no repair) and records the error row', async () => {
-    resolveEnforceMock.mockReturnValue(INTENT_ONLY)
-    resolveConfigMock.mockReturnValue(config)
-    runDecisionMock.mockResolvedValue(choiceAnswers(intentAnswer('erase', { erase: 1 })))
-    const handle = startEarlyCaptureDecisions({ userId: 'user-1', state: 't', contentRole: false, captureIntent: true })
-    await expect(handle!.decide()).rejects.toThrow(/off-catalog choice "erase"/)
-    expect(insertedRows()[0]).toMatchObject({
-      decisionKind: 'capture_intent',
-      decisionChoice: null,
-      decisionError: expect.stringContaining('erase'),
-    })
-  })
-
-  it('decide() throws when the call fails (into the ingest retry ladder)', async () => {
-    resolveEnforceMock.mockReturnValue(INTENT_ONLY)
-    resolveConfigMock.mockReturnValue(config)
-    runDecisionMock.mockRejectedValue(new Error('502 bad gateway'))
-    const handle = startEarlyCaptureDecisions({ userId: 'user-1', state: 't', contentRole: false, captureIntent: true })
-    await expect(handle!.decide()).rejects.toThrow(/enforced capture_intent decision failed.*502/s)
-  })
-
-  it('the criteria say forget = a request to Eigen, and that talk about forgetting is store', () => {
-    resolveEnforceMock.mockReturnValue(INTENT_ONLY)
-    resolveConfigMock.mockReturnValue(config)
-    runDecisionMock.mockReturnValue(new Promise(() => {}))
-    startEarlyCaptureDecisions({ userId: 'user-1', state: 't', contentRole: false, captureIntent: true })
-    const q = runDecisionMock.mock.calls[0][1].questions.capture_intent
-    expect(q.criteria.forget).toMatch(/asks Eigen to forget/)
-    expect(q.criteria.store).toMatch(/forgot/)
-    expect(q.instructions).toMatch(/not by whether/)
-  })
-})
-
-describe('shadow — capture_intent beside the later generic call', () => {
-  it('adds the question only when the context opts in; the pipeline behaviour (store) is the comparison', async () => {
-    resolveConfigMock.mockReturnValue(config)
-    runDecisionMock.mockResolvedValue(
-      choiceAnswers({
-        category: { choice: 'task', probabilities: { task: 0.51, idea: 0.49 } },
-        capture_intent: { choice: 'forget', probabilities: { forget: 0.8, store: 0.2 } },
-      }),
-    )
-    const settle = startDecisionShadow(makeContext({ captureIntentShadow: true }))
-    expect(Object.keys(runDecisionMock.mock.calls[0][1].questions).sort()).toEqual(['capture_intent', 'category'])
-    await settle?.({ category: { choice: 'task', confidence: 0.9 }, captureIntent: { choice: 'store' } })
-    const row = insertedRows().find((r) => r.decisionKind === 'capture_intent')
-    expect(row).toMatchObject({
-      llmChoice: 'store',
-      decisionChoice: 'forget',
-      agree: false,
-      authoritativeEngine: 'chat_judge',
-    })
-  })
-
-  it('is absent by default', () => {
-    resolveConfigMock.mockReturnValue(config)
-    runDecisionMock.mockReturnValue(new Promise(() => {}))
-    startDecisionShadow(makeContext())
-    expect(Object.keys(runDecisionMock.mock.calls[0][1].questions)).toEqual(['category'])
   })
 })
 

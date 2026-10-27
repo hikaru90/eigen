@@ -13,7 +13,6 @@ export type IngestPhase =
   | 'decision_entity_type'
   | 'decision_open_loop_salience'
   | 'content_split'
-  | 'forget_request'
   | 'enrich_bump_version'
   | 'enrich_entities'
   | 'enrich_metadata'

@@ -25,7 +25,6 @@
  */
 
 import { logActivityCall } from '$lib/server/activity/log-call'
-import { isCaptureIntent, type CaptureIntent } from '$lib/server/capture/capture-intent'
 import { isContentRole, type ContentRole } from '$lib/server/capture/content-role'
 import { getDb } from '$lib/server/db'
 import { decisionShadowLog } from '$lib/server/db/schema'
@@ -75,20 +74,6 @@ export type EnforcedContentRole = {
   durationMs: number
 }
 
-/** The early capture_intent decision (store | forget) when the kind is decision-model authoritative. */
-export type EnforcedCaptureIntent = {
-  intent: CaptureIntent
-  probability: number
-  /** Probabilities of the non-chosen options. */
-  alternatives: Record<string, number>
-}
-
-/** What the early pre-split call decided — only the kinds that were asked and enforced. */
-export type EarlyCaptureDecisions = {
-  contentRole?: EnforcedContentRole
-  captureIntent?: EnforcedCaptureIntent
-}
-
 /** Enforced decisions returned to the caller at settle time. */
 export type EnforcedDecisions = {
   /** Authoritative category answer — the caller validates the key against the ontology. */
@@ -111,13 +96,6 @@ export type DecisionShadowContext = {
    * already decided it — the later call then excludes the question.
    */
   enforcedContentRole?: EnforcedContentRole
-  /**
-   * Shadow-only capture_intent (store | forget): adds the question to this call so the decision
-   * model's answer is recorded beside what the pipeline actually did (store). The caller sets it
-   * only when the intent is undecided AND not enforced — an enforced intent is asked by the
-   * early call and never again here.
-   */
-  captureIntentShadow?: boolean
 }
 
 export type DecisionShadowPrimaries = {
@@ -130,8 +108,6 @@ export type DecisionShadowPrimaries = {
   contentRole?: { choice: ContentRole; confidence?: number | null }
   /** Dominant mention's resolved entity type — recorded only when a mention exists. */
   entityType?: { choice: string; confidence: number | null }
-  /** Shadow capture_intent: always `store` — the pipeline's behavior when the kind is not enforced. */
-  captureIntent?: { choice: CaptureIntent }
 }
 
 /**
@@ -163,20 +139,6 @@ const CONTENT_ROLE_CRITERIA: Record<ContentRole, string> = {
     "The text contains BOTH the user's own words (why they saved it, what it is for, a personal circumstance or plan) AND reference material such as a pasted recipe, document or draft. The personal parts are stored as the user's own thoughts and the reference part as a linked note.",
 }
 
-/**
- * Capture intent (docs/planning/personamem-score-plan.md, S2). Decided by what the user asks of
- * Eigen — never by whether the words "forget"/"forgot" appear: the criteria are guidance for the
- * model, there is no keyword rule anywhere in code.
- */
-export const CAPTURE_INTENT_CRITERIA: Record<CaptureIntent, string> = {
-  store:
-    "The text is something for Eigen to remember: the user's own account, a fact, plan, task, preference, idea or note, or a question. This includes text that merely talks about forgetting or forgetfulness without asking Eigen to forget anything (for example 'I forgot my keys', 'don't forget to call mom', 'I keep forgetting names').",
-  forget:
-    'The user asks Eigen to forget, stop remembering, ignore or delete something Eigen already knows about them (for example "please forget that I ...", "delete what you know about my ...", "I no longer want you to remember ..."). The text is an instruction to the memory itself, not information to keep.',
-}
-const CAPTURE_INTENT_INSTRUCTIONS =
-  "Decide by what the user is asking of Eigen, not by whether words about forgetting appear: is this captured text something to remember (store), or an instruction to Eigen to forget, stop remembering or delete something it already knows about the user (forget)? Statements about the user's own forgetfulness, reminders, and anything else that is information to keep are store."
-
 const CATEGORY_INSTRUCTIONS = 'Which ontology thought category best matches this captured thought?'
 const CONTENT_ROLE_INSTRUCTIONS =
   "Decide by what the text is, not by how long it is: is the whole captured input the user's own personally relevant account (personal), reference material (reference), or both (mixed)? Length is only a hint: text longer than about 300 characters (longer than a tweet) is more likely to hold several distinct things or a pasted document and deserves a closer look, but a long text that is entirely the user's own account is still personal and a short text can still be reference."
@@ -205,13 +167,6 @@ export function decisionQuestionsFor(ctx: DecisionShadowContext): Record<string,
       criteria: CONTENT_ROLE_CRITERIA,
     }
   }
-  if (ctx.captureIntentShadow) {
-    questions.capture_intent = {
-      type: 'choice',
-      instructions: CAPTURE_INTENT_INSTRUCTIONS,
-      criteria: CAPTURE_INTENT_CRITERIA,
-    }
-  }
   if (ctx.entityTypeKinds && ctx.entityTypeKinds.length > 0) {
     questions.entity_type = {
       type: 'choice',
@@ -226,7 +181,6 @@ export function decisionQuestionsFor(ctx: DecisionShadowContext): Record<string,
 function enabledKinds(ctx: DecisionShadowContext): DecisionKind[] {
   const kinds: DecisionKind[] = ['category']
   if (ctx.contentRoleEnabled || ctx.enforcedContentRole) kinds.push('content_role')
-  if (ctx.captureIntentShadow) kinds.push('capture_intent')
   if (ctx.entityTypeKinds && ctx.entityTypeKinds.length > 0) kinds.push('entity_type')
   return kinds
 }
@@ -282,93 +236,40 @@ function errorText(err: unknown): string {
 }
 
 /**
- * Early pre-split decisions for the ENFORCED path (spec §6 P): ONE Decisions
- * API call asking only the requested kinds that DECISION_ENFORCE_KINDS makes
- * authoritative — content_role (personal | reference | mixed) and
- * capture_intent (store | forget) — kicked before the content_split phase so
- * the pipeline can act on them. Returns null when none of the requested kinds
- * is enforced — the caller keeps the shadow-only flow.
+ * Early content_role decision for the ENFORCED path (spec §6 P): one
+ * Decisions API call with only the content_role question, kicked before the
+ * content_split phase so the pipeline can act on the role (the generation
+ * call then runs for the decided role only). Returns null when content_role
+ * is not enforced — the caller keeps the shadow-only flow.
  *
  * decide() FAILS LOUD on call errors and off-catalog choices — an enforced
- * decision has no fallback; the enrich retry ladder owns recovery. The
- * capture_intent row (decision_shadow_log) is written here, success or
- * failure; content_role's row is written by the later generic call.
+ * decision has no fallback; the enrich retry ladder owns recovery.
  */
-export function startEarlyCaptureDecisions(input: {
+export function startContentRoleDecision(input: {
   userId: string
   state: string
-  /** Ask content_role (the caller has not decided the role yet). */
-  contentRole: boolean
-  /** Ask capture_intent (the caller has not decided the intent yet). */
-  captureIntent: boolean
-}): { decide: () => Promise<EarlyCaptureDecisions> } | null {
+}): { decide: () => Promise<EnforcedContentRole> } | null {
   const enforceKinds = resolveDecisionEnforceKinds()
-  const askRole = input.contentRole && enforceKinds.has('content_role')
-  const askIntent = input.captureIntent && enforceKinds.has('capture_intent')
-  if (!askRole && !askIntent) return null
-  const askedKinds = [...(askRole ? ['content_role'] : []), ...(askIntent ? ['capture_intent'] : [])]
-  const label = askedKinds.join(',')
+  if (!enforceKinds.has('content_role')) return null
 
   const startedAt = Date.now()
   const resolved = resolveDecisionShadowConfigSafe()
   if (!resolved) {
     throw new Error(
-      `[decision-plane] ${label} is enforced (DECISION_ENFORCE_KINDS) but the decision-model config is unavailable (DECISION_SHADOW_ENABLED / OPENROUTER_API_KEY / DECISION_SHADOW_MODEL)`,
+      '[decision-plane] content_role is enforced (DECISION_ENFORCE_KINDS) but the decision-model config is unavailable (DECISION_SHADOW_ENABLED / OPENROUTER_API_KEY / DECISION_SHADOW_MODEL)',
     )
   }
 
-  const questions: Record<string, DecisionChoiceQuestion> = {}
-  if (askRole) {
-    questions.content_role = {
-      type: 'choice',
-      instructions: CONTENT_ROLE_INSTRUCTIONS,
-      criteria: CONTENT_ROLE_CRITERIA,
-    }
-  }
-  if (askIntent) {
-    questions.capture_intent = {
-      type: 'choice',
-      instructions: CAPTURE_INTENT_INSTRUCTIONS,
-      criteria: CAPTURE_INTENT_CRITERIA,
-    }
-  }
-  const inflight = runDecisionModel(resolved, { state: input.state, questions })
-
-  const alternativesOf = (answer: DecisionChoiceAnswer): Record<string, number> => {
-    const alternatives: Record<string, number> = {}
-    for (const [key, prob] of Object.entries(answer.probabilities)) {
-      if (key !== answer.choice) alternatives[key] = prob
-    }
-    return alternatives
-  }
-
-  // Evidence row for the intent decision — privacy-safe: choice keys, probabilities, timing, error.
-  const recordIntentRow = async (
-    answer: DecisionChoiceAnswer | null,
-    error: string | null,
-  ): Promise<void> => {
-    if (!askIntent) return
-    try {
-      await getDb()
-        .insert(decisionShadowLog)
-        .values({
-          userId: input.userId,
-          surface: 'enrich_queued',
-          decisionKind: 'capture_intent',
-          llmChoice: null,
-          llmConfidence: null,
-          decisionChoice: answer?.choice ?? null,
-          decisionProbability: answer ? answer.probabilities[answer.choice] : null,
-          decisionAlternatives: answer ? alternativesOf(answer) : null,
-          agree: null,
-          decisionError: error,
-          decisionDurationMs: Date.now() - startedAt,
-          authoritativeEngine: 'decision_model',
-        })
-    } catch (err) {
-      console.error('[decision-plane] failed to record capture_intent row', err)
-    }
-  }
+  const inflight = runDecisionModel(resolved, {
+    state: input.state,
+    questions: {
+      content_role: {
+        type: 'choice',
+        instructions: CONTENT_ROLE_INSTRUCTIONS,
+        criteria: CONTENT_ROLE_CRITERIA,
+      },
+    },
+  })
 
   return {
     decide: async () => {
@@ -376,10 +277,19 @@ export function startEarlyCaptureDecisions(input: {
       try {
         res = await inflight
       } catch (err) {
-        await recordIntentRow(null, errorText(err))
-        throw new Error(`[decision-plane] enforced ${label} decision failed: ${errorText(err)}`, {
+        throw new Error(`[decision-plane] enforced content_role decision failed: ${errorText(err)}`, {
           cause: err,
         })
+      }
+      const answer = res.answers['content_role']
+      if (!isContentRole(answer.choice)) {
+        throw new Error(
+          `[decision-plane] enforced content_role returned off-catalog choice "${answer.choice}" — no repair, no fallback`,
+        )
+      }
+      const alternatives: Record<string, number> = {}
+      for (const [key, prob] of Object.entries(answer.probabilities)) {
+        if (key !== answer.choice) alternatives[key] = prob
       }
       // Cost transparency: one activity row for THIS call (the later shadow
       // call attributes its own).
@@ -389,44 +299,19 @@ export function startEarlyCaptureDecisions(input: {
           operation: 'decision_shadow',
           baseCostUsd: res.reportedCostUsd ?? 0,
           gatewayHost: 'openrouter.ai',
-          context: `decision_shadow kinds=${label} surface=enrich_queued(pre-split)`,
+          context: 'decision_shadow kinds=content_role surface=enrich_queued(pre-split)',
           durationMs: Date.now() - startedAt,
           cached: res.cached === true,
         })
       } catch (err) {
-        console.error(`[decision-plane] failed to record ${label} activity row`, err)
+        console.error('[decision-plane] failed to record content_role activity row', err)
       }
-
-      const decided: EarlyCaptureDecisions = {}
-      if (askIntent) {
-        const answer = res.answers['capture_intent']
-        if (!isCaptureIntent(answer.choice)) {
-          const message = `[decision-plane] enforced capture_intent returned off-catalog choice "${answer.choice}" — no repair, no fallback`
-          await recordIntentRow(null, message)
-          throw new Error(message)
-        }
-        await recordIntentRow(answer, null)
-        decided.captureIntent = {
-          intent: answer.choice,
-          probability: answer.probabilities[answer.choice],
-          alternatives: alternativesOf(answer),
-        }
+      return {
+        role: answer.choice,
+        probability: answer.probabilities[answer.choice],
+        alternatives,
+        durationMs: Date.now() - startedAt,
       }
-      if (askRole) {
-        const answer = res.answers['content_role']
-        if (!isContentRole(answer.choice)) {
-          throw new Error(
-            `[decision-plane] enforced content_role returned off-catalog choice "${answer.choice}" — no repair, no fallback`,
-          )
-        }
-        decided.contentRole = {
-          role: answer.choice,
-          probability: answer.probabilities[answer.choice],
-          alternatives: alternativesOf(answer),
-          durationMs: Date.now() - startedAt,
-        }
-      }
-      return decided
     },
   }
 }
@@ -905,8 +790,6 @@ async function recordRows(
     message_intent: undefined,
     open_loop: undefined,
     salience_band: undefined,
-    // Shadow-only: the pipeline's behavior (store) is the comparison; enforced runs early.
-    capture_intent: primaries.captureIntent,
   }
 
   const rows: Array<typeof decisionShadowLog.$inferInsert> = []

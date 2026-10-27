@@ -132,7 +132,7 @@ describe('resolveDecisionEnforceKinds', () => {
     }
   })
 
-  it('accepts all 15 registry kinds in one setting', () => {
+  it('accepts all 14 registry kinds in one setting', () => {
     const all = [
       'category',
       'content_role',
@@ -148,10 +148,9 @@ describe('resolveDecisionEnforceKinds', () => {
       'message_intent',
       'open_loop',
       'salience_band',
-      'capture_intent',
     ]
     const kinds = resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: all.join(',') })
-    expect(kinds.size).toBe(15)
+    expect(kinds.size).toBe(14)
     expect([...kinds].sort()).toEqual([...all].sort())
   })
 

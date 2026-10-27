@@ -603,7 +603,7 @@ export const decisionShadowLog = pgTable(
     createdAt: timestamp('created_at').defaultNow().notNull(),
     /** Which capture path produced the decision: `capture_service` | `enrich_queued`. */
     surface: text('surface').notNull(),
-    /** Which bounded decision this row compares: `category` | `content_role` | `entity_type` | `capture_intent` | … (see DecisionKind). */
+    /** Which bounded decision this row compares: `category` | `content_role` | `entity_type`. */
     decisionKind: text('decision_kind').notNull().default('category'),
     /**
      * Deterministic per-item surrogate for per-mention / per-pair decision rows
