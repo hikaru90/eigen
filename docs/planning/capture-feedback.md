@@ -103,9 +103,12 @@ in the user's own tenant.
   - Missing names: does the capture name a person, place, organisation or project that is not in
     this list? `none_missing | something_missing`
   - Each date or time: does the capture say this event is at this time? `right | wrong`
-  - Missing dates, always asked: does the capture give a day, time, deadline or repetition that is
-    not in the list of stored times? Words that fix no time ("soon", "more often") do not count. A
-    time that was stored wrongly is not missing: the date question judges it. `none_missing |
+  - Missing dates, always asked: does the capture give a day, time, deadline or repetition that
+    Eigen did not store? Words that fix no time ("soon", "more often") do not count. A time that was
+    stored wrongly is not missing: the date question judges it. Worded two ways, because Jev read a
+    wrongly stored time as missing when the question listed the times: with nothing stored it asks
+    whether the capture gives a time for anything; with dates stored it names only their events (no
+    times) and asks whether the capture gives one for anything else. `none_missing |
     something_missing`
   - Each split piece: is it one complete thing from the capture, in the user's words? `right | wrong`
   - All pieces together: do they keep everything the capture says? `right | wrong`
@@ -237,10 +240,12 @@ in the user's own tenant.
     repeat (`every Tuesday`) and `until {day}` (only when the text gave an end: the app's own
     one-day or one-hour padding is not described). Recurrence rules: DAILY, WEEKLY, MONTHLY, YEARLY
     with INTERVAL, COUNT, UNTIL, BYDAY and the single month-day forms; anything else fails the audit.
-    The `missing_dates` question lists the same items with the same computed phrase as the date
-    question (`"{event}" — {phrase}`, joined with `; `, `none` when nothing was stored), so a
+    The `missing_dates` question names only the stored events (`"{event}"`, joined with `; `) and
+    no times, or says that no times were stored; the date question alone compares times. A
     clock-time date that enrichment lost ("Dentist on Friday at 9am", nothing stored) shows up as
-    `something_missing` and pulls the score down.
+    `something_missing` and pulls the score down. The first wording (a list of events with their
+    computed time phrases) gave 10 false `something_missing` on the live check, because Jev read a
+    wrongly stored time as missing.
   - **Score** counts only what the user sees (`SCORED_PARTS`, §5), changed after the first live
     smoke: the score was the minimum over all parts, and hidden parts (name types, kinds of time)
     dominated it.

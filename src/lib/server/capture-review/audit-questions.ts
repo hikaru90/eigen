@@ -6,9 +6,9 @@
  * one is missing), the dates it took from the text (and whether one is missing), and the pieces a
  * capture was split into. The criteria below are the product contract for those judgments, tuned
  * with `npm run jev:check` (evals/jev-check) before anything is wired. The state names the day and
- * time the user wrote; each date question (and the missing_dates list) says when Eigen stored the
- * event as a distance from that capture day ("the Friday after the capture day (3 days later)"),
- * computed here, because Jev cannot do calendar arithmetic.
+ * time the user wrote; each date question says when Eigen stored the event as a distance from that
+ * capture day ("the Friday after the capture day (3 days later)"), computed here, because Jev
+ * cannot do calendar arithmetic.
  *
  * No string rules decide meaning here: every semantic call is Jev's. This code only formats the
  * question text and validates the shape of its input.
@@ -76,13 +76,31 @@ export const AUDIT_CRITERIA_DATE: Readonly<Record<'right' | 'wrong', string>> = 
     "No: the capture's time words point to a different day or time, the capture gives no time for this event, or the event is not in the capture.",
 }
 
-export const AUDIT_CRITERIA_MISSING_DATES: Readonly<
+/**
+ * missing_dates when Eigen stored no time at all: does the capture give any? Asked about the
+ * capture alone, because "is a time missing from this (empty) list?" made Jev shaky.
+ */
+export const AUDIT_CRITERIA_MISSING_DATES_NONE_STORED: Readonly<
   Record<'none_missing' | 'something_missing', string>
 > = {
   none_missing:
-    'Every day, time, deadline or repetition the capture gives is in the list — in other words, or even stored wrongly (a wrong time is judged separately). Words that do not fix a time — "soon", "sometimes", "lately", "more often" — do not count.',
+    'No: the capture gives no day, time, deadline or repetition. Words that do not fix a time — "soon", "sometimes", "lately", "more often", "again" — do not count.',
   something_missing:
-    'The capture gives at least one day, time, deadline or repetition ("on Friday at 9am", "every Tuesday", "by the end of November", "tomorrow", "today", "in March") that is not in the list.',
+    'Yes: the capture gives at least one day, time, deadline or repetition ("on Friday at 9am", "every Tuesday", "by the end of November", "tomorrow", "today", "in March").',
+}
+
+/**
+ * missing_dates when Eigen stored some times: does the capture give one for anything else? The
+ * question names the stored events and no times, so a wrongly stored time is not read as a missing
+ * one; comparing times is the date question's job.
+ */
+export const AUDIT_CRITERIA_MISSING_DATES_STORED: Readonly<
+  Record<'none_missing' | 'something_missing', string>
+> = {
+  none_missing:
+    'No: every time the capture gives belongs to one of these — whether or not Eigen stored it correctly does not matter here. Words that do not fix a time — "soon", "sometimes", "lately", "more often" — do not count.',
+  something_missing:
+    'Yes: the capture gives a day, time, deadline or repetition for something else as well.',
 }
 
 export const AUDIT_CRITERIA_PIECE: Readonly<Record<'right' | 'wrong', string>> = {
@@ -273,8 +291,8 @@ function describeDay(target: CalendarDay, captureDay: CalendarDay): string {
 
 /**
  * When Eigen stored an event, in words: the stored day as a distance from the capture day, then
- * the detail ("the Friday after the capture day (3 days later) at 09:00"). The date question and
- * the missing_dates list both use this one phrase.
+ * the detail ("the Friday after the capture day (3 days later) at 09:00"). Only the date question
+ * says it; the missing_dates question names the events and no times.
  */
 function datePhrase(date: CaptureAuditInput['dates'][number], captureDay: CalendarDay): string {
   return [
@@ -340,14 +358,18 @@ export function buildCaptureAuditRequest(input: CaptureAuditInput): DecisionRequ
     )
   }
 
-  const stored =
-    input.dates.length > 0
-      ? input.dates.map((d) => `"${d.event}" — ${datePhrase(d, captureDay)}`).join('; ')
-      : 'none'
-  questions[AUDIT_QUESTION_MISSING_DATES] = question(
-    `Eigen stored these times from the capture: ${stored}. Does the capture give a time for something that is missing from this list?`,
-    AUDIT_CRITERIA_MISSING_DATES,
-  )
+  // missing_dates names no stored time when there is one: it only asks whether the capture gives a
+  // time for anything else (or, with nothing stored, for anything). The date questions compare times.
+  questions[AUDIT_QUESTION_MISSING_DATES] =
+    input.dates.length === 0
+      ? question(
+          'Eigen stored no times for this capture. Does the capture give a day, a time, a deadline or a repetition for anything?',
+          AUDIT_CRITERIA_MISSING_DATES_NONE_STORED,
+        )
+      : question(
+          `Eigen stored a time for: ${input.dates.map((d) => `"${d.event}"`).join('; ')}. Besides these, does the capture give a day, a time, a deadline or a repetition for anything else?`,
+          AUDIT_CRITERIA_MISSING_DATES_STORED,
+        )
 
   if (input.pieces.length > 0) {
     for (const piece of input.pieces) {

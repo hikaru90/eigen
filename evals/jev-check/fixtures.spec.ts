@@ -210,17 +210,23 @@ describe('the real fixture files', () => {
       })
     })
 
-    it('the missing_dates question of a case with a stored date lists it, with the same phrase as the date question', () => {
+    it('the missing_dates question of a case with a stored date names its event and no time', () => {
       const request = prepareCases(files).find((c) => c.id === 'a16-wrong-hour')?.request
       expect(request?.questions.missing_dates.instructions).toBe(
-        'Eigen stored these times from the capture: "Dentist appointment" — the Friday after the capture day (3 days later) at 15:00. Does the capture give a time for something that is missing from this list?',
+        'Eigen stored a time for: "Dentist appointment". Besides these, does the capture give a day, a time, a deadline or a repetition for anything else?',
+      )
+      expect(request?.questions.missing_dates.criteria.none_missing).toBe(
+        'No: every time the capture gives belongs to one of these — whether or not Eigen stored it correctly does not matter here. Words that do not fix a time — "soon", "sometimes", "lately", "more often" — do not count.',
       )
     })
 
-    it('the missing_dates question of a case with nothing stored says none', () => {
+    it('the missing_dates question of a case with nothing stored asks whether the capture gives any time', () => {
       const request = prepareCases(files).find((c) => c.id === 'a20-dentist-date-lost')?.request
       expect(request?.questions.missing_dates.instructions).toBe(
-        'Eigen stored these times from the capture: none. Does the capture give a time for something that is missing from this list?',
+        'Eigen stored no times for this capture. Does the capture give a day, a time, a deadline or a repetition for anything?',
+      )
+      expect(request?.questions.missing_dates.criteria.none_missing).toBe(
+        'No: the capture gives no day, time, deadline or repetition. Words that do not fix a time — "soon", "sometimes", "lately", "more often", "again" — do not count.',
       )
     })
 

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   AUDIT_CRITERIA_DATE,
-  AUDIT_CRITERIA_MISSING_DATES,
+  AUDIT_CRITERIA_MISSING_DATES_NONE_STORED,
+  AUDIT_CRITERIA_MISSING_DATES_STORED,
   AUDIT_CRITERIA_MISSING_NAMES,
   AUDIT_CRITERIA_NAME,
   AUDIT_CRITERIA_PIECE,
@@ -492,74 +493,95 @@ describe('buildCaptureAuditRequest: instructions', () => {
   })
 
   describe('missing_dates', () => {
-    const asked = (list: string) =>
-      `Eigen stored these times from the capture: ${list}. Does the capture give a time for something that is missing from this list?`
     const request = (dates: CaptureAuditInput['dates']) =>
       buildCaptureAuditRequest(input({ dates })).questions.missing_dates
 
-    it('lists every date as "event" — phrase, joined with "; "', () => {
-      expect(
-        request([
-          {
-            ref: 'd1',
-            event: 'Call Mom about the birthday dinner',
-            day: '2026-10-30',
-            detail: null,
-          },
-          { ref: 'd2', event: 'Yoga at Studio Nord', day: null, detail: 'every Tuesday at 19:00' },
-          { ref: 'd3', event: 'Drop the keys', day: '2026-10-27', detail: 'before 18:00' },
-        ]).instructions,
-      ).toBe(
-        asked(
-          '"Call Mom about the birthday dinner" — the Friday after the capture day (3 days later); "Yoga at Studio Nord" — every Tuesday at 19:00; "Drop the keys" — the capture day itself before 18:00',
-        ),
-      )
+    describe('when no date was stored', () => {
+      it('asks whether the capture gives a time for anything', () => {
+        expect(request([]).instructions).toBe(
+          'Eigen stored no times for this capture. Does the capture give a day, a time, a deadline or a repetition for anything?',
+        )
+      })
+
+      it('sends the none-stored criteria', () => {
+        expect(request([]).criteria).toEqual(AUDIT_CRITERIA_MISSING_DATES_NONE_STORED)
+      })
     })
 
-    it('says none when no date was stored', () => {
-      expect(request([]).instructions).toBe(asked('none'))
-    })
+    describe('when dates were stored', () => {
+      const asked = (events: string) =>
+        `Eigen stored a time for: ${events}. Besides these, does the capture give a day, a time, a deadline or a repetition for anything else?`
 
-    it('uses the same phrase as the date question, for every shape of date', () => {
-      const dates: CaptureAuditInput['dates'] = [
-        { ref: 'd1', event: 'a', day: '2026-10-27', detail: null },
-        { ref: 'd2', event: 'b', day: '2026-10-28', detail: 'at 09:00' },
-        { ref: 'd3', event: 'c', day: '2026-11-30', detail: 'as the deadline' },
-        { ref: 'd4', event: 'd', day: '2026-10-26', detail: null },
-        { ref: 'd5', event: 'e', day: null, detail: 'every Tuesday' },
-      ]
-      const built = buildCaptureAuditRequest(input({ dates }))
-      const phraseOf = (id: string) =>
-        /^Eigen stored ".*" for (.*)\. Does the capture put this event at that time\?$/.exec(
-          built.questions[id].instructions,
-        )![1]
-      const expectedList = dates
-        .map((d) => `"${d.event}" — ${phraseOf(`date:${d.ref}`)}`)
-        .join('; ')
-      expect(built.questions.missing_dates.instructions).toBe(asked(expectedList))
-    })
+      it('lists the event of every date item in double quotes, joined with "; "', () => {
+        expect(
+          request([
+            {
+              ref: 'd1',
+              event: 'Call Mom about the birthday dinner',
+              day: '2026-10-30',
+              detail: null,
+            },
+            {
+              ref: 'd2',
+              event: 'Yoga at Studio Nord',
+              day: null,
+              detail: 'every Tuesday at 19:00',
+            },
+            { ref: 'd3', event: 'Drop the keys', day: '2026-10-27', detail: 'before 18:00' },
+          ]).instructions,
+        ).toBe(
+          asked('"Call Mom about the birthday dinner"; "Yoga at Studio Nord"; "Drop the keys"'),
+        )
+      })
 
-    it('quotes the event as given and does not trim the phrase differently from the date question', () => {
-      expect(
-        request([
-          { ref: 'd1', event: 'Steuererklärung abgeben', day: null, detail: '  as the deadline ' },
-        ]).instructions,
-      ).toBe(asked('"Steuererklärung abgeben" — as the deadline'))
-    })
+      it('names one event without a separator', () => {
+        expect(request(BASE.dates).instructions).toBe(asked('"Call Mom about the birthday dinner"'))
+      })
 
-    it('is asked in the same way when the capture was split or reworded', () => {
-      const split = buildCaptureAuditRequest(
-        input({
-          storedText: 'changed',
-          pieces: [
-            { ref: 'p1', text: 'one' },
-            { ref: 'p2', text: 'two' },
-          ],
-        }),
-      )
-      expect(split.questions.missing_dates.instructions).toContain(
-        '"Call Mom about the birthday dinner" — the Friday after the capture day (3 days later)',
-      )
+      it("holds no time phrase: comparing times is the date question's job", () => {
+        const instructions = request([
+          { ref: 'd1', event: 'Dentist', day: '2026-10-30', detail: 'at 09:00' },
+          { ref: 'd2', event: 'Yoga', day: null, detail: 'every Tuesday at 19:00' },
+          { ref: 'd3', event: 'Taxes', day: '2026-11-30', detail: 'as the deadline' },
+        ]).instructions
+        expect(instructions).toBe(asked('"Dentist"; "Yoga"; "Taxes"'))
+        for (const phrase of [
+          '09:00',
+          '19:00',
+          'capture day',
+          'Friday',
+          'Tuesday',
+          'as the deadline',
+        ]) {
+          expect(instructions).not.toContain(phrase)
+        }
+      })
+
+      it('quotes the event as given', () => {
+        expect(
+          request([{ ref: 'd1', event: 'Steuererklärung abgeben', day: null, detail: 'x' }])
+            .instructions,
+        ).toBe(asked('"Steuererklärung abgeben"'))
+      })
+
+      it('sends the stored criteria', () => {
+        expect(request(BASE.dates).criteria).toEqual(AUDIT_CRITERIA_MISSING_DATES_STORED)
+      })
+
+      it('is asked the same way when the capture was split or reworded', () => {
+        const split = buildCaptureAuditRequest(
+          input({
+            storedText: 'changed',
+            pieces: [
+              { ref: 'p1', text: 'one' },
+              { ref: 'p2', text: 'two' },
+            ],
+          }),
+        )
+        expect(split.questions.missing_dates.instructions).toBe(
+          asked('"Call Mom about the birthday dinner"'),
+        )
+      })
     })
   })
 
@@ -592,7 +614,14 @@ describe('buildCaptureAuditRequest: criteria', () => {
     expect(Object.keys(AUDIT_CRITERIA_NAME)).toEqual(['right', 'wrong'])
     expect(Object.keys(AUDIT_CRITERIA_MISSING_NAMES)).toEqual(['none_missing', 'something_missing'])
     expect(Object.keys(AUDIT_CRITERIA_DATE)).toEqual(['right', 'wrong'])
-    expect(Object.keys(AUDIT_CRITERIA_MISSING_DATES)).toEqual(['none_missing', 'something_missing'])
+    expect(Object.keys(AUDIT_CRITERIA_MISSING_DATES_NONE_STORED)).toEqual([
+      'none_missing',
+      'something_missing',
+    ])
+    expect(Object.keys(AUDIT_CRITERIA_MISSING_DATES_STORED)).toEqual([
+      'none_missing',
+      'something_missing',
+    ])
     expect(Object.keys(AUDIT_CRITERIA_PIECE)).toEqual(['right', 'wrong'])
     expect(Object.keys(AUDIT_CRITERIA_PIECES_COVER)).toEqual(['right', 'wrong'])
   })
@@ -603,7 +632,8 @@ describe('buildCaptureAuditRequest: criteria', () => {
       AUDIT_CRITERIA_NAME,
       AUDIT_CRITERIA_MISSING_NAMES,
       AUDIT_CRITERIA_DATE,
-      AUDIT_CRITERIA_MISSING_DATES,
+      AUDIT_CRITERIA_MISSING_DATES_NONE_STORED,
+      AUDIT_CRITERIA_MISSING_DATES_STORED,
       AUDIT_CRITERIA_PIECE,
       AUDIT_CRITERIA_PIECES_COVER,
     ]) {
@@ -616,7 +646,10 @@ describe('buildCaptureAuditRequest: criteria', () => {
     expect(full.questions['name:n1'].criteria).toEqual(AUDIT_CRITERIA_NAME)
     expect(full.questions.missing_names.criteria).toEqual(AUDIT_CRITERIA_MISSING_NAMES)
     expect(full.questions['date:d1'].criteria).toEqual(AUDIT_CRITERIA_DATE)
-    expect(full.questions.missing_dates.criteria).toEqual(AUDIT_CRITERIA_MISSING_DATES)
+    expect(full.questions.missing_dates.criteria).toEqual(AUDIT_CRITERIA_MISSING_DATES_STORED)
+    expect(buildCaptureAuditRequest(input({ dates: [] })).questions.missing_dates.criteria).toEqual(
+      AUDIT_CRITERIA_MISSING_DATES_NONE_STORED,
+    )
     expect(full.questions['piece:p1'].criteria).toEqual(AUDIT_CRITERIA_PIECE)
     expect(full.questions.pieces_cover.criteria).toEqual(AUDIT_CRITERIA_PIECES_COVER)
   })
@@ -647,12 +680,24 @@ describe('buildCaptureAuditRequest: criteria', () => {
   })
 
   // Pinned word for word, like the date criteria: a change is deliberate and re-checked live.
-  it('missing_dates none_missing and something_missing', () => {
-    expect(AUDIT_CRITERIA_MISSING_DATES.none_missing).toBe(
-      'Every day, time, deadline or repetition the capture gives is in the list — in other words, or even stored wrongly (a wrong time is judged separately). Words that do not fix a time — "soon", "sometimes", "lately", "more often" — do not count.',
+  // Two framings, tuned against the live check: "is a time missing from this list?" made Jev call a
+  // wrongly stored time missing, so with stored dates the question lists only the events and never
+  // the times, and with none stored it asks whether the capture gives any time at all.
+  it('missing_dates when no date was stored', () => {
+    expect(AUDIT_CRITERIA_MISSING_DATES_NONE_STORED.none_missing).toBe(
+      'No: the capture gives no day, time, deadline or repetition. Words that do not fix a time — "soon", "sometimes", "lately", "more often", "again" — do not count.',
     )
-    expect(AUDIT_CRITERIA_MISSING_DATES.something_missing).toBe(
-      'The capture gives at least one day, time, deadline or repetition ("on Friday at 9am", "every Tuesday", "by the end of November", "tomorrow", "today", "in March") that is not in the list.',
+    expect(AUDIT_CRITERIA_MISSING_DATES_NONE_STORED.something_missing).toBe(
+      'Yes: the capture gives at least one day, time, deadline or repetition ("on Friday at 9am", "every Tuesday", "by the end of November", "tomorrow", "today", "in March").',
+    )
+  })
+
+  it('missing_dates when dates were stored', () => {
+    expect(AUDIT_CRITERIA_MISSING_DATES_STORED.none_missing).toBe(
+      'No: every time the capture gives belongs to one of these — whether or not Eigen stored it correctly does not matter here. Words that do not fix a time — "soon", "sometimes", "lately", "more often" — do not count.',
+    )
+    expect(AUDIT_CRITERIA_MISSING_DATES_STORED.something_missing).toBe(
+      'Yes: the capture gives a day, time, deadline or repetition for something else as well.',
     )
   })
 
