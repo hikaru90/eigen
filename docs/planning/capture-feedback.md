@@ -1,7 +1,7 @@
 # Capture feedback: did Eigen store this right?
 
-Status: **draft for the operator (2026-10-27)**. C0 (criteria and `npm run jev:check`) and C1
-(record, audit, score; no UI) are built; C2 to C5 are not. It builds on `main` *after* the
+Status: **draft for the operator (2026-10-27)**. C0 (criteria and `npm run jev:check`), C1
+(record, audit, score; no UI) and C2 (the vote) are built; C3 to C5 are not. It builds on `main` *after* the
 capture work moved to branch `benchmark-work`, so it starts once that cut has landed. Risk:
 **high**: it reads every capture after enrichment and writes through the edit path. Planner: Opus.
 Builders: Sonnet subagents, tests first, one phase at a time.
@@ -274,6 +274,45 @@ in the user's own tenant.
     `--keep` skips the tenant reset. Exit 1 when any review is not `scored`.
 - **C2 — the vote:** the shared 👍/👎 component in `capture-kept.svelte` and
   `mesh/thought-inline-editor.svelte`, the vote endpoint, reason → edit, reason label.
+  **Built (2026-10-27).** Code: `src/lib/server/capture-review/vote*.ts`, `stored-summary.ts`,
+  `src/routes/api/capture/review/vote/`, `src/lib/components/capture-vote.svelte`; where it hooks in
+  is in [`docs/repo-map/ingestion.md`](../repo-map/ingestion.md) and
+  [`ui-surfaces.md`](../repo-map/ui-surfaces.md). Decisions made while building it:
+  - **Order of a 👎 with a reason.** Stored summary (read before the edit) → Jev label (ingest
+    ladder, first try + 3 retries) → encrypt the reason → create the review row if the thought has
+    none (and queue its audit job) → apply the reason as an edit → store the vote. The label
+    comes first and the review row second, so a label that cannot be made stores nothing at all:
+    no review, no job, no edit. A review created for an old thought is removed again if its job
+    cannot be queued, so a retry finds the thought as it was.
+  - **Edit failure** does not undo the vote: verdict, encrypted reason and label are stored with
+    `edit_applied_at` null, and the answer is a 200 with `editError` (the UI shows it in place and
+    keeps the typed text). Label failure is a 502 and stores nothing (the UI keeps the text too).
+  - **Contract.** `reason` with a 👍 is a 400 (`reason is only allowed with verdict down`): a 👍
+    applies nothing, so a reason would be silently dropped. An empty or blank reason on a 👎 means
+    "no reason". The reason is trimmed; more than 2000 characters is a 400.
+  - **Stored summary** is `Saved as {category} · about {names} · {event}: {when}; … · split into
+    {n} thoughts` from the C1 audit input, the dates through `describeStoredDates` (the date
+    question's own phrase: a distance from the capture day, `once (not repeating)` for a single
+    date). The category is the key prettified the way the kept strip shows it.
+  - **What the edit result updates.** The edit's thought (`CaptureSubmitResult`) carries the words
+    and category, not a thread id, so a host takes words and type and keeps its thread: the Mesh
+    row gets `{ text, category, thread (as it was) }` like an "Edit words" save, the kept strip gets
+    `{ typeKey, thread (as it was) }`.
+  - **Where the vote shows.** The strip: below the progress line, from the moment the thought has an
+    id (it does not wait for enrichment or the audit). Mesh: in the unfolded row's pill line, after
+    the "Edit words" pill; its reason box takes its own full-width line like the words editor. The
+    loaders add `verdict` only: `loadYarnThoughts` (Yarn, thread detail and `GET /api/mesh/yarn`) and
+    the Loose ends load.
+  - **Tests.** Unit and component specs for every piece above (the component specs are in the
+    `test:components` merge gate). Headed E2E, nothing mocked:
+    [`src/routes/e2e/capture-vote.e2e.ts`](../../src/routes/e2e/capture-vote.e2e.ts) (👍 in the
+    strip; the Yarn row shows 👍; 👎 with a reason edits the row; the vote survives a reload; an
+    empty 👎 stores the verdict only; `verdict: "maybe"` is a 400). Written, not yet run: it needs
+    the local stack and the decision model.
+  - **Known gap (C1).** `editStoredThought` re-enriches through `enrichThought`, which does not run
+    the capture review recorder (only the queued enrichment does), so an edit made by a 👎 reason
+    does not reset the review's parts or queue a new audit: the score keeps describing the text
+    before the edit. The vote columns are independent of that.
 - **C3 — MCP tools.**
 - **C4 — operator page.**
 - **C5 — verification:**
