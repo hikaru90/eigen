@@ -1175,3 +1175,163 @@ describe('surface + kind widening (resolution, delete_gate, chat_turn)', () => {
     expect(logActivityCallMock).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('Jev-everywhere J1 kinds on the plane (docs/planning/jev-everywhere-rollout.md)', () => {
+  const RELEVANCE_CRITERIA = { relevant: 'Directly helps', partly: 'Related', not: 'Does not help' }
+
+  it('per-item decisions run for evidence_relevance on the evidence surface: question keys, rows, one activity row', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        'evidence_relevance:t1': {
+          choice: 'relevant',
+          probabilities: { relevant: 0.9, partly: 0.08, not: 0.02 },
+        },
+        'evidence_relevance:f1': { choice: 'not', probabilities: { not: 0.7, partly: 0.2, relevant: 0.1 } },
+      }),
+    )
+    const answers = await runEnforcedPerItemDecisions({
+      userId: 'user-1',
+      surface: 'evidence',
+      kind: 'evidence_relevance',
+      state: 'Question: tips against eye strain',
+      criteria: RELEVANCE_CRITERIA,
+      items: [
+        { ref: 't1', instructions: 'Does thought one help?', llmChoice: null },
+        { ref: 'f1', instructions: 'Does fact one help?', llmChoice: null },
+      ],
+    })
+
+    const [, req] = runDecisionMock.mock.calls[0]
+    expect(Object.keys(req.questions)).toEqual(['evidence_relevance:t1', 'evidence_relevance:f1'])
+    expect(answers.get('t1')).toMatchObject({ choice: 'relevant', probability: 0.9 })
+    expect(answers.get('f1')).toMatchObject({ choice: 'not', probability: 0.7 })
+    const rows = insertedRows()
+    expect(rows.map((r) => [r.decisionKind, r.surface, r.subjectRef, r.agree])).toEqual([
+      ['evidence_relevance', 'evidence', 't1', null],
+      ['evidence_relevance', 'evidence', 'f1', null],
+    ])
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+    expect(logActivityCallMock.mock.calls[0]![2].context).toBe(
+      'decision_shadow kinds=evidence_relevance items=2 surface=evidence',
+    )
+  })
+
+  it('per-item decisions run for forget_action and forget_residual on the forget surface', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        'forget_action:h1': { choice: 'remove_all', probabilities: { remove_all: 0.95, keep: 0.05 } },
+      }),
+    )
+    await runEnforcedPerItemDecisions({
+      userId: 'user-1',
+      surface: 'forget',
+      kind: 'forget_action',
+      state: 'Forget request: please forget that I drink coffee',
+      criteria: { remove_all: 'a', remove_detail: 'b', keep: 'c' },
+      items: [{ ref: 'h1', instructions: 'Hit one', llmChoice: null }],
+    })
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({ 'forget_residual:h1': { choice: 'no', probabilities: { no: 0.9, yes: 0.1 } } }),
+    )
+    await runEnforcedPerItemDecisions({
+      userId: 'user-1',
+      surface: 'forget',
+      kind: 'forget_residual',
+      state: 'Forget request: please forget that I drink coffee',
+      criteria: { yes: 'a', no: 'b' },
+      items: [{ ref: 'h1', instructions: 'Hit one', llmChoice: null }],
+    })
+    expect(insertedRows().map((r) => [r.decisionKind, r.surface, r.subjectRef])).toEqual([
+      ['forget_action', 'forget', 'h1'],
+      ['forget_residual', 'forget', 'h1'],
+    ])
+  })
+
+  it('a bounded spec can carry a per-item subject ref (fact candidates c1..cN) into its row; without one the ref stays null', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers({
+        'fact_keep:c1': { choice: 'keep', probabilities: { keep: 0.9, drop: 0.1 } },
+        'fact_subject:c1': { choice: 'user', probabilities: { user: 0.8, person: 0.2 } },
+        scope: { choice: 'global', probabilities: { global: 0.6, local: 0.4 } },
+      }),
+    )
+    await runEnforcedBoundedDecisions({
+      userId: 'user-1',
+      surface: 'fact_derivation',
+      state: 'I swam this morning',
+      specs: [
+        {
+          decisionKind: 'fact_keep',
+          id: 'fact_keep:c1',
+          subjectRef: 'c1',
+          question: { type: 'choice', instructions: 'keep?', criteria: { keep: 'k', drop: 'd' } },
+          llmChoice: null,
+        },
+        {
+          decisionKind: 'fact_subject',
+          id: 'fact_subject:c1',
+          subjectRef: 'c1',
+          question: { type: 'choice', instructions: 'who?', criteria: { user: 'u', person: 'p' } },
+          llmChoice: null,
+        },
+        {
+          decisionKind: 'retrieval_scope',
+          id: 'scope',
+          question: { type: 'choice', instructions: 's', criteria: { global: 'g', local: 'l' } },
+          llmChoice: null,
+        },
+      ],
+    })
+    const rows = insertedRows()
+    expect(rows.map((r) => [r.decisionKind, r.subjectRef, r.surface])).toEqual([
+      ['fact_keep', 'c1', 'fact_derivation'],
+      ['fact_subject', 'c1', 'fact_derivation'],
+      ['retrieval_scope', null, 'fact_derivation'],
+    ])
+  })
+
+  it('the one activity row of a call names each kind once, however many candidates asked it', async () => {
+    resolveConfigMock.mockReturnValue(config)
+    const specs: BoundedDecisionSpec[] = [1, 2, 3].flatMap((i) => [
+      {
+        decisionKind: 'fact_keep' as const,
+        id: `fact_keep:c${i}`,
+        subjectRef: `c${i}`,
+        question: { type: 'choice' as const, instructions: 'k', criteria: { keep: 'k', drop: 'd' } },
+        llmChoice: null,
+      },
+      {
+        decisionKind: 'fact_kind' as const,
+        id: `fact_kind:c${i}`,
+        subjectRef: `c${i}`,
+        question: { type: 'choice' as const, instructions: 'k', criteria: { habit: 'h', trait: 't' } },
+        llmChoice: null,
+      },
+    ])
+    runDecisionMock.mockResolvedValue(
+      choiceAnswers(
+        Object.fromEntries(
+          specs.map((s) => [
+            s.id,
+            s.decisionKind === 'fact_keep'
+              ? { choice: 'keep', probabilities: { keep: 0.9, drop: 0.1 } }
+              : { choice: 'habit', probabilities: { habit: 0.9, trait: 0.1 } },
+          ]),
+        ),
+      ),
+    )
+    await runEnforcedBoundedDecisions({
+      userId: 'user-1',
+      surface: 'fact_derivation',
+      state: 'x',
+      specs,
+    })
+    expect(logActivityCallMock).toHaveBeenCalledTimes(1)
+    expect(logActivityCallMock.mock.calls[0]![2].context).toBe(
+      'decision_shadow kinds=fact_keep,fact_kind surface=fact_derivation',
+    )
+  })
+})

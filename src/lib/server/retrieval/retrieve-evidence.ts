@@ -1,8 +1,13 @@
 /**
  * Unified retrieval — one path for MCP, HTTP, and compose.
  *
- * Query time: embed once → parallel ANN/FTS → bundle/key fetch → weighted merge → rerank.
- * No live AGE graph traversal.
+ * Query time: embed once → parallel ANN/FTS → bundle/key fetch → weighted merge → the evidence pool
+ * (the lexical reserve, then the best by score) in fusion order. No live AGE graph traversal.
+ *
+ * The search judges no relevance itself. What an answer may see is Jev's decision
+ * (`evidence_relevance`, retrieval/reranker.ts), asked once per question over thoughts, notes and
+ * facts together by the caller (qa/retrieve-answer-evidence.ts); the chat listwise rerank that used
+ * to sit here is gone.
  */
 
 import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
@@ -27,11 +32,6 @@ import {
 import type { RelevantCommunitySummary } from '$lib/server/retrieval/global'
 import { lexicalSearch } from '$lib/server/retrieval/lexical'
 import { createPhaseTimer, logRetrievalPhaseTiming } from '$lib/server/retrieval/phase-timing'
-import {
-  rerankCandidates,
-  shouldSkipRerank,
-  type RerankCandidate,
-} from '$lib/server/retrieval/reranker'
 import { normalizeLexicalRank, reciprocalRankFusion } from '$lib/server/retrieval/rrf-scoring'
 import type { RetrievalResult } from '$lib/server/retrieval/service'
 import {
@@ -60,7 +60,11 @@ const COMMUNITY_ANN_LIMIT = 12
 const ENTITY_ANN_LIMIT = 20
 const NEIGHBOR_PER_SEED = 2
 const MERGE_CANDIDATE_CAP = 80
-const RERANK_POOL = 15
+/**
+ * Thoughts one search can return: the lexical reserve first, then the best by score. A caller that
+ * judges relevance (Ask) asks for the whole pool and cuts to its own budget afterwards.
+ */
+export const EVIDENCE_POOL = 15
 
 /**
  * Weights for the weighted merge (sum = 1.0). A flat TEMPORAL_BOOST is added on top for
@@ -149,14 +153,14 @@ function directRelevanceMultiplier(candidate: ScoredCandidate): number {
   return candidateHasDirectRelevance(candidate) ? 1 : 0
 }
 
-const LEXICAL_RERANK_RESERVE = 5
+const LEXICAL_RESERVE = 5
 
 /**
- * The rerank pool: the lexical reserve first, then the best by score — or, when `fusedOrder`
+ * The evidence pool: the lexical reserve first, then the best by score — or, when `fusedOrder`
  * is given (personalization expansion), by that fused order. `reserveEligible` limits which
  * entries may take a lexical-reserve slot.
  */
-function buildRerankPool<T extends { candidate: ScoredCandidate; score: number }>(
+function buildEvidencePool<T extends { candidate: ScoredCandidate; score: number }>(
   scored: T[],
   options?: { fusedOrder: string[]; reserveEligible: (entry: T) => boolean },
 ): T[] {
@@ -176,13 +180,13 @@ function buildRerankPool<T extends { candidate: ScoredCandidate; score: number }
   const pool: T[] = []
   const seen = new Set<string>()
 
-  for (const entry of byLexical.slice(0, LEXICAL_RERANK_RESERVE)) {
+  for (const entry of byLexical.slice(0, LEXICAL_RESERVE)) {
     if (seen.has(entry.candidate.id)) continue
     pool.push(entry)
     seen.add(entry.candidate.id)
   }
   for (const entry of byScore) {
-    if (pool.length >= RERANK_POOL) break
+    if (pool.length >= EVIDENCE_POOL) break
     if (seen.has(entry.candidate.id)) continue
     pool.push(entry)
     seen.add(entry.candidate.id)
@@ -193,10 +197,10 @@ function buildRerankPool<T extends { candidate: ScoredCandidate; score: number }
 /**
  * Personalization merge: the original query's ranking (its weighted-merge score order) and each
  * sub-query's hybrid ranking are fused by reciprocal rank, deduplicated, into the usual
- * RERANK_POOL budget. A thought found only through a sub-query is scored by the same formula
+ * EVIDENCE_POOL budget. A thought found only through a sub-query is scored by the same formula
  * from that sub-query's similarity; a thought found by several keeps its best score.
  */
-function buildExpansionRerankPool<T extends { candidate: ScoredCandidate; score: number }>(params: {
+function buildExpansionEvidencePool<T extends { candidate: ScoredCandidate; score: number }>(params: {
   scored: T[]
   expansionLists: ExpansionCandidate[][]
   scoreCandidate: (candidate: ScoredCandidate) => T | null
@@ -225,7 +229,7 @@ function buildExpansionRerankPool<T extends { candidate: ScoredCandidate; score:
   const originalRanking = [...params.scored]
     .sort((a, b) => b.score - a.score)
     .map((e) => e.candidate.id)
-  return buildRerankPool([...best.values()], {
+  return buildEvidencePool([...best.values()], {
     fusedOrder: reciprocalRankFusion([originalRanking, ...subRankings]),
     reserveEligible: (entry) => originalIds.has(entry.candidate.id),
   })
@@ -335,7 +339,7 @@ export async function retrieveEvidence(params: {
   /**
    * Personalization expansion: LLM-written sub-queries with their query embeddings. Each runs
    * the hybrid thought channels; its ranking merges with the original query's by reciprocal
-   * rank into the same rerank pool and top-K budget. Reranking still judges `query`.
+   * rank into the same evidence pool and top-K budget.
    */
   expansions?: Array<{ query: string; embedding: number[] }>
 }): Promise<RetrievalResult[]> {
@@ -583,7 +587,6 @@ export async function retrieveEvidence(params: {
       id: thought.id,
       normalizedText: thought.normalizedText,
       normalizedTextEncrypted: thought.normalizedTextEncrypted,
-      rerankSnippet: thought.rerankSnippet,
       category: thought.category,
       metadata: thought.metadata,
       metadataEncrypted: thought.metadataEncrypted,
@@ -647,14 +650,14 @@ export async function retrieveEvidence(params: {
 
   const scored = candidateList.map(scoreCandidate).filter((e): e is ScoredEntry => e !== null)
 
-  const rerankPool =
+  const evidencePool =
     expansionLists.length === 0
-      ? buildRerankPool(scored)
-      : buildExpansionRerankPool({ scored, expansionLists, scoreCandidate })
+      ? buildEvidencePool(scored)
+      : buildExpansionEvidencePool({ scored, expansionLists, scoreCandidate })
 
   timer.mark('decrypt')
   const decrypted = await Promise.all(
-    rerankPool.map(async ({ row, score, vectorScore, graphScore, candidate }) => {
+    evidencePool.map(async ({ row, score, vectorScore, graphScore, candidate }) => {
       const [normalizedText, metadataJson] = await Promise.all([
         row.normalizedTextEncrypted
           ? decryptTenantValue({
@@ -698,49 +701,22 @@ export async function retrieveEvidence(params: {
           ...(provenance ? { graphProvenance: provenance } : {}),
         },
         createdAt: row.createdAt,
-        rerankSnippet: row.rerankSnippet ?? normalizedText.slice(0, 300),
       }
     }),
   )
 
-  const rerankInput: Array<
-    RerankCandidate & {
-      createdAt: Date
-      category: string
-      metadata: Record<string, unknown>
-      vectorScore: number
-      graphScore: number
-    }
-  > = decrypted.map((d) => ({
+  const final = decrypted.slice(0, limit).map((d) => ({
     id: d.id,
-    normalizedText: d.rerankSnippet,
-    score: d.score,
-    createdAt: d.createdAt,
+    normalizedText: d.normalizedText,
     category: d.category,
-    metadata: d.metadata,
+    author: d.author,
+    authorLabel: d.authorLabel,
+    score: d.score,
     vectorScore: d.vectorScore,
     graphScore: d.graphScore,
+    metadata: d.metadata,
+    createdAt: d.createdAt,
   }))
-
-  const reranked = shouldSkipRerank(rerankInput)
-    ? rerankInput
-    : await rerankCandidates(params.userId, params.query, rerankInput, undefined, limit)
-  const decryptedById = new Map(decrypted.map((d) => [d.id, d]))
-  const final = reranked.slice(0, limit).map((r) => {
-    const d = decryptedById.get(r.id)
-    return {
-      id: r.id,
-      normalizedText: d?.normalizedText ?? r.normalizedText,
-      category: r.category as string,
-      author: d?.author ?? 'user',
-      authorLabel: d?.authorLabel ?? null,
-      score: r.score,
-      vectorScore: r.vectorScore as number,
-      graphScore: r.graphScore as number,
-      metadata: r.metadata as Record<string, unknown>,
-      createdAt: r.createdAt as Date,
-    }
-  })
 
   void bumpAccessAsync(
     params.userId,

@@ -542,11 +542,13 @@ export async function enrichQueuedThought(
         throw new Error('Enrichment finished without setting enriched_at')
       }
 
-      // Facts about people (docs/planning/user-facts-layer.md, F1): last, so the extractor sees the
+      // Facts about people (docs/planning/user-facts-layer.md, F1): last, so the proposer sees the
       // people the graph linked to this thought. One json-mode call on the redacted text (plus the
-      // reference note, if the split saved one), reconciled against the facts already stored. A
-      // request to forget is an instruction, not a fact: a kept forget instruction yields none. A
-      // failure throws into the ingest retry ladder; a re-run starts from what other sources say.
+      // reference note, if the split saved one) proposes candidate statements; Jev decides every
+      // candidate (keep, subject, kind, reconcile against the facts already stored) in one batched
+      // call (jev-everywhere J1). A request to forget is an instruction, not a fact: a kept forget
+      // instruction yields none. A failure throws into the ingest retry ladder; a re-run starts
+      // from what other sources say.
       if (captureIntent !== 'forget') {
         await time('derive_user_facts', () =>
           deriveUserFactsForThought({
@@ -555,7 +557,6 @@ export async function enrichQueuedThought(
             text: splitApplied.normalizedText,
             attachedFileId: splitApplied.attachedFileId,
             capturedAt: row.createdAt,
-            queryEmbedding: prefetched.embedding,
           }),
         )
       }

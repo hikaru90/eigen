@@ -1,6 +1,6 @@
 /**
  * The retrieval half of Ask (`composeAnswer`), as one function with one search path: thoughts
- * through hybrid search + rerank, note passages through note search, and the user's facts
+ * through hybrid search, note passages through note search, and the user's facts
  * (docs/planning/user-facts-layer.md) through fact search, all under the same relevance floor,
  * with the personalization expansion (S3) when the caller passes sub-queries.
  *
@@ -9,13 +9,26 @@
  * find". Nothing here interprets text; the caller owns the query, its embedding and any
  * LLM-written sub-queries.
  *
- * Budgets are separate: `topK` thoughts, `noteTopK` notes, `factTopK` facts. A fact is one short
- * sentence, so facts never take a thought slot and a long note never crowds facts out.
+ * Budgets are separate: `topK` thoughts, `noteTopK` notes, `factTopK` facts — the candidate pools
+ * of the search. A fact is one short sentence, so facts never take a thought slot and a long note
+ * never crowds facts out.
+ *
+ * What the answer finally sees is a second, separate step: `selectRelevantEvidence` asks Jev
+ * (`evidence_relevance`, docs/planning/jev-everywhere-rollout.md) once per question which
+ * candidates help answer it, drops the ones that do not and cuts the rest to the answer budgets.
+ * The forget flow does not take that step — it wants recall, and its own per-hit decision
+ * (`forget_action`) is the filter.
  */
 
+import { factSubjectLabel, statementForIndex } from '$lib/server/facts/fact-vocabulary'
 import { searchUserFacts, type UserFactHit } from '$lib/server/facts/search-user-facts'
 import type { BelowFloorScores } from '$lib/server/qa/compose-observer'
 import { relevanceFloorFor } from '$lib/server/retrieval/relevance-floor'
+import {
+  judgeEvidenceRelevance,
+  rankByRelevance,
+  type RelevanceCandidate,
+} from '$lib/server/retrieval/reranker'
 import type { RetrieveEvidenceExtras } from '$lib/server/retrieval/retrieve-evidence'
 import {
   bestScoreBelowFloor,
@@ -28,6 +41,16 @@ import { searchTextFiles, type TextFileSearchHit } from '$lib/server/text-files/
 
 /** Notes kept per question in Ask. */
 export const TEXT_FILE_COMPOSE_TOP_K = 5
+
+/**
+ * Facts the answer may see: a small budget of the ones Jev judged relevant to the question. Facts
+ * are short, but every fact the answer model reads has to earn its place — there is no fixed
+ * 24 for overview or advice questions.
+ */
+export const FACT_ANSWER_MAX = 8
+
+/** Facts the search hands to the relevance judgement: the pool Jev picks the answer's facts from. */
+export const FACT_CANDIDATE_POOL = 24
 
 export type AnswerEvidenceInput = {
   userId: string
@@ -148,5 +171,70 @@ export async function retrieveAnswerEvidence(input: AnswerEvidenceInput): Promis
       notePassages: notePassagesBelowFloor,
     },
     relevanceFloor,
+  }
+}
+
+export type EvidenceBudgets = {
+  /** Thoughts the answer may see (the compose budget of the question). */
+  thoughts: number
+  notes: number
+  facts: number
+}
+
+const day = (date: Date | string) => new Date(date).toISOString().slice(0, 10)
+
+/**
+ * Jev's relevance verdict over everything the search found for a question — thoughts, note
+ * passages and facts, ONE batched Decisions call. Candidates judged `not` are dropped, the rest are
+ * ordered by relevance and cut to their budget. The question is judged as the user asked it (the
+ * search may have used a different retrieval query). No candidates, no call.
+ */
+export async function selectRelevantEvidence(input: {
+  userId: string
+  question: string
+  evidence: AnswerEvidence
+  budgets: EvidenceBudgets
+}): Promise<AnswerEvidence> {
+  const { evidence, budgets } = input
+  const thoughts = evidence.retrieved.map((hit, i) => ({ ref: `t${i + 1}`, hit }))
+  const notes = evidence.noteHits.map((hit, i) => ({ ref: `n${i + 1}`, hit }))
+  const facts = evidence.facts.map((hit, i) => ({ ref: `f${i + 1}`, hit }))
+  if (thoughts.length + notes.length + facts.length === 0) return evidence
+
+  const candidates: RelevanceCandidate[] = [
+    ...thoughts.map(({ ref, hit }) => ({
+      ref,
+      label: `Stored thought, ${day(hit.createdAt)}`,
+      text: hit.normalizedText,
+    })),
+    ...notes.map(({ ref, hit }) => ({
+      ref,
+      label: `Excerpt of the note "${hit.title.trim() || 'Untitled note'}", ${day(hit.createdAt)}`,
+      text: hit.excerpt,
+    })),
+    ...facts.map(({ ref, hit }) => ({
+      ref,
+      // who it is about, so a friend's fact is not taken for the user's; identifiers as placeholders
+      label: `Known fact about ${factSubjectLabel(hit)} (${hit.kind}, as of ${day(hit.asOf)}${hit.inferred ? ', inferred' : ''})`,
+      text: statementForIndex(hit.statement),
+    })),
+  ]
+  const verdicts = await judgeEvidenceRelevance({
+    userId: input.userId,
+    question: input.question,
+    candidates,
+  })
+
+  return {
+    ...evidence,
+    retrieved: rankByRelevance(thoughts, (t) => t.ref, verdicts)
+      .slice(0, budgets.thoughts)
+      .map((t) => t.hit),
+    noteHits: rankByRelevance(notes, (n) => n.ref, verdicts)
+      .slice(0, budgets.notes)
+      .map((n) => n.hit),
+    facts: rankByRelevance(facts, (f) => f.ref, verdicts)
+      .slice(0, budgets.facts)
+      .map((f) => f.hit),
   }
 }

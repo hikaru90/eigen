@@ -1,4 +1,4 @@
-import type { FactOperation, ParsedFact } from './parse-fact-extraction'
+import type { FactOperation, ParsedFact } from './fact-operations'
 import { describe, expect, it } from 'vitest'
 import { SECURE_VALUE_PLACEHOLDER, secureReferenceToken } from './fact-vocabulary'
 import { planFactWrites } from './plan-fact-writes'

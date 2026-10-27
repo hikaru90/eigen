@@ -32,7 +32,12 @@ export type DecisionShadowConfig = {
  * resolution_choice, delete_target, message_intent, open_loop, and
  * salience_band (14 total) for the upcoming resolution / delete-gate /
  * chat-turn surfaces, plus capture_intent (15 total; store | forget at
- * capture, docs/planning/personamem-score-plan.md S2).
+ * capture, docs/planning/personamem-score-plan.md S2), plus the ten kinds of
+ * Jev-everywhere J1 (docs/planning/jev-everywhere-rollout.md; 25 total):
+ * fact_keep / fact_subject / fact_kind / fact_reconcile (facts at capture),
+ * forget_action / forget_residual (forget flow), evidence_relevance (what the
+ * answer sees), comparative_ordering / query_personalization / query_temporal
+ * (query intent).
  */
 export type DecisionKind =
   | 'category'
@@ -50,6 +55,16 @@ export type DecisionKind =
   | 'open_loop'
   | 'salience_band'
   | 'capture_intent'
+  | 'fact_keep'
+  | 'fact_subject'
+  | 'fact_kind'
+  | 'fact_reconcile'
+  | 'forget_action'
+  | 'forget_residual'
+  | 'evidence_relevance'
+  | 'comparative_ordering'
+  | 'query_personalization'
+  | 'query_temporal'
 
 /**
  * Kinds with an implemented promotion path (spec §6 P). entity_type,
@@ -61,7 +76,11 @@ export type DecisionKind =
  * message_intent, open_loop, and salience_band widen the accepted registry
  * ahead of their surfaces — they parse and enforce (fail loud) today and
  * gain their question wiring with the resolution / delete-gate / chat-turn
- * surfaces. Config fail-louds rather than silently ignoring an unknown kind.
+ * surfaces. The ten J1 kinds have NO chat path behind them: the decision
+ * model is their only engine (the chat decision was deleted, not gated), so
+ * listing them here validates the setting and documents what is on — the
+ * kinds run whenever their surface runs. Config fail-louds rather than
+ * silently ignoring an unknown kind.
  */
 const ENFORCEABLE_KINDS = [
   'category',
@@ -79,6 +98,16 @@ const ENFORCEABLE_KINDS = [
   'open_loop',
   'salience_band',
   'capture_intent',
+  'fact_keep',
+  'fact_subject',
+  'fact_kind',
+  'fact_reconcile',
+  'forget_action',
+  'forget_residual',
+  'evidence_relevance',
+  'comparative_ordering',
+  'query_personalization',
+  'query_temporal',
 ] as const
 
 export type EnforceableDecisionKind = (typeof ENFORCEABLE_KINDS)[number]

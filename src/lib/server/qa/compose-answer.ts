@@ -27,7 +27,10 @@ import { isThoughtStaleByAge } from '$lib/server/memory/thought-staleness'
 import { loadOntologyForUser, neverStaleCategoryKeys } from '$lib/server/ontology-db'
 import { observeBelowFloor } from '$lib/server/qa/compose-observer'
 import {
+  FACT_ANSWER_MAX,
+  FACT_CANDIDATE_POOL,
   retrieveAnswerEvidence,
+  selectRelevantEvidence,
   TEXT_FILE_COMPOSE_TOP_K,
 } from '$lib/server/qa/retrieve-answer-evidence'
 import {
@@ -53,6 +56,7 @@ import {
   candidatesFromTemporalSeeds,
   resolveTemporalHintBindings,
 } from '$lib/server/retrieval/resolve-temporal-hint-bindings'
+import { EVIDENCE_POOL } from '$lib/server/retrieval/retrieve-evidence'
 import type { RetrievalResult } from '$lib/server/retrieval/service'
 import {
   fetchTemporalEventSeeds,
@@ -70,13 +74,6 @@ const STALENESS_THRESHOLD_MS = 6 * 30 * 24 * 60 * 60 * 1000 // ~6 months
 const DEFAULT_COMPOSE_TOP_K = 8
 /** Broader recall for corpus-wide questions (still uses retrieveEvidence + cited compose). */
 const GLOBAL_COMPOSE_TOP_K = 16
-/**
- * Facts kept per question. A fact is one short sentence, so facts have a budget of their own and
- * never take a thought or note slot; a corpus-wide question ("what do you know about me?")
- * integrates more of what is known about the person.
- */
-const DEFAULT_FACT_TOP_K = 8
-const GLOBAL_FACT_TOP_K = 24
 const TEMPORAL_COMPOSE_TOP_K = 18
 const TEMPORAL_SOLVER_KINDS: TemporalQuestionKind[] = [
   'ordering',
@@ -700,17 +697,32 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     temporalKind: queryIntent.kind,
   })
   await input.onProgress?.('searching')
-  const evidence = await retrieveAnswerEvidence({
+  // The search returns candidate pools: the whole thought pool (the budget cuts after the
+  // judgement), the notes of the budget, and a pool of facts. What the answer finally sees is
+  // Jev's decision (evidence_relevance, one batched call over all three kinds, against the
+  // question as asked): candidates judged not relevant are dropped, the rest are cut to the
+  // budgets — facts to FACT_ANSWER_MAX, however corpus-wide the question.
+  const found = await retrieveAnswerEvidence({
     userId: input.userId,
     query: retrievalQuery,
     queryEmbedding,
-    topK: effectiveTopK,
+    topK: Math.max(effectiveTopK, EVIDENCE_POOL),
     noteTopK: TEXT_FILE_COMPOSE_TOP_K,
-    factTopK: scope === 'global' ? GLOBAL_FACT_TOP_K : DEFAULT_FACT_TOP_K,
+    factTopK: FACT_CANDIDATE_POOL,
     weights,
     temporalIntent: queryIntent,
     authorFilter: input.authorFilter,
     ...(expansions ? { expansions } : {}),
+  })
+  const evidence = await selectRelevantEvidence({
+    userId: input.userId,
+    question: trimmedQuestion,
+    evidence: found,
+    budgets: {
+      thoughts: effectiveTopK,
+      notes: TEXT_FILE_COMPOSE_TOP_K,
+      facts: FACT_ANSWER_MAX,
+    },
   })
   const retrievalExtras = evidence.extras
   const textFileHits = evidence.noteHits

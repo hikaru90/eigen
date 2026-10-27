@@ -6,7 +6,7 @@ How to use this layer: pick a domain → read its L2 file → if it points to a 
 
 - **Ingestion** — Persist thoughts: normalize, classify, embed, lexical index, Postgres + Apache AGE graph sync, activity logging. Also first-class Notes (`text_file`) — Keep-style docs with chat append/CRUD (no enrich/graph; searchable by meaning through embedded `note_passage` rows). Enrichment also derives **user facts** (`user_fact`: short statements about the user and people in their life, with identifiers in `user_secure_value`). L2: [ingestion.md](./ingestion.md).
 - **Client capture queue** — Browser IndexedDB queue, serial drain, NDJSON progress UI, offline sync. L2: [capture-queue.md](./capture-queue.md).
-- **Retrieval** — Hybrid search (vector ANN + lexical FTS + community/entity/neighbor materialization tables → weighted merge → LLM rerank), API + MCP + QA compose. L2: [retrieval.md](./retrieval.md).
+- **Retrieval** — Hybrid search (vector ANN + lexical FTS + community/entity/neighbor materialization tables → weighted merge → evidence pool; Jev `evidence_relevance` picks what the answer sees), API + MCP + QA compose. L2: [retrieval.md](./retrieval.md).
 - **Auth and tenancy** — Better Auth sessions, scoped Postgres via `app.current_user_id`, RLS policies. L2: [auth-and-tenancy.md](./auth-and-tenancy.md).
 - **UI surfaces** — SvelteKit routes and client fetch patterns for capture, graph, chat, settings, etc. L2: [ui-surfaces.md](./ui-surfaces.md).
 - **Consolidation (sleep)** — Nightly pg_cron → salience decay, ontology prune, graph communities, open-loop boost. L2: [consolidation.md](./consolidation.md).

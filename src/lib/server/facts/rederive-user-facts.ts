@@ -15,15 +15,9 @@ import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
 import { redactedText } from '$lib/server/security/detect-secrets'
-import { deriveUserFactsForThought, type DerivedFactCounts } from './derive-user-facts'
+import { deriveUserFactsForThought } from './derive-user-facts'
+import { NO_DERIVED_FACTS, type DerivedFactCounts } from './fact-operations'
 import { releaseThoughtFacts } from './user-fact-lifecycle'
-
-const NO_FACTS: DerivedFactCounts = {
-  added: 0,
-  superseded: 0,
-  confirmed: 0,
-  droppedLowConfidence: 0,
-}
 
 export async function rederiveUserFactsForThought(
   userId: string,
@@ -56,7 +50,7 @@ export async function rederiveUserFactsForThought(
 
   if (readCaptureIntent(metadata) === 'forget' || row.lifecycleStatus === 'archived') {
     await releaseThoughtFacts(userId, thoughtId)
-    return NO_FACTS
+    return NO_DERIVED_FACTS
   }
 
   const normalizedText = row.normalizedTextEncrypted

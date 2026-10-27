@@ -1,44 +1,51 @@
 /**
- * Per-hit LLM judge of the forget flow (docs/planning/personamem-score-plan.md, S2b). It gets the
- * forget request and every hit retrieval found, each in full (a thought's whole text; a note's
- * matched passage with its neighbours and the note title), and decides per hit by meaning, in any
- * language: remove it all, remove just the forgotten detail, or keep it — with a confidence.
- * Acting on the decision (and the confidence gate) is the caller's job; no string rule decides
+ * Per-hit decisions of the forget flow (docs/planning/personamem-score-plan.md, S2b; moved to the
+ * decision model in docs/planning/jev-everywhere-rollout.md, J1). Both are Jev's, by meaning in any
+ * language, each ONE batched Decisions call over the hits:
+ *
+ * - `forget_action`: for every hit retrieval found — shown in full (a thought's whole text; a
+ *   note's matched passage with its neighbours and the note title; a fact with who it is about) —
+ *   remove it all, remove just the forgotten part, or keep it. Jev's probability of the chosen
+ *   action is the confidence the caller gates on.
+ * - `forget_residual`: after the removals, for every hit the search still finds — does it still
+ *   state what the user asked to forget? The forget instruction is archived only when every
+ *   answer is no.
+ *
+ * The chat model decides none of this. It only writes text, and only for a `remove_detail`: the
+ * edited thought, note passages or fact statement (remove-note-detail.ts, remove-fact-detail.ts).
+ * Acting on a decision and the confidence gate are the caller's job; no string rule decides
  * anything here or there.
  */
 
 import type { ForgetHit } from '$lib/server/capture/find-forget-hits'
-import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
-import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
-import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
-import { extractChatContent } from '$lib/server/ontology/llm-json'
+import { runEnforcedPerItemDecisions } from '$lib/server/llm/decision-plane'
 
 /** A removal is applied only at or above this confidence; below it the hit is left untouched and recorded. */
 export const FORGET_CONFIDENCE_MIN = 0.8
 
 export type ForgetHitAction = 'remove_all' | 'remove_detail' | 'keep'
 
-export type ForgetHitDecision =
-  | { action: 'remove_all'; confidence: number }
-  | { action: 'remove_detail'; detail: string; confidence: number }
-  | { action: 'keep'; confidence: number }
+export type JudgedForgetHit = { hit: ForgetHit; action: ForgetHitAction; confidence: number }
 
-export type JudgedForgetHit = { hit: ForgetHit } & ForgetHitDecision
+export type ForgetResidualVerdict = { hit: ForgetHit; stillStates: boolean; probability: number }
 
-export const JUDGE_FORGET_HITS_PROMPT = [
-  'The user asked their memory to forget something. You get that request and the stored items a search found for it: thoughts, excerpts of notes (a note excerpt is the matched passage with its neighbours, shown with the note title; you do not see the rest of the note) and facts (short statements Eigen derived from captures, each about the user or about another person, shown with who it is about). Every item is shown in full.',
-  'Decide for EVERY item what forgetting means for it. Return JSON only — no markdown fences.',
-  '',
-  'Return exactly: {"decisions":[{"hit":"<ref>","action":"remove_all"|"remove_detail"|"keep","detail":"<only for remove_detail>","confidence":<number 0 to 1>}, ...]}',
-  'with one decision per item, using each item\'s ref (h1, h2, ...) exactly once.',
-  '',
-  '- "remove_all": the item is only about the thing to forget: nothing in it would still be worth remembering once that is gone. For a note, use it only when the note as a whole is about the forgotten thing (its title and excerpt make that clear); a note that is about more than that is "remove_detail". A fact that states the forgotten thing is "remove_all": it is one claim.',
-  '- "remove_detail": the item also holds other facts the user did not ask to forget. Then only the forgotten part must come out and everything else stays. "detail" names just that part, in the item\'s own language (a short noun phrase or clause), never the whole item.',
-  '- "keep": the item does not state or imply the thing to forget. A search returns near matches; those stay. An earlier request to forget something is an instruction, not a fact to remove: keep it.',
-  '',
-  `"confidence" is how sure you are of that decision. Use below ${FORGET_CONFIDENCE_MIN} whenever it is unclear whether the item is about the thing to forget, or which part of it to remove: such an item is left untouched.`,
-  'Judge by meaning in any language, between the request and the items too. Do not rely on literal word overlap.',
-].join('\n')
+export const FORGET_ACTION_CRITERIA: Record<ForgetHitAction, string> = {
+  remove_all:
+    'The item is only about the thing to forget: nothing in it would still be worth remembering once that is gone. For a note, use it only when the note as a whole is about the forgotten thing (its title and excerpt make that clear); a note that is about more than that is remove_detail. A fact that states the forgotten thing is remove_all: it is one claim.',
+  remove_detail:
+    'The item also holds other information the user did not ask to forget. Then only the forgotten part must come out and everything else stays.',
+  keep: 'The item does not state or imply the thing to forget. A search returns near matches; those stay. An earlier request to forget something is an instruction, not a fact to remove: keep it.',
+}
+
+export const FORGET_RESIDUAL_CRITERIA = {
+  yes: 'The item still states or implies the thing the user asked Eigen to forget, in whole or in part, so it would still be remembered.',
+  no: 'The item does not state or imply the thing the user asked to forget: it is a near match about something else, or an earlier forget request (an instruction, not a fact).',
+} as const
+
+const FORGET_ACTION_QUESTION =
+  'What does forgetting the requested thing mean for this stored item? Judge by meaning in any language, between the request and the item too; do not rely on literal word overlap.'
+const FORGET_RESIDUAL_QUESTION =
+  'The requested thing was removed from memory. Does this stored item, which a search still finds, still state or imply it? Judge by meaning in any language; do not rely on literal word overlap.'
 
 function describeHit(hit: ForgetHit, ref: string): string {
   const stored = hit.createdAt.toISOString().slice(0, 10)
@@ -53,52 +60,33 @@ function describeHit(hit: ForgetHit, ref: string): string {
   return `[${ref}] note "${title}" (stored ${stored}), matched excerpt:\n${hit.text}`
 }
 
-/** Parses the judge reply; one decision per expected ref, none repeated, none invented. */
-export function parseForgetHitDecisions(
-  text: string,
-  refs: string[],
-): Map<string, ForgetHitDecision> {
-  const parsed = parseLlmJsonPayload(text)
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('forget hit judge: response is not a JSON object')
-  }
-  const list = (parsed as { decisions?: unknown }).decisions
-  if (!Array.isArray(list)) {
-    throw new Error('forget hit judge: decisions must be an array')
-  }
-  const expected = new Set(refs)
-  const out = new Map<string, ForgetHitDecision>()
-  for (const entry of list) {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw new Error('forget hit judge: each decision must be an object')
-    }
-    const { hit, action, detail, confidence } = entry as Record<string, unknown>
-    if (typeof hit !== 'string' || !expected.has(hit)) {
-      throw new Error(`forget hit judge: decision for unknown hit "${String(hit)}"`)
-    }
-    if (out.has(hit)) {
-      throw new Error(`forget hit judge: hit ${hit} decided more than once`)
-    }
-    if (typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
-      throw new Error(`forget hit judge: confidence for ${hit} must be a number in [0, 1]`)
-    }
-    if (action === 'remove_all' || action === 'keep') {
-      out.set(hit, { action, confidence })
-    } else if (action === 'remove_detail') {
-      if (typeof detail !== 'string' || !detail.trim()) {
-        throw new Error(`forget hit judge: remove_detail for ${hit} requires a non-empty detail`)
-      }
-      out.set(hit, { action, detail: detail.trim(), confidence })
-    } else {
-      throw new Error(
-        `forget hit judge: action for ${hit} must be "remove_all", "remove_detail" or "keep"`,
-      )
-    }
-  }
+type HitAnswer = { choice: string; probability: number }
+
+async function askAboutHits(input: {
+  userId: string
+  forgetRequest: string
+  hits: ForgetHit[]
+  kind: 'forget_action' | 'forget_residual'
+  criteria: Record<string, string>
+  question: string
+}): Promise<Map<string, HitAnswer>> {
+  const refs = input.hits.map((_, i) => `h${i + 1}`)
+  const answers = await runEnforcedPerItemDecisions({
+    userId: input.userId,
+    surface: 'forget',
+    kind: input.kind,
+    state: `Forget request: ${input.forgetRequest}`,
+    criteria: input.criteria,
+    items: input.hits.map((hit, i) => ({
+      ref: refs[i]!,
+      instructions: `${input.question}\n\n${describeHit(hit, refs[i]!)}`,
+      llmChoice: null,
+    })),
+  })
   for (const ref of refs) {
-    if (!out.has(ref)) throw new Error(`forget hit judge: no decision for hit ${ref}`)
+    if (!answers.has(ref)) throw new Error(`forget hit judge: no ${input.kind} answer for ${ref}`)
   }
-  return out
+  return answers
 }
 
 export async function judgeForgetHits(params: {
@@ -107,29 +95,39 @@ export async function judgeForgetHits(params: {
   hits: ForgetHit[]
 }): Promise<JudgedForgetHit[]> {
   if (params.hits.length === 0) return []
-  const refs = params.hits.map((_, i) => `h${i + 1}`)
-  const messages: ChatMessage[] = [
-    { role: 'system', content: JUDGE_FORGET_HITS_PROMPT },
-    {
-      role: 'user',
-      content: `Forget request: ${params.forgetRequest}\n\nStored items:\n\n${params.hits
-        .map((hit, i) => describeHit(hit, refs[i]!))
-        .join('\n\n')}`,
-    },
-  ]
-  const raw = await llmChatCompletion({
-    userId: params.userId,
-    messages,
-    temperature: 0,
-    responseFormat: 'json_object',
-    logContext: 'forget_hit_judge',
+  const answers = await askAboutHits({
+    ...params,
+    kind: 'forget_action',
+    criteria: FORGET_ACTION_CRITERIA,
+    question: FORGET_ACTION_QUESTION,
   })
-  const decisions = evictOnReject(raw, () => {
-    const content = extractChatContent(raw).trim()
-    if (!content) {
-      throw new Error('forget hit judge: empty LLM response')
+  return params.hits.map((hit, i) => {
+    const answer = answers.get(`h${i + 1}`)!
+    if (!Object.hasOwn(FORGET_ACTION_CRITERIA, answer.choice)) {
+      throw new Error(`forget hit judge: unknown forget_action "${answer.choice}" for h${i + 1}`)
     }
-    return parseForgetHitDecisions(content, refs)
+    return { hit, action: answer.choice as ForgetHitAction, confidence: answer.probability }
   })
-  return params.hits.map((hit, i) => ({ hit, ...decisions.get(refs[i]!)! }))
+}
+
+/** The residual check: does each hit the search still finds state what the user asked to forget? */
+export async function judgeForgetResidual(params: {
+  userId: string
+  forgetRequest: string
+  hits: ForgetHit[]
+}): Promise<ForgetResidualVerdict[]> {
+  if (params.hits.length === 0) return []
+  const answers = await askAboutHits({
+    ...params,
+    kind: 'forget_residual',
+    criteria: FORGET_RESIDUAL_CRITERIA,
+    question: FORGET_RESIDUAL_QUESTION,
+  })
+  return params.hits.map((hit, i) => {
+    const answer = answers.get(`h${i + 1}`)!
+    if (answer.choice !== 'yes' && answer.choice !== 'no') {
+      throw new Error(`forget hit judge: unknown forget_residual "${answer.choice}" for h${i + 1}`)
+    }
+    return { hit, stillStates: answer.choice === 'yes', probability: answer.probability }
+  })
 }
