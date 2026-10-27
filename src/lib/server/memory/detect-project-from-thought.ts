@@ -140,13 +140,19 @@ export async function detectAndCreateProjectFromThought(
     return resolution.entityId
   }
 
+  // Detection already named a project, so the GTD LLM judge always decides — the structural
+  // count pre-check (shouldInvokeGtdProjectJudge) is a cost gate for the entity-graph path and
+  // would silently skip a first mention (1 linked thought, 0 tasks). Nothing is promoted without
+  // the judge's positive verdict.
   const promoted = await promoteEntityToProject({
     userId: input.userId,
     entityId: resolution.entityId,
     source: 'capture',
-    forceJudge: false,
+    forceJudge: true,
   })
 
+  // With forceJudge the judge runs for every hub that exists, so a `false` here is its verdict
+  // (promoteEntityToProject returns a bare boolean; a vanished hub row is the only other cause).
   if (!promoted) {
     console.log('[project-detection] LLM judge rejected project promotion', {
       userId: input.userId,
