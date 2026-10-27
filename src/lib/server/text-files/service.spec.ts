@@ -1,4 +1,3 @@
-import { PgDialect } from 'drizzle-orm/pg-core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { withEvalRelevanceFloor } from '$lib/server/retrieval/relevance-floor'
 import {
@@ -8,14 +7,12 @@ import {
 import { envPaste, FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
 import {
   appendTextFile,
-  archiveTextFile,
   createTextFile,
   deleteTextFile,
   getTextFile,
   linkTextFileToThought,
   listTextFilesForThought,
   listTextFilesForThoughtIds,
-  listTextFiles,
   listThoughtsForTextFile,
   searchTextFiles,
   unlinkTextFileFromThought,
@@ -1053,108 +1050,5 @@ describe('text-files service: agent writes restore secrets (docs/planning/secret
     dbWith('x')
     await updateTextFile('u1', 'f1', { body: STORED })
     expect(savedPlaintexts()).toEqual([STORED])
-  })
-})
-
-describe('text-files service: archived notes (docs/planning/personamem-score-plan.md, S2b)', () => {
-  const createdAt = new Date('2026-06-05T12:00:00.000Z')
-  const dialect = new PgDialect()
-  const ACTIVE_ONLY = '"text_file"."archived_at" is null'
-
-  function renderSql(condition: unknown): string {
-    return dialect.sqlToQuery(condition as Parameters<PgDialect['sqlToQuery']>[0]).sql
-  }
-
-  /** A db whose select chain records the rendered WHERE of every query. */
-  function whereRecordingDb(rows: unknown[]) {
-    const wheres: string[] = []
-    const result = (async () => rows)()
-    const chain: Record<string, unknown> = {}
-    chain.from = () => chain
-    chain.innerJoin = () => chain
-    chain.where = (condition: unknown) => {
-      wheres.push(renderSql(condition))
-      return chain
-    }
-    chain.orderBy = () => chain
-    chain.limit = () => result
-    chain.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
-      result.then(resolve, reject)
-    return { db: { select: vi.fn(() => chain) }, wheres }
-  }
-
-  const row = {
-    id: 'f1',
-    title: 'Doc',
-    bodyText: '',
-    bodyTextEncrypted: 'enc:body',
-    author: 'user',
-    authorLabel: null,
-    authorKeyId: null,
-    createdAt,
-    updatedAt: createdAt,
-  }
-
-  beforeEach(() => vi.clearAllMocks())
-
-  it('archiveTextFile sets archived_at on an active note of this user and reports whether it did', async () => {
-    const set = vi.fn()
-    const wheres: string[] = []
-    getDbMock.mockReturnValue({
-      update: vi.fn(() => ({
-        set: vi.fn((values: unknown) => {
-          set(values)
-          return {
-            where: vi.fn((condition: unknown) => {
-              wheres.push(renderSql(condition))
-              return { returning: vi.fn(async () => [{ id: 'f1' }]) }
-            }),
-          }
-        }),
-      })),
-    })
-
-    expect(await archiveTextFile('u1', 'f1')).toBe(true)
-    expect(set).toHaveBeenCalledWith({ archivedAt: expect.any(Date) })
-    expect(wheres[0]).toContain('"text_file"."user_id" =')
-    expect(wheres[0]).toContain(ACTIVE_ONLY)
-
-    getDbMock.mockReturnValue({
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => []) })) })),
-      })),
-    })
-    expect(await archiveTextFile('u1', 'missing')).toBe(false)
-  })
-
-  it('getTextFile hides an archived note by default and shows it with includeArchived', async () => {
-    const hidden = whereRecordingDb([row])
-    getDbMock.mockReturnValue(hidden.db)
-    await getTextFile('u1', 'f1')
-    expect(hidden.wheres[0]).toContain(ACTIVE_ONLY)
-
-    const shown = whereRecordingDb([row])
-    getDbMock.mockReturnValue(shown.db)
-    await getTextFile('u1', 'f1', { includeArchived: true })
-    expect(shown.wheres[0]).not.toContain('archived_at')
-  })
-
-  it('listTextFiles (Notes UI list, list_text_files tool) excludes archived notes', async () => {
-    const rec = whereRecordingDb([row])
-    getDbMock.mockReturnValue(rec.db)
-    await listTextFiles('u1')
-    expect(rec.wheres[0]).toContain(ACTIVE_ONLY)
-  })
-
-  it('attachments of a thought leave out archived notes', async () => {
-    const one = whereRecordingDb([])
-    getDbMock.mockReturnValue(one.db)
-    await listTextFilesForThought('u1', 't1')
-    expect(one.wheres[0]).toContain(ACTIVE_ONLY)
-
-    const many = whereRecordingDb([])
-    getDbMock.mockReturnValue(many.db)
-    await listTextFilesForThoughtIds('u1', ['t1', 't2'])
-    expect(many.wheres[0]).toContain(ACTIVE_ONLY)
   })
 })

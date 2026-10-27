@@ -105,4 +105,48 @@ describe('retrieveThoughtRowsForDeleteRequest', () => {
     expect(out.queries).toEqual(['recipes cooking', 'shakshuka salad soup'])
     expect(out.results.map((r) => r.id)).toEqual(['t-salad', 't-shak'])
   })
+  it('createdBefore keeps only thoughts captured strictly before the cutoff (a fact restated later stays)', async () => {
+    deriveDeleteSearchQueriesMock.mockResolvedValue(['surfing'])
+    const row = (id: string, createdAt: string, score: number) => ({
+      id,
+      normalizedText: id,
+      category: 'observation',
+      score,
+      vectorScore: score,
+      graphScore: 0,
+      metadata: {},
+      createdAt: new Date(createdAt),
+    })
+    searchThoughtsMock.mockResolvedValueOnce([
+      row('earlier', '2026-06-01T00:00:00.000Z', 0.9),
+      row('same-instant', '2026-06-02T10:00:00.000Z', 0.95),
+      row('later-restatement', '2026-06-03T00:00:00.000Z', 0.99),
+    ])
+
+    const out = await retrieveThoughtRowsForDeleteRequest({
+      userId: 'u1',
+      deleteRequest: 'forget surfing',
+      createdBefore: new Date('2026-06-02T10:00:00.000Z'),
+    })
+
+    expect(out.results.map((r) => r.id)).toEqual(['earlier'])
+  })
+
+  it('without createdBefore nothing is filtered by time', async () => {
+    deriveDeleteSearchQueriesMock.mockResolvedValue(['q'])
+    searchThoughtsMock.mockResolvedValueOnce([
+      {
+        id: 'x',
+        normalizedText: 'x',
+        category: 'c',
+        score: 0.5,
+        vectorScore: 0.5,
+        graphScore: 0,
+        metadata: {},
+        createdAt: new Date('2030-01-01'),
+      },
+    ])
+    const out = await retrieveThoughtRowsForDeleteRequest({ userId: 'u1', deleteRequest: 'd' })
+    expect(out.results.map((r) => r.id)).toEqual(['x'])
+  })
 })

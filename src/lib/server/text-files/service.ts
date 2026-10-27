@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, lt, or } from 'drizzle-orm'
+import { and, desc, eq, inArray, lt, or } from 'drizzle-orm'
 import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { textFile, thought, thoughtTextFile } from '$lib/server/db/schema'
@@ -334,25 +334,7 @@ export async function deleteTextFile(userId: string, fileId: string): Promise<bo
   return deleted.length > 0
 }
 
-/**
- * Forgetting a whole note (S2b): the note stays in the database, restorable by clearing
- * `archived_at`, but leaves note search, passages retrieval, lists and the note tools. Never a
- * hard delete. False when no active note of this user has that id.
- */
-export async function archiveTextFile(userId: string, fileId: string): Promise<boolean> {
-  const archived = await getDb()
-    .update(textFile)
-    .set({ archivedAt: new Date() })
-    .where(and(eq(textFile.id, fileId), eq(textFile.userId, userId), isNull(textFile.archivedAt)))
-    .returning({ id: textFile.id })
-  return archived.length > 0
-}
-
-export async function getTextFile(
-  userId: string,
-  fileId: string,
-  options?: { includeArchived?: boolean },
-): Promise<TextFileRecord | null> {
+export async function getTextFile(userId: string, fileId: string): Promise<TextFileRecord | null> {
   const [row] = await getDb()
     .select({
       id: textFile.id,
@@ -366,13 +348,7 @@ export async function getTextFile(
       updatedAt: textFile.updatedAt,
     })
     .from(textFile)
-    .where(
-      and(
-        eq(textFile.id, fileId),
-        eq(textFile.userId, userId),
-        options?.includeArchived ? undefined : isNull(textFile.archivedAt),
-      ),
-    )
+    .where(and(eq(textFile.id, fileId), eq(textFile.userId, userId)))
     .limit(1)
 
   if (!row) return null
@@ -416,7 +392,6 @@ export async function listTextFiles(
     .where(
       and(
         eq(textFile.userId, userId),
-        isNull(textFile.archivedAt),
         authorSql,
         cursor
           ? or(
@@ -534,13 +509,7 @@ export async function listTextFilesForThought(
     })
     .from(thoughtTextFile)
     .innerJoin(textFile, eq(thoughtTextFile.textFileId, textFile.id))
-    .where(
-      and(
-        eq(thoughtTextFile.userId, userId),
-        eq(thoughtTextFile.thoughtId, thoughtId),
-        isNull(textFile.archivedAt),
-      ),
-    )
+    .where(and(eq(thoughtTextFile.userId, userId), eq(thoughtTextFile.thoughtId, thoughtId)))
     .orderBy(desc(textFile.updatedAt), desc(textFile.id))
 
   return Promise.all(
@@ -582,13 +551,7 @@ export async function listTextFilesForThoughtIds(
     })
     .from(thoughtTextFile)
     .innerJoin(textFile, eq(thoughtTextFile.textFileId, textFile.id))
-    .where(
-      and(
-        eq(thoughtTextFile.userId, userId),
-        inArray(thoughtTextFile.thoughtId, uniqueIds),
-        isNull(textFile.archivedAt),
-      ),
-    )
+    .where(and(eq(thoughtTextFile.userId, userId), inArray(thoughtTextFile.thoughtId, uniqueIds)))
     .orderBy(desc(textFile.updatedAt), desc(textFile.id))
 
   const previews = await Promise.all(

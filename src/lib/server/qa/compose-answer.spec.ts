@@ -1372,21 +1372,3 @@ describe('compose system prompt — abstain contract', () => {
     expect(prompt).toContain('the Answer MUST state that fact as the user put it')
   })
 })
-
-describe('compose system prompt — retrieved forget instructions (S2b)', () => {
-  it('has exactly one rule, one sentence: a retrieved request to forget something means the information is not used in the answer', () => {
-    const prompt = buildComposeSystemPrompt(false)
-    const rules = prompt.split('\n').filter((line) => /\bforget\b/i.test(line))
-    expect(rules).toHaveLength(1)
-    const rule = rules[0]!
-    expect(rule.startsWith('- ')).toBe(true)
-    // one sentence: a single terminal full stop, at the end
-    expect(rule.match(/[.!?](?:\s|$)/g)).toHaveLength(1)
-    expect(rule.endsWith('.')).toBe(true)
-    expect(rule).toMatch(/do not use/i)
-    // part of the hard rules, in both prompt variants
-    expect(prompt.indexOf(rule)).toBeGreaterThan(prompt.indexOf('Hard rules:'))
-    expect(prompt.indexOf(rule)).toBeLessThan(prompt.indexOf('Grounding profile rules'))
-    expect(buildComposeSystemPrompt(true)).toContain(rule)
-  })
-})

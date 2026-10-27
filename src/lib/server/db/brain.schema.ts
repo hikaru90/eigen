@@ -354,11 +354,6 @@ export const textFile = pgTable(
     author: text('author').$type<MemoryAuthor>().notNull().default('user'),
     authorLabel: text('author_label'),
     authorKeyId: uuid('author_key_id').references(() => userApiKey.id, { onDelete: 'set null' }),
-    /**
-     * Set when the note was forgotten as a whole (S2b): excluded from note search, passages
-     * retrieval, lists and the note tools, but never hard-deleted. NULL = active.
-     */
-    archivedAt: timestamp('archived_at'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at')
       .defaultNow()

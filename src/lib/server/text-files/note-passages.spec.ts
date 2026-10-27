@@ -1,4 +1,3 @@
-import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import { getDb } from '$lib/server/db'
 import { notePassage } from '$lib/server/db/schema'
@@ -245,35 +244,5 @@ describe('embedding stays DB-only', () => {
       { textFileId: 'n1', ordinal: 2, startChar: 5, endChar: 20, text: 'surf at dawn' },
     ])
     expect(JSON.stringify(passages).toLowerCase()).not.toContain('embedding')
-  })
-})
-
-describe('archived notes never match (docs/planning/personamem-score-plan.md, S2b)', () => {
-  const dialect = new PgDialect()
-
-  it('every search source (vector, passage FTS, whole-note keyword, note load) filters archived notes out', async () => {
-    const wheres: string[] = []
-    const chain: Record<string, unknown> = {}
-    for (const m of ['from', 'innerJoin', 'orderBy', 'limit']) chain[m] = () => chain
-    chain.where = (condition: unknown) => {
-      wheres.push(dialect.sqlToQuery(condition as Parameters<PgDialect['sqlToQuery']>[0]).sql)
-      return chain
-    }
-    chain.then = (resolve: (v: unknown) => unknown) => resolve([])
-    vi.mocked(getDb).mockReturnValue({ select: () => chain } as never)
-
-    const sources = createDbNoteSearchSources('u1', {
-      query: 'coastal trip activities',
-      queryEmbedding: fakeEmbedding(1),
-    })
-    await sources.passageCandidates()
-    await sources.noteLexical()
-    await sources.loadNotes(['n1'])
-
-    // vector ANN, passage FTS, note keyword, loadNotes
-    expect(wheres).toHaveLength(4)
-    for (const where of wheres) {
-      expect(where).toContain('"text_file"."archived_at" is null')
-    }
   })
 })

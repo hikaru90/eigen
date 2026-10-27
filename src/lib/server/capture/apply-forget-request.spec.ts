@@ -1,83 +1,52 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const m = vi.hoisted(() => ({
-  findMock: vi.fn(),
+  retrieveMock: vi.fn(),
+  resolveTargetsMock: vi.fn(),
   judgeMock: vi.fn(),
-  archiveThoughtMock: vi.fn(),
-  archiveNoteMock: vi.fn(),
+  archiveMock: vi.fn(),
   editMock: vi.fn(),
-  removeNoteDetailMock: vi.fn(),
   loadResultMock: vi.fn(),
   logActivityCallMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/db', () => ({ getDb: () => ({ tag: 'db' }) }))
-vi.mock('$lib/server/capture/find-forget-hits', () => ({ findForgetHits: m.findMock }))
-vi.mock('$lib/server/capture/judge-forget-hits', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('$lib/server/capture/judge-forget-hits')>()
-  return { ...actual, judgeForgetHits: m.judgeMock }
-})
-vi.mock('$lib/server/capture/remove-note-detail', () => ({
-  removeDetailFromNote: m.removeNoteDetailMock,
+vi.mock('$lib/server/retrieval/retrieve-for-delete', () => ({
+  retrieveThoughtRowsForDeleteRequest: m.retrieveMock,
 }))
-vi.mock('$lib/server/text-files/service', () => ({ archiveTextFile: m.archiveNoteMock }))
-vi.mock('$lib/server/memory/lifecycle', () => ({ archiveThoughtForUser: m.archiveThoughtMock }))
+vi.mock('$lib/server/retrieval/resolve-delete-target', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('$lib/server/retrieval/resolve-delete-target')>()
+  return { ...actual, resolveDeleteTargets: m.resolveTargetsMock }
+})
+vi.mock('$lib/server/capture/judge-forget-target', () => ({ judgeForgetTarget: m.judgeMock }))
+vi.mock('$lib/server/memory/lifecycle', () => ({ archiveThoughtForUser: m.archiveMock }))
 vi.mock('$lib/server/capture/service', () => ({ editStoredThought: m.editMock }))
 vi.mock('$lib/server/capture/capture-result', () => ({
   loadThoughtCaptureResult: m.loadResultMock,
 }))
 vi.mock('$lib/server/activity/log-call', () => ({ logActivityCall: m.logActivityCallMock }))
 
-import type { ForgetHit } from './find-forget-hits'
-import type { JudgedForgetHit } from './judge-forget-hits'
-import { applyForgetRequest, FORGET_EDIT_LABEL } from './apply-forget-request'
+import { DeleteGateAmbiguousError } from '$lib/server/retrieval/resolve-delete-target'
+import { applyForgetRequest } from './apply-forget-request'
 
 const CAPTURE_AT = new Date('2026-06-02T10:00:00.000Z')
-const T1 = '11111111-1111-4111-8111-111111111111'
-const T2 = '22222222-2222-4222-8222-222222222222'
-const N1 = '33333333-3333-4333-8333-333333333333'
-const N2 = '44444444-4444-4444-8444-444444444444'
+const A = '11111111-1111-4111-8111-111111111111'
+const B = '22222222-2222-4222-8222-222222222222'
 const CAPTURE = '99999999-9999-4999-8999-999999999999'
 
-const thoughtHit = (id: string, text = `text of ${id}`): ForgetHit => ({
-  kind: 'thought',
-  id,
-  text,
-  category: 'observation',
-  createdAt: new Date('2026-06-01T00:00:00Z'),
-  score: 0.9,
-})
-const noteHit = (id: string, ordinals = [2]): ForgetHit => ({
-  kind: 'note',
-  id,
-  title: 'Diary',
-  text: `excerpt of ${id}`,
-  matchedOrdinals: ordinals,
-  createdAt: new Date('2026-05-01T00:00:00Z'),
-  score: 0.8,
-})
+function hit(id: string, text: string) {
+  return {
+    id,
+    normalizedText: text,
+    category: 'observation',
+    score: 0.9,
+    createdAt: new Date('2026-06-01T00:00:00Z'),
+  }
+}
 
-const removeAll = (hit: ForgetHit, confidence = 0.95): JudgedForgetHit => ({
-  hit,
-  action: 'remove_all',
-  confidence,
-})
-const removeDetail = (hit: ForgetHit, detail: string, confidence = 0.9): JudgedForgetHit => ({
-  hit,
-  action: 'remove_detail',
-  detail,
-  confidence,
-})
-const keep = (hit: ForgetHit, confidence = 0.95): JudgedForgetHit => ({
-  hit,
-  action: 'keep',
-  confidence,
-})
-
-/** Arrange retrieval + judge in one go. */
-function arrange(judged: JudgedForgetHit[]) {
-  m.findMock.mockResolvedValue({ phrases: ['p'], hits: judged.map((j) => j.hit) })
-  m.judgeMock.mockResolvedValue(judged)
+function loaded(id: string, text: string, lifecycleStatus: 'open' | 'archived' = 'open') {
+  return { id, normalizedText: text, lifecycleStatus }
 }
 
 function run() {
@@ -96,276 +65,185 @@ function auditContexts(): string[] {
 beforeEach(() => {
   vi.clearAllMocks()
   m.logActivityCallMock.mockResolvedValue(undefined)
-  m.archiveThoughtMock.mockResolvedValue({ ok: true })
-  m.archiveNoteMock.mockResolvedValue(true)
-  m.removeNoteDetailMock.mockResolvedValue('edited')
-  m.loadResultMock.mockImplementation(async (_u: string, id: string) => ({
-    id,
-    normalizedText: `text of ${id}`,
-    lifecycleStatus: 'open',
-  }))
+  m.archiveMock.mockResolvedValue({ ok: true })
+  m.resolveTargetsMock.mockResolvedValue([])
 })
 
-describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
-  it("finds hits with Ask's retrieval restricted to items stored BEFORE the forget capture, and judges them all with the request", async () => {
-    arrange([keep(thoughtHit(T1))])
+describe('applyForgetRequest', () => {
+  it('finds targets with the delete matcher, restricted to thoughts captured BEFORE the forget capture', async () => {
+    m.retrieveMock.mockResolvedValue({ queries: ['surfing'], results: [] })
     await run()
-    expect(m.findMock).toHaveBeenCalledWith({
+    expect(m.retrieveMock).toHaveBeenCalledWith({
       userId: 'u1',
-      request: 'Please forget that I like surfing',
+      deleteRequest: 'Please forget that I like surfing',
       createdBefore: CAPTURE_AT,
     })
-    expect(m.judgeMock).toHaveBeenCalledWith({
-      userId: 'u1',
-      forgetRequest: 'Please forget that I like surfing',
-      hits: [thoughtHit(T1)],
-    })
   })
 
-  describe('thoughts', () => {
-    it('remove_all archives the thought through the lifecycle service', async () => {
-      arrange([removeAll(thoughtHit(T1))])
-      const outcome = await run()
-      expect(m.archiveThoughtMock).toHaveBeenCalledWith('u1', T1)
-      expect(m.editMock).not.toHaveBeenCalled()
-      expect(outcome).toMatchObject({ status: 'applied', archived: [T1], edited: [], unresolved: [] })
-    })
-
-    it('remove_detail edits only the detail through the natural-language edit service, with a generic edit label', async () => {
-      arrange([removeDetail(thoughtHit(T1), 'that I like surfing')])
-      m.editMock.mockResolvedValue({
-        ok: true,
-        thought: { id: T1, normalizedText: 'I work as a nurse' },
-        editSummary: 'x',
-      })
-
-      const outcome = await run()
-
-      expect(m.editMock).toHaveBeenCalledTimes(1)
-      const [userId, thoughtId, editRequest, options] = m.editMock.mock.calls[0]
-      expect([userId, thoughtId]).toEqual(['u1', T1])
-      expect(editRequest).toMatch(/^Remove only/)
-      expect(editRequest).toContain('that I like surfing')
-      // the stored edit metadata gets the generic label, never the forgotten detail
-      expect(options).toEqual({ editLabel: FORGET_EDIT_LABEL })
-      expect(FORGET_EDIT_LABEL).not.toMatch(/surf/i)
-      expect(outcome).toMatchObject({ status: 'applied', archived: [], edited: [T1] })
-    })
-
-    it('a remove_detail edit that leaves the text unchanged fails loudly and the instruction is not archived', async () => {
-      arrange([removeDetail(thoughtHit(T1), 'surfing')])
-      m.loadResultMock.mockResolvedValue({ id: T1, normalizedText: 'surfing and nursing', lifecycleStatus: 'open' })
-      m.editMock.mockResolvedValue({
-        ok: true,
-        thought: { id: T1, normalizedText: 'surfing and nursing' },
-        editSummary: 'nothing',
-      })
-      await expect(run()).rejects.toThrow(/unchanged/)
-      expect(m.archiveThoughtMock).not.toHaveBeenCalledWith('u1', CAPTURE)
-    })
-
-    it('skips a thought that is no longer active (archived since retrieval): it counts as neither removed nor unresolved', async () => {
-      arrange([removeAll(thoughtHit(T1)), removeAll(thoughtHit(T2))])
-      m.loadResultMock.mockImplementation(async (_u: string, id: string) => ({
-        id,
-        normalizedText: 'x',
-        lifecycleStatus: id === T1 ? 'archived' : 'open',
-      }))
-      const outcome = await run()
-      expect(m.archiveThoughtMock.mock.calls).toEqual([
-        ['u1', T2],
-        ['u1', CAPTURE],
-      ])
-      expect(outcome.archived).toEqual([T2])
-    })
-  })
-
-  describe('notes (passage hits)', () => {
-    it('remove_detail edits the matched passages of the note through the note edit path', async () => {
-      arrange([removeDetail(noteHit(N1, [3, 4]), 'that I like surfing')])
-      const outcome = await run()
-      expect(m.removeNoteDetailMock).toHaveBeenCalledWith({
-        userId: 'u1',
-        noteId: N1,
-        detail: 'that I like surfing',
-        matchedOrdinals: [3, 4],
-      })
-      expect(m.archiveNoteMock).not.toHaveBeenCalled()
-      expect(outcome).toMatchObject({ status: 'applied', notesEdited: [N1], notesArchived: [] })
-    })
-
-    it('remove_all archives the whole note (never a hard delete)', async () => {
-      arrange([removeAll(noteHit(N1))])
-      const outcome = await run()
-      expect(m.archiveNoteMock).toHaveBeenCalledWith('u1', N1)
-      expect(m.removeNoteDetailMock).not.toHaveBeenCalled()
-      expect(outcome).toMatchObject({ status: 'applied', notesArchived: [N1], notesEdited: [] })
-    })
-
-    it('a note emptied by the detail removal is reported as archived', async () => {
-      arrange([removeDetail(noteHit(N1), 'everything')])
-      m.removeNoteDetailMock.mockResolvedValue('archived')
-      expect(await run()).toMatchObject({ notesArchived: [N1], notesEdited: [] })
-    })
-
-    it('a note that is gone (archived or deleted since retrieval) counts as neither removed nor unresolved', async () => {
-      arrange([removeAll(noteHit(N1)), removeDetail(noteHit(N2), 'x')])
-      m.archiveNoteMock.mockResolvedValue(false)
-      m.removeNoteDetailMock.mockResolvedValue('gone')
-      const outcome = await run()
-      expect(outcome).toMatchObject({
-        status: 'nothing_removed',
-        notesArchived: [],
-        notesEdited: [],
-        unresolved: [],
-        instruction: 'kept',
-      })
-    })
-  })
-
-  describe('confidence gate and the instruction', () => {
-    it('mixed confident + uncertain hits: the confident removal is applied, the uncertain one is left untouched and recorded, the instruction is kept', async () => {
-      arrange([
-        removeAll(thoughtHit(T1), 0.95),
-        removeDetail(thoughtHit(T2), 'surfing', 0.6),
-        removeAll(noteHit(N1), 0.79),
-      ])
-      const outcome = await run()
-
-      expect(m.archiveThoughtMock.mock.calls).toEqual([['u1', T1]])
-      expect(m.editMock).not.toHaveBeenCalled()
-      expect(m.archiveNoteMock).not.toHaveBeenCalled()
-      expect(outcome).toMatchObject({
-        status: 'partial',
-        archived: [T1],
-        unresolved: [
-          { kind: 'thought', id: T2 },
-          { kind: 'note', id: N1 },
-        ],
-        instruction: 'kept',
-      })
-      // kept: the forget capture stays an active thought
-      expect(m.archiveThoughtMock).not.toHaveBeenCalledWith('u1', CAPTURE)
-    })
-
-    it('exactly the gate (0.8) is confident', async () => {
-      arrange([removeAll(thoughtHit(T1), 0.8)])
-      expect(await run()).toMatchObject({ status: 'applied', archived: [T1] })
-    })
-
-    it('nothing confident: unresolved only, nothing removed, the instruction is kept', async () => {
-      arrange([removeAll(thoughtHit(T1), 0.5)])
-      const outcome = await run()
-      expect(m.archiveThoughtMock).not.toHaveBeenCalled()
-      expect(outcome).toMatchObject({
-        status: 'unresolved',
-        unresolved: [{ kind: 'thought', id: T1 }],
-        instruction: 'kept',
-      })
-    })
-
-    it('a hesitant keep is unresolved too (the judge was unsure the item is unrelated)', async () => {
-      arrange([keep(thoughtHit(T1), 0.55)])
-      expect(await run()).toMatchObject({
-        status: 'unresolved',
-        unresolved: [{ kind: 'thought', id: T1 }],
-        instruction: 'kept',
-      })
-    })
-
-    it('nothing found: no judge call, the instruction is kept and Ask will see it', async () => {
-      m.findMock.mockResolvedValue({ phrases: ['p'], hits: [] })
-      const outcome = await run()
-      expect(m.judgeMock).not.toHaveBeenCalled()
-      expect(m.archiveThoughtMock).not.toHaveBeenCalled()
-      expect(outcome).toEqual({
-        status: 'nothing_found',
-        archived: [],
-        edited: [],
-        notesArchived: [],
-        notesEdited: [],
-        unresolved: [],
-        instruction: 'kept',
-      })
-      expect(auditContexts().at(-1)).toContain('status=nothing_found')
-    })
-
-    it('every hit confidently kept: nothing is removed, the instruction is kept', async () => {
-      arrange([keep(thoughtHit(T1)), keep(noteHit(N1))])
-      const outcome = await run()
-      expect(outcome).toMatchObject({ status: 'nothing_removed', instruction: 'kept', unresolved: [] })
-      expect(m.archiveThoughtMock).not.toHaveBeenCalled()
-    })
-
-    it('everything removed and nothing unresolved: the instruction is archived, last, after the removals', async () => {
-      arrange([removeAll(thoughtHit(T1)), removeAll(noteHit(N1)), keep(thoughtHit(T2))])
-      const calls: string[] = []
-      m.archiveThoughtMock.mockImplementation(async (_u: string, id: string) => {
-        calls.push(`thought:${id}`)
-        return { ok: true }
-      })
-      m.archiveNoteMock.mockImplementation(async (_u: string, id: string) => {
-        calls.push(`note:${id}`)
-        return true
-      })
-
-      const outcome = await run()
-
-      expect(calls).toEqual([`thought:${T1}`, `note:${N1}`, `thought:${CAPTURE}`])
-      expect(outcome).toMatchObject({ status: 'applied', instruction: 'archived' })
-    })
-
-    it('a failing removal propagates (the retry ladder owns recovery) and the instruction stays', async () => {
-      arrange([removeAll(thoughtHit(T1))])
-      m.archiveThoughtMock.mockResolvedValue({ ok: false })
-      await expect(run()).rejects.toThrow(new RegExp(T1))
-      expect(m.archiveThoughtMock).not.toHaveBeenCalledWith('u1', CAPTURE)
-    })
-
-    it('a judge failure propagates and nothing is removed', async () => {
-      m.findMock.mockResolvedValue({ phrases: ['p'], hits: [thoughtHit(T1)] })
-      m.judgeMock.mockRejectedValue(new Error('gateway 502'))
-      await expect(run()).rejects.toThrow(/gateway 502/)
-      expect(m.archiveThoughtMock).not.toHaveBeenCalled()
-    })
-
-    it('a retrieval failure propagates', async () => {
-      m.findMock.mockRejectedValue(new Error('embedding down'))
-      await expect(run()).rejects.toThrow(/embedding down/)
-      expect(m.judgeMock).not.toHaveBeenCalled()
-    })
-  })
-
-  it('writes one audit row per hit decision and per action plus a summary: ids, actions, confidences and counts only, never text', async () => {
-    const secret = 'HUNTER2-password-hint'
-    arrange([
-      removeAll(thoughtHit(T1, `my password hint is ${secret}`), 0.97),
-      removeDetail(thoughtHit(T2, `${secret} and nursing`), secret, 0.92),
-      keep(noteHit(N1), 0.9),
-      removeDetail(noteHit(N2), secret, 0.4),
+  it('archives a target the judge says is only about the forgotten thing (existing lifecycle service)', async () => {
+    m.retrieveMock.mockResolvedValue({ queries: ['surfing'], results: [hit(A, 'I love surfing')] })
+    m.resolveTargetsMock.mockResolvedValue([
+      { thoughtId: A, snippet: 'I love surfing', scoreNormalized: 0.9 },
     ])
+    m.loadResultMock.mockResolvedValue(loaded(A, 'I love surfing'))
+    m.judgeMock.mockResolvedValue({ action: 'archive' })
+
+    const outcome = await run()
+
+    expect(m.archiveMock.mock.calls).toEqual([
+      ['u1', A],
+      ['u1', CAPTURE],
+    ])
+    expect(m.editMock).not.toHaveBeenCalled()
+    expect(outcome).toEqual({ status: 'applied', archived: [A], edited: [] })
+  })
+
+  it('edit_out: removes only the detail through the natural-language edit service', async () => {
+    m.retrieveMock.mockResolvedValue({ queries: ['surfing'], results: [hit(A, 'x')] })
+    m.resolveTargetsMock.mockResolvedValue([{ thoughtId: A, snippet: 'x', scoreNormalized: 0.9 }])
+    m.loadResultMock.mockResolvedValue(loaded(A, 'I like surfing and I work as a nurse'))
+    m.judgeMock.mockResolvedValue({ action: 'edit_out', detail: 'that I like surfing' })
     m.editMock.mockResolvedValue({
       ok: true,
-      thought: { id: T2, normalizedText: 'nursing' },
+      thought: { id: A, normalizedText: 'I work as a nurse' },
+      editSummary: 'removed surfing',
+    })
+
+    const outcome = await run()
+
+    expect(m.archiveMock.mock.calls).toEqual([['u1', CAPTURE]])
+    expect(m.editMock).toHaveBeenCalledTimes(1)
+    const [userId, thoughtId, editRequest] = m.editMock.mock.calls[0]
+    expect([userId, thoughtId]).toEqual(['u1', A])
+    expect(editRequest).toContain('that I like surfing')
+    expect(editRequest).toMatch(/^Remove only/)
+    expect(outcome).toEqual({ status: 'applied', archived: [], edited: [A] })
+  })
+
+  it('judges every target separately: one archived, one edited out', async () => {
+    m.retrieveMock.mockResolvedValue({ queries: ['q'], results: [] })
+    m.resolveTargetsMock.mockResolvedValue([
+      { thoughtId: A, snippet: 'a', scoreNormalized: 0.9 },
+      { thoughtId: B, snippet: 'b', scoreNormalized: 0.9 },
+    ])
+    m.loadResultMock.mockImplementation(async (_u: string, id: string) =>
+      loaded(id, id === A ? 'only surfing' : 'surfing plus nursing'),
+    )
+    m.judgeMock.mockImplementation(async ({ targetText }: { targetText: string }) =>
+      targetText === 'only surfing'
+        ? { action: 'archive' }
+        : { action: 'edit_out', detail: 'surfing' },
+    )
+    m.editMock.mockResolvedValue({
+      ok: true,
+      thought: { id: B, normalizedText: 'nursing' },
+      editSummary: 's',
+    })
+
+    const outcome = await run()
+    expect(outcome).toEqual({ status: 'applied', archived: [A], edited: [B] })
+    expect(m.judgeMock).toHaveBeenCalledTimes(2)
+    expect(m.judgeMock.mock.calls[0][0]).toMatchObject({
+      userId: 'u1',
+      forgetRequest: 'Please forget that I like surfing',
+      targetText: 'only surfing',
+    })
+  })
+
+  it('nothing matched: no archive, no edit, and the audit says so', async () => {
+    m.retrieveMock.mockResolvedValue({ queries: ['q'], results: [] })
+    m.resolveTargetsMock.mockResolvedValue([])
+
+    const outcome = await run()
+
+    expect(outcome).toEqual({ status: 'nothing_matched', archived: [], edited: [] })
+    // the forget capture itself is still archived
+    expect(m.archiveMock.mock.calls).toEqual([['u1', CAPTURE]])
+    expect(m.editMock).not.toHaveBeenCalled()
+    const summary = auditContexts().at(-1)
+    expect(summary).toContain(`capture=${CAPTURE}`)
+    expect(summary).toContain('status=nothing_matched')
+  })
+
+  it('an ambiguous request (delete gate) forgets nothing and the audit says so', async () => {
+    m.retrieveMock.mockResolvedValue({ queries: ['q'], results: [] })
+    m.resolveTargetsMock.mockRejectedValue(new DeleteGateAmbiguousError(0.55))
+
+    const outcome = await run()
+
+    expect(outcome).toEqual({ status: 'ambiguous', archived: [], edited: [] })
+    expect(m.archiveMock.mock.calls).toEqual([['u1', CAPTURE]])
+    expect(auditContexts().at(-1)).toContain('status=ambiguous')
+  })
+
+  it('any other matcher failure propagates (fail loud, into the retry ladder)', async () => {
+    m.retrieveMock.mockResolvedValue({ queries: ['q'], results: [] })
+    m.resolveTargetsMock.mockRejectedValue(new Error('gateway 502'))
+    await expect(run()).rejects.toThrow(/gateway 502/)
+    expect(m.archiveMock).not.toHaveBeenCalled()
+  })
+
+  it('skips a target that is no longer active (archived since retrieval)', async () => {
+    m.retrieveMock.mockResolvedValue({ queries: ['q'], results: [] })
+    m.resolveTargetsMock.mockResolvedValue([{ thoughtId: A, snippet: 'a', scoreNormalized: 0.9 }])
+    m.loadResultMock.mockResolvedValue(loaded(A, 'old', 'archived'))
+
+    const outcome = await run()
+    expect(m.judgeMock).not.toHaveBeenCalled()
+    expect(m.archiveMock.mock.calls).toEqual([['u1', CAPTURE]])
+    expect(outcome).toEqual({ status: 'nothing_matched', archived: [], edited: [] })
+  })
+
+  it('edit_out that leaves the text unchanged fails loudly (the detail would still be remembered)', async () => {
+    m.retrieveMock.mockResolvedValue({ queries: ['q'], results: [] })
+    m.resolveTargetsMock.mockResolvedValue([{ thoughtId: A, snippet: 'a', scoreNormalized: 0.9 }])
+    m.loadResultMock.mockResolvedValue(loaded(A, 'surfing and nursing'))
+    m.judgeMock.mockResolvedValue({ action: 'edit_out', detail: 'surfing' })
+    m.editMock.mockResolvedValue({
+      ok: true,
+      thought: { id: A, normalizedText: 'surfing and nursing' },
+      editSummary: 'nothing',
+    })
+    await expect(run()).rejects.toThrow(/unchanged/)
+    // not finished: the forget capture stays un-archived so the retry ladder redoes it
+    expect(m.archiveMock).not.toHaveBeenCalledWith('u1', CAPTURE)
+  })
+
+  it('writes one audit row per action plus a summary: ids and counts only, never thought text', async () => {
+    m.retrieveMock.mockResolvedValue({ queries: ['q'], results: [] })
+    m.resolveTargetsMock.mockResolvedValue([
+      { thoughtId: A, snippet: 'my password hint is HUNTER2', scoreNormalized: 0.9 },
+      { thoughtId: B, snippet: 'b', scoreNormalized: 0.9 },
+    ])
+    m.loadResultMock.mockImplementation(async (_u: string, id: string) =>
+      loaded(id, id === A ? 'my password hint is HUNTER2' : 'HUNTER2 and nursing'),
+    )
+    m.judgeMock.mockImplementation(async ({ targetText }: { targetText: string }) =>
+      targetText.startsWith('my password')
+        ? { action: 'archive' }
+        : { action: 'edit_out', detail: 'HUNTER2' },
+    )
+    m.editMock.mockResolvedValue({
+      ok: true,
+      thought: { id: B, normalizedText: 'nursing' },
       editSummary: 's',
     })
 
     await run()
 
     expect(auditContexts()).toEqual([
-      `forget capture=${CAPTURE} hit=thought:${T1} action=remove_all confidence=0.97`,
-      `forget capture=${CAPTURE} hit=thought:${T2} action=remove_detail confidence=0.92`,
-      `forget capture=${CAPTURE} hit=note:${N1} action=keep confidence=0.90`,
-      `forget capture=${CAPTURE} hit=note:${N2} action=remove_detail confidence=0.40`,
-      `forget capture=${CAPTURE} archived=${T1}`,
-      `forget capture=${CAPTURE} edited=${T2}`,
-      `forget capture=${CAPTURE} unresolved=note:${N2}`,
-      `forget capture=${CAPTURE} status=partial archived=1 edited=1 notes_archived=0 notes_edited=0 unresolved=1 instruction=kept`,
+      `forget capture=${CAPTURE} archived=${A}`,
+      `forget capture=${CAPTURE} edited=${B}`,
+      `forget capture=${CAPTURE} status=applied archived=1 edited=1`,
     ])
     for (const call of m.logActivityCallMock.mock.calls) {
       expect(call[1]).toBe('u1')
-      expect(call[2]).toMatchObject({ provider: 'memory', operation: 'forget_request', baseCostUsd: 0 })
-      expect(JSON.stringify(call[2])).not.toContain(secret)
+      expect(call[2]).toMatchObject({
+        provider: 'memory',
+        operation: 'forget_request',
+        baseCostUsd: 0,
+      })
+      expect(JSON.stringify(call[2])).not.toContain('HUNTER2')
     }
   })
 })
