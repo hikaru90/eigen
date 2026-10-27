@@ -18,6 +18,7 @@ import {
 } from '$lib/server/board/service'
 import { adminEditBoardIdea, checkBoardIdea, shareBoardIdea } from '$lib/server/board/share'
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
+import { strictToolArgs } from '$lib/server/validation/mcp-args'
 
 /**
  * MB-7: the shared Contribute board for agents. Budget: share → vote → list →
@@ -25,19 +26,8 @@ import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embedding
  * strictly at the boundary — unknown keys and out-of-contract values fail loud.
  */
 
-function strictArgs(args: unknown, allowed: readonly string[]): Record<string, unknown> {
-  if (args !== undefined && (args === null || typeof args !== 'object' || Array.isArray(args))) {
-    throw new Error('Arguments must be a JSON object')
-  }
-  const body = (args ?? {}) as Record<string, unknown>
-  const unknown = Object.keys(body).find((k) => !allowed.includes(k))
-  if (unknown)
-    throw new Error(`Unknown argument: ${unknown}. Allowed: ${allowed.join(', ') || '(none)'}`)
-  return body
-}
-
 export async function runListBoardTool(context: McpToolContext, args: unknown) {
-  const body = strictArgs(args, ['status'])
+  const body = strictToolArgs(args, ['status'])
   let status: string | undefined
   if (body.status !== undefined) {
     const parsed = boardStatusSchema.safeParse(body.status)
@@ -53,7 +43,7 @@ export async function runListBoardTool(context: McpToolContext, args: unknown) {
 }
 
 export async function runShareIdeaTool(context: McpToolContext, args: unknown) {
-  const body = strictArgs(args, ['title', 'mine_is_different'])
+  const body = strictToolArgs(args, ['title', 'mine_is_different'])
   const title = boardTitleSchema.safeParse(body.title)
   if (!title.success) throw new Error(firstIssue(title.error))
   if (body.mine_is_different !== undefined && typeof body.mine_is_different !== 'boolean') {
@@ -77,7 +67,7 @@ export async function runShareIdeaTool(context: McpToolContext, args: unknown) {
 }
 
 export async function runVoteIdeaTool(context: McpToolContext, args: unknown) {
-  const body = strictArgs(args, ['idea_id', 'direction'])
+  const body = strictToolArgs(args, ['idea_id', 'direction'])
   const ideaId = parseIdeaId(body.idea_id)
   const direction = parseVoteDirection(body.direction)
   const result = await setBoardVote(context.userId, ideaId, direction)
@@ -85,7 +75,7 @@ export async function runVoteIdeaTool(context: McpToolContext, args: unknown) {
 }
 
 export async function runForgetIdeaTool(context: McpToolContext, args: unknown) {
-  const body = strictArgs(args, ['idea_id'])
+  const body = strictToolArgs(args, ['idea_id'])
   const ideaId = parseIdeaId(body.idea_id)
   if (await isUserAdmin(context.userId)) await adminDeleteBoardIdea(ideaId)
   else await deleteBoardIdea(context.userId, ideaId)
@@ -94,7 +84,7 @@ export async function runForgetIdeaTool(context: McpToolContext, args: unknown) 
 
 /** Makers (admin keys only): edit the title, move status — `rejected` takes the idea off the board — and set the note. */
 export async function runUpdateIdeaTool(context: McpToolContext, args: unknown) {
-  const body = strictArgs(args, ['idea_id', 'title', 'status', 'note'])
+  const body = strictToolArgs(args, ['idea_id', 'title', 'status', 'note'])
   const ideaId = parseIdeaId(body.idea_id)
   if (body.title === undefined && body.status === undefined && body.note === undefined) {
     throw new Error('Nothing to change: pass title, status and/or note')

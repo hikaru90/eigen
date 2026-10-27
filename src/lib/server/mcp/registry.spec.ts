@@ -28,6 +28,9 @@ const TEXT_NOTE_TOOLS = [
 /** Multiplayer board (feature-multiplayer-board.md MB-7): HTTP MCP only, never the ask loop. */
 const BOARD_TOOLS = ['list_board', 'share_idea', 'vote_idea', 'forget_idea'] as const
 
+/** Capture feedback C3 (capture-feedback.md §7): HTTP MCP only, never the in-app Ask agent. */
+const CAPTURE_REVIEW_TOOLS = ['get_capture_review', 'rate_capture'] as const
+
 /** Ask proposes thoughts (feature-ask-proposes-thoughts.md AP-2/AP-4): in-app Ask only. */
 const ASK_PROPOSAL_TOOLS = ['propose_thoughts', 'store_thoughts'] as const
 
@@ -50,6 +53,7 @@ describe('MCP tool registry exposure', () => {
       'edit_thought',
       'delete_thought',
       'delete_thoughts_by_request',
+      ...CAPTURE_REVIEW_TOOLS,
       'list_projects',
       'open_threads',
       'get_project_timeline',
@@ -73,6 +77,7 @@ describe('MCP tool registry exposure', () => {
       'edit_thought',
       'delete_thought',
       'delete_thoughts_by_request',
+      ...CAPTURE_REVIEW_TOOLS,
       'list_projects',
       'open_threads',
       'get_project_timeline',
@@ -128,6 +133,64 @@ describe('MCP tool registry exposure', () => {
     expect(store?.agentArgumentSchema).not.toMatch(/thoughts"\s*:/)
     const propose = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'propose_thoughts')
     expect(propose?.inputSchema).toMatchObject({ required: ['thoughts'] })
+  })
+
+  it('offers the capture review tools to HTTP MCP clients and never to the in-app Ask agent', () => {
+    for (const name of CAPTURE_REVIEW_TOOLS) {
+      const def = MCP_TOOL_DEFINITIONS.find((t) => t.name === name)
+      expect(def, name).toBeDefined()
+      expect(def?.exposeInMcp).toBe(true)
+      expect(def?.exposeInChat).toBe(false)
+      expect(isAgentTool(name)).toBe(true)
+      expect(isMcpExposedTool(name)).toBe(true)
+      expect(MCP_CLIENT_EXPOSED_TOOL_NAMES).toContain(name)
+      expect(isChatAgentTool(name)).toBe(false)
+      expect(CHAT_AGENT_TOOL_NAMES).not.toContain(name)
+    }
+    const block = buildChatAgentToolDescriptionBlock()
+    for (const name of CAPTURE_REVIEW_TOOLS) expect(block).not.toContain(name)
+  })
+
+  it('describes the capture review tools: what they return, and that a reason is applied as an edit', () => {
+    const get = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'get_capture_review')
+    expect(get?.description).toMatch(/score/i)
+    expect(get?.description).toMatch(/0\.7/)
+    expect(get?.description).toMatch(/parts/i)
+    expect(get?.description).toMatch(/vote/i)
+    expect(get?.description).toMatch(/never returns the reason text/i)
+    expect(get?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['thought_id'],
+      additionalProperties: false,
+    })
+
+    const rate = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'rate_capture')
+    expect(rate?.description).toMatch(/applied as an edit/i)
+    expect(rate?.description).toMatch(/2000/)
+    expect(rate?.description).toMatch(/only with.*down/i)
+    expect(rate?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['thought_id', 'verdict'],
+      additionalProperties: false,
+      properties: { verdict: { type: 'string', enum: ['up', 'down'] } },
+    })
+  })
+
+  it('keeps a tool out of the in-app agent only through the explicit exposeInChat flag', () => {
+    const flagged = MCP_TOOL_DEFINITIONS.filter((t) => t.exposeInChat === false).map((t) => t.name)
+    expect(flagged).toEqual([
+      'capture_thought',
+      ...CAPTURE_REVIEW_TOOLS,
+      ...BOARD_TOOLS,
+      'update_idea',
+    ])
+    // the chat toolset is exactly every definition not flagged — no second, name-based list
+    expect(CHAT_AGENT_TOOL_NAMES).toEqual(
+      MCP_TOOL_DEFINITIONS.filter((t) => t.exposeInChat !== false).map((t) => t.name),
+    )
+    for (const t of MCP_TOOL_DEFINITIONS) {
+      expect(isChatAgentTool(t.name), t.name).toBe(t.exposeInChat !== false)
+    }
   })
 
   it('does not register removed chat-only tools', () => {

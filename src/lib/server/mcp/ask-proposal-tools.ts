@@ -4,7 +4,7 @@ import { captureThought } from '$lib/server/capture/service'
 import { loadOpenProposal, validateProposedThoughts } from '$lib/server/chat/ask-proposals'
 import { getDb } from '$lib/server/db'
 import { sanitizeMcpToolResult } from '$lib/server/observability/strip-embeddings'
-import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
+import { strictToolArgs, validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
 
 /**
  * The two Ask-only tools of "Ask proposes thoughts, stores them on yes"
@@ -16,16 +16,6 @@ import { validateNonEmptyEntityId } from '$lib/server/validation/mcp-args'
  * the latest open proposal. Everything else is rejected with an error the model must relay.
  */
 
-function strictArgs(args: unknown, allowed: readonly string[]): Record<string, unknown> {
-  if (args !== undefined && (args === null || typeof args !== 'object' || Array.isArray(args))) {
-    throw new Error('Arguments must be a JSON object')
-  }
-  const body = (args ?? {}) as Record<string, unknown>
-  const unknown = Object.keys(body).find((k) => !allowed.includes(k))
-  if (unknown) throw new Error(`Unknown argument: ${unknown}. Allowed: ${allowed.join(', ')}`)
-  return body
-}
-
 function askTurnOf(context: McpToolContext, tool: string) {
   if (!context.askTurn) throw new Error(`${tool} is only available in an Ask chat turn`)
   return context.askTurn
@@ -33,7 +23,7 @@ function askTurnOf(context: McpToolContext, tool: string) {
 
 /** AP-2: show the user thoughts worth keeping. Stores nothing — the user must confirm. */
 export async function runProposeThoughtsTool(context: McpToolContext, args: unknown) {
-  const body = strictArgs(args, ['thoughts'])
+  const body = strictToolArgs(args, ['thoughts'])
   const turn = askTurnOf(context, 'propose_thoughts')
 
   if (turn.proposalReply === 'confirm') {
@@ -53,7 +43,7 @@ export async function runProposeThoughtsTool(context: McpToolContext, args: unkn
 
 /** AP-4 / AP-5: store the latest open proposal exactly as proposed, on a confirmed reply. */
 export async function runStoreThoughtsTool(context: McpToolContext, args: unknown) {
-  const body = strictArgs(args, ['proposal_id'])
+  const body = strictToolArgs(args, ['proposal_id'])
   const proposalId = validateNonEmptyEntityId(
     typeof body.proposal_id === 'string' ? body.proposal_id : undefined,
     'proposal_id',

@@ -37,6 +37,23 @@ export function readDeleteLookupQueryFromToolArgs(body: Record<string, unknown>)
   return null
 }
 
+/**
+ * A tool's arguments as a strict JSON object: anything but an object (or nothing) is refused, and
+ * so is any key outside `allowed`, so a misspelt or aliased argument fails loudly instead of being
+ * dropped.
+ */
+export function strictToolArgs(args: unknown, allowed: readonly string[]): Record<string, unknown> {
+  if (args !== undefined && (args === null || typeof args !== 'object' || Array.isArray(args))) {
+    throw new Error('Arguments must be a JSON object')
+  }
+  const body = (args ?? {}) as Record<string, unknown>
+  const unknown = Object.keys(body).find((key) => !allowed.includes(key))
+  if (unknown) {
+    throw new Error(`Unknown argument: ${unknown}. Allowed: ${allowed.join(', ') || '(none)'}`)
+  }
+  return body
+}
+
 export function validateNonEmptyEntityId(value: string | undefined | null, name: string): string {
   if (value == null) {
     throw new Error(`Invalid ${name}: value is required`)

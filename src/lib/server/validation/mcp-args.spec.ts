@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   readDeleteLookupQueryFromToolArgs,
   readThoughtIdFromToolArgs,
+  strictToolArgs,
   tryReadThoughtIdFromToolArgs,
   validateNonEmptyEntityId,
   validateSearchParams,
@@ -77,5 +78,31 @@ describe('validateSearchParams', () => {
 
   it('rejects non-integer topK', () => {
     expect(() => validateSearchParams({ topK: 1.5 })).toThrow(/top_k/)
+  })
+})
+
+describe('strictToolArgs', () => {
+  it('returns the arguments object when every key is allowed', () => {
+    expect(strictToolArgs({ a: 1 }, ['a', 'b'])).toEqual({ a: 1 })
+  })
+
+  it('treats missing arguments as an empty object', () => {
+    expect(strictToolArgs(undefined, ['a'])).toEqual({})
+  })
+
+  it('rejects anything but a JSON object', () => {
+    for (const args of [null, 'a', 3, ['a'], true]) {
+      expect(() => strictToolArgs(args, ['a'])).toThrow('Arguments must be a JSON object')
+    }
+  })
+
+  it('names the first unknown key and the allowed ones', () => {
+    expect(() => strictToolArgs({ a: 1, thoughtId: 'x' }, ['a', 'b'])).toThrow(
+      'Unknown argument: thoughtId. Allowed: a, b',
+    )
+  })
+
+  it('says (none) when the tool takes no arguments', () => {
+    expect(() => strictToolArgs({ a: 1 }, [])).toThrow('Unknown argument: a. Allowed: (none)')
   })
 })

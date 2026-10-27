@@ -6,6 +6,7 @@ import {
   runShareIdeaTool,
   runVoteIdeaTool,
 } from '$lib/server/mcp/board-tools'
+import { runGetCaptureReviewTool, runRateCaptureTool } from '$lib/server/mcp/capture-review-tools'
 import {
   runAnswerQuestionTool,
   runAppendTextFileTool,
@@ -48,6 +49,12 @@ export type McpToolDefinition = {
   handler: McpToolHandler
   /** When false, tool is not exposed to HTTP MCP clients (in-app chat agent still has access). */
   exposeInMcp?: boolean
+  /**
+   * When false, the in-app ask/chat agent does not get this tool: not in its toolset, its catalog
+   * or its dispatch (HTTP MCP clients are unaffected). The one mechanism that keeps a definition
+   * out of the agent loop; there is no second, name-based list.
+   */
+  exposeInChat?: boolean
 }
 
 const MCP_CLIENT_TOOL_NAMES = new Set([
@@ -56,6 +63,8 @@ const MCP_CLIENT_TOOL_NAMES = new Set([
   'edit_thought',
   'delete_thought',
   'delete_thoughts_by_request',
+  'get_capture_review',
+  'rate_capture',
   'list_projects',
   'open_threads',
   'get_project_timeline',
@@ -111,6 +120,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"raw": "string (required)", "captured_at": "string (optional ISO-8601)", "as_user": "boolean (optional — true for human capture)", "author": "string (optional — rarely needed; MCP key labels automatically)"}',
     handler: runCaptureThoughtTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('capture_thought'),
+    exposeInChat: false,
   },
   {
     name: 'answer_question',
@@ -257,6 +267,53 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"request": "string (required, max 500 chars) — natural-language delete request, e.g. delete the salmon recipe"}',
     handler: runDeleteThoughtsByRequestTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('delete_thoughts_by_request'),
+  },
+  {
+    name: 'get_capture_review',
+    description:
+      "How sure Eigen is that it stored one thought right. Returns the review status (none, pending_audit, scored, audit_failed), the score (the lowest Jev probability over the parts the owner sees) against the 0.7 threshold, its parts in words (category, names, dates, wording, split pieces), each with its probability, and the owner's vote. Status none is not an error: rate_capture starts a review. Archived thoughts keep theirs. Never returns the reason text of a thumbs-down.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        thought_id: {
+          type: 'string',
+          description: 'UUID of the thought, from capture_thought or retrieve_thoughts.',
+        },
+      },
+      required: ['thought_id'],
+      additionalProperties: false,
+    },
+    agentArgumentSchema: '{"thought_id": "string (required) — UUID"}',
+    handler: runGetCaptureReviewTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('get_capture_review'),
+    exposeInChat: false,
+  },
+  {
+    name: 'rate_capture',
+    description:
+      'Rate how a thought was stored: up (right) or down (wrong). A down vote may carry a reason (at most 2000 characters), allowed only with down: it is applied as an edit to the thought, Jev labels the kind of mistake, and the reason is stored encrypted. One vote per thought; rating again replaces it. Returns verdict, reason_kind, edit_applied, edit_error and, when an edit ran, the updated thought. If the label cannot be made nothing is saved and the call fails; send it again.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        thought_id: {
+          type: 'string',
+          description: 'UUID of the thought, from capture_thought or retrieve_thoughts.',
+        },
+        verdict: { type: 'string', enum: ['up', 'down'] },
+        reason: {
+          type: 'string',
+          description:
+            'Only with verdict down, at most 2000 characters: what was wrong. Applied as an edit to the thought. Empty means no reason.',
+        },
+      },
+      required: ['thought_id', 'verdict'],
+      additionalProperties: false,
+    },
+    agentArgumentSchema:
+      '{"thought_id": "string (required) — UUID", "verdict": "up|down (required)", "reason": "string (optional, only with down, max 2000 chars) — what was wrong; applied as an edit"}',
+    handler: runRateCaptureTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('rate_capture'),
+    exposeInChat: false,
   },
   {
     name: 'list_projects',
@@ -501,6 +558,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     agentArgumentSchema: '{"status": "requested|in-progress|shipped (optional)"}',
     handler: runListBoardTool,
     exposeInMcp: false,
+    exposeInChat: false,
   },
   {
     name: 'share_idea',
@@ -522,6 +580,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"title": "string (required)", "mine_is_different": "boolean (optional)"}',
     handler: runShareIdeaTool,
     exposeInMcp: false,
+    exposeInChat: false,
   },
   {
     name: 'vote_idea',
@@ -539,6 +598,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     agentArgumentSchema: '{"idea_id": "string UUID (required)", "direction": "-1|0|1 (required)"}',
     handler: runVoteIdeaTool,
     exposeInMcp: false,
+    exposeInChat: false,
   },
   {
     name: 'forget_idea',
@@ -553,6 +613,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     agentArgumentSchema: '{"idea_id": "string UUID (required)"}',
     handler: runForgetIdeaTool,
     exposeInMcp: false,
+    exposeInChat: false,
   },
   {
     name: 'update_idea',
@@ -573,6 +634,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"idea_id": "string UUID (required)", "title": "string (optional)", "status": "requested|in-progress|shipped|rejected (optional)", "note": "string|null (optional)"}',
     handler: runUpdateIdeaTool,
     exposeInMcp: false,
+    exposeInChat: false,
   },
   {
     name: 'create_text_file',
@@ -807,18 +869,16 @@ export const MCP_EXPOSED_TOOL_MAP = new Map<string, McpToolHandler>(
 export const MCP_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name)
 
 /**
- * Tools the in-app ask/chat loop may call. capture_thought is deliberately excluded so
- * nothing typed into Ask is stored on its own (deterministic surface boundary — no string
- * heuristics deciding "is this a question"). Ask keeps thoughts only through
- * propose_thoughts → store_thoughts, and the server guard stores only what the user
- * confirmed. Capturing belongs to the Capture surface and to HTTP MCP clients, both of which
- * keep capture_thought.
+ * Tools the in-app ask/chat loop may call: every definition not marked `exposeInChat: false`.
+ * capture_thought is deliberately excluded so nothing typed into Ask is stored on its own
+ * (deterministic surface boundary — no string heuristics deciding "is this a question"). Ask keeps
+ * thoughts only through propose_thoughts → store_thoughts, and the server guard stores only what
+ * the user confirmed. Capturing belongs to the Capture surface and to HTTP MCP clients, both of
+ * which keep capture_thought. The shared board and the capture review tools (get_capture_review,
+ * rate_capture) are HTTP MCP only: the vote in the app lives in the Capture strip and the Mesh row.
  */
 export const CHAT_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.filter(
-  (t) =>
-    t.name !== 'capture_thought' &&
-    !BOARD_TOOL_NAMES.has(t.name) &&
-    !BOARD_ADMIN_TOOL_NAMES.has(t.name),
+  (t) => t.exposeInChat !== false,
 ).map((t) => t.name)
 
 /** HTTP MCP client surface (minimal memory CRUD). */
