@@ -1,5 +1,7 @@
 # Improving Eigen's PersonaMem-v2 score
 
+> Parked on branch `benchmark-work` (2026-10-27): not on main.
+
 Status: **approved by the operator 2026-10-25** — S0 and S1 in progress. Every change must improve Eigen for real users, not only the
 benchmark (AGENTS.md: generalize, no thought-specific or benchmark-specific patches).
 

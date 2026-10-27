@@ -1,5 +1,7 @@
 # "What Eigen knows about you": user facts + community profiles
 
+> Parked on branch `benchmark-work` (2026-10-27): not on main.
+
 Status: **decisions Q1–Q4 answered by the operator 2026-10-26**; ready to build F1. Nothing is built yet. Risk: **critical**
 (ingestion, retrieval and consolidation are critical-path domains). Every change must improve Eigen
 for real users; PersonaMem is the measuring stick, not the target.
