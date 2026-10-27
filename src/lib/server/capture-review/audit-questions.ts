@@ -291,16 +291,20 @@ function describeDay(target: CalendarDay, captureDay: CalendarDay): string {
 
 /**
  * When Eigen stored an event, in words: the stored day as a distance from the capture day, then
- * the detail ("the Friday after the capture day (3 days later) at 09:00"). Only the date question
- * says it; the missing_dates question names the events and no times.
+ * the detail ("the Friday after the capture day (3 days later) at 09:00"). An item with a day is
+ * one stored occurrence, and the phrase ends by saying so (", once (not repeating)"): without it
+ * Jev passed a repeat that was stored as a single date. An item without a day (a repeat, or a
+ * detail only) gets no suffix. Only the date question says this phrase; the missing_dates question
+ * names the events and no times.
  */
 function datePhrase(date: CaptureAuditInput['dates'][number], captureDay: CalendarDay): string {
-  return [
+  const words = [
     date.day === null ? null : describeDay(requireDay(date.day, 'day'), captureDay),
     date.detail === null ? null : date.detail.trim(),
   ]
     .filter((piece) => piece !== null)
     .join(' ')
+  return date.day === null ? words : `${words}, once (not repeating)`
 }
 
 function question(

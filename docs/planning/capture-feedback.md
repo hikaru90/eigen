@@ -254,7 +254,11 @@ in the user's own tenant.
     contract now lists every field, requires `semanticSummary` (the event, never just the time) and
     a `recurrenceRule` when the capture says the event repeats; the parser rejects a rule the
     formatter cannot read. The date criteria's `wrong` names the repeat mismatch, which Jev had
-    passed at 0.95 (fixture `a24-repeat-stored-once`).
+    passed at 0.95 (fixture `a24-repeat-stored-once`). The criterion alone was not enough (Jev
+    still said "right" at 0.72), so the date question's phrase also states a single stored
+    occurrence: an item with a `day` ends with `, once (not repeating)` ("for the capture day itself
+    at 19:00, once (not repeating)"); repeats and detail-only items get no suffix, and the
+    `missing_dates` question is unchanged.
   - **Score** counts only what the user sees (`SCORED_PARTS`, §5), changed after the first live
     smoke: the score was the minimum over all parts, and hidden parts (name types, kinds of time)
     dominated it.

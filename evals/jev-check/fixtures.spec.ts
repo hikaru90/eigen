@@ -167,7 +167,7 @@ describe('the real fixture files', () => {
     it('a24 asks the date question about the capture day itself at 19:00', () => {
       const request = prepareCases(files).find((c) => c.id === 'a24-repeat-stored-once')?.request
       expect(request?.questions['date:d1'].instructions).toBe(
-        'Eigen stored "Yoga at Studio Nord" for the capture day itself at 19:00. Does the capture put this event at that time?',
+        'Eigen stored "Yoga at Studio Nord" for the capture day itself at 19:00, once (not repeating). Does the capture put this event at that time?',
       )
     })
 
@@ -264,14 +264,14 @@ describe('the real fixture files', () => {
     it('a17 asks about the last day of November, 34 days after the capture day', () => {
       const request = prepareCases(files).find((c) => c.id === 'a17-far-deadline-right')?.request
       expect(request?.questions['date:d1'].instructions).toBe(
-        'Eigen stored "Steuererklärung abgeben" for Monday 30 November 2026 (34 days after the capture day, the last day of November) as the deadline. Does the capture put this event at that time?',
+        'Eigen stored "Steuererklärung abgeben" for Monday 30 November 2026 (34 days after the capture day, the last day of November) as the deadline, once (not repeating). Does the capture put this event at that time?',
       )
     })
 
     it('a16 asks for the Friday after the capture day at 15:00', () => {
       const request = prepareCases(files).find((c) => c.id === 'a16-wrong-hour')?.request
       expect(request?.questions['date:d1'].instructions).toBe(
-        'Eigen stored "Dentist appointment" for the Friday after the capture day (3 days later) at 15:00. Does the capture put this event at that time?',
+        'Eigen stored "Dentist appointment" for the Friday after the capture day (3 days later) at 15:00, once (not repeating). Does the capture put this event at that time?',
       )
     })
   })
