@@ -1,0 +1,73 @@
+[
+  {
+    "id": "clean_weekday_en",
+    "text": "need to get the car to the garage on Thursday, the brakes are squeaking again",
+    "capturedAt": "2026-10-27T10:00:00+01:00"
+  },
+  {
+    "id": "clean_person_place_en",
+    "text": "Sarah is back from Lisbon, would be nice to catch up with her at Cafe Einstein",
+    "capturedAt": "2026-10-27T10:00:00+01:00"
+  },
+  {
+    "id": "clean_split_en",
+    "text": "todos for today: email the landlord about the heating, pick up Leo's prescription, and cancel the gym membership",
+    "capturedAt": "2026-10-27T10:00:00+01:00"
+  },
+  {
+    "id": "clean_weekday_de",
+    "text": "Am Samstag Oma in Dresden besuchen und Blumen mitbringen",
+    "capturedAt": "2026-10-27T10:00:00+01:00"
+  },
+  {
+    "id": "wrong_date_en",
+    "text": "birthday dinner for Tom on Friday at the Italian place in Mitte",
+    "capturedAt": "2026-10-27T10:00:00+01:00",
+    "mutation": { "type": "shift_date", "days": 1 }
+  },
+  {
+    "id": "wrong_time_en",
+    "text": "call the bank on Wednesday at 3pm about the mortgage",
+    "capturedAt": "2026-10-27T10:00:00+01:00",
+    "mutation": { "type": "shift_time", "hours": 3 }
+  },
+  {
+    "id": "missing_date_en",
+    "text": "pick up the keys from Mr. Hoffmann on Monday morning",
+    "capturedAt": "2026-10-27T10:00:00+01:00",
+    "mutation": { "type": "delete_dates" }
+  },
+  {
+    "id": "invented_name_en",
+    "text": "coffee with Priya about the onboarding doc",
+    "capturedAt": "2026-10-27T10:00:00+01:00",
+    "mutation": { "type": "add_name", "surface": "Rebecca" }
+  },
+  {
+    "id": "missing_name_en",
+    "text": "send the draft to Jonas and Mira, and ask Kowalski GmbH for the offer",
+    "capturedAt": "2026-10-27T10:00:00+01:00",
+    "mutation": { "type": "remove_name" }
+  },
+  {
+    "id": "changed_wording_de",
+    "text": "Vielleicht sollte ich mal bei Frau Becker wegen der Nebenkosten nachfragen",
+    "capturedAt": "2026-10-27T10:00:00+01:00",
+    "mutation": {
+      "type": "replace_wording",
+      "text": "Ich rufe Frau Becker morgen an und fordere die Nebenkostenabrechnung zurueck."
+    }
+  },
+  {
+    "id": "bad_piece_en",
+    "text": "errands: buy stamps, return the drill to Ben, call the vet about Momo's vaccination",
+    "capturedAt": "2026-10-27T10:00:00+01:00",
+    "mutation": { "type": "fragment_piece", "piece": 2 }
+  },
+  {
+    "id": "lost_piece_en",
+    "text": "things to sort out: renew my passport, book the vet for Momo, and send Mia the invoice from March",
+    "capturedAt": "2026-10-27T10:00:00+01:00",
+    "mutation": { "type": "drop_last_piece" }
+  }
+]

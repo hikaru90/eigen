@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CAPTURE_REVIEW_SMOKE_TENANT_ID,
+  CAPTURE_REVIEW_VERIFY_TENANT_ID,
   resolveE2eHarnessBillingUserId,
   EVAL_OPERATOR_USER_ID,
   GRAPH_SCALE_OPERATOR_USER_ID,
@@ -45,6 +46,14 @@ describe('resolveHarnessBillingUserId', () => {
     expect(resolveHarnessBillingUserId(' capture-review-smoke ')).toBe(
       PUBLIC_BENCH_OPERATOR_USER_ID,
     )
+  })
+
+  it('maps the capture-review verify tenant to the public-bench operator wallet, exact id only', () => {
+    expect(CAPTURE_REVIEW_VERIFY_TENANT_ID).toBe('capture-review-verify')
+    expect(resolveHarnessBillingUserId(CAPTURE_REVIEW_VERIFY_TENANT_ID)).toBe(
+      PUBLIC_BENCH_OPERATOR_USER_ID,
+    )
+    expect(resolveHarnessBillingUserId('capture-review-verify-2')).toBeUndefined()
   })
 
   it('matches the smoke tenant by its exact id only, never as a prefix', () => {

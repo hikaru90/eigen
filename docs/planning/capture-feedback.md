@@ -1,7 +1,7 @@
 # Capture feedback: did Eigen store this right?
 
 Status: **draft for the operator (2026-10-27)**. C0 (criteria and `npm run jev:check`), C1
-(record, audit, score; no UI), C2 (the vote), C3 (MCP tools) and C4 (operator page) are built; C5 is not. It builds on `main` *after* the
+(record, audit, score; no UI), C2 (the vote), C3 (MCP tools), C4 (operator page) and C5 (verification run) are built. It builds on `main` *after* the
 capture work moved to branch `benchmark-work`, so it starts once that cut has landed. Risk:
 **high**: it reads every capture after enrichment and writes through the edit path. Planner: Opus.
 Builders: Sonnet subagents, tests first, one phase at a time.
@@ -389,11 +389,57 @@ in the user's own tenant.
     "Weakest" is computed from the jsonb probabilities only, never against `score`.
   - Tests: an integration spec on delta counts (exact 0.7, ties, several names, unscored kinds,
     harness exclusion, a privacy check on the JSON), a page-load spec, a rate-helper spec.
-- **C5 — verification:**
+- **C5 — verification. Built (2026-10-27), first result below.**
   - Run ~10 made-up captures in a test account, each built to contain one known mistake (wrong
     date, missing name, changed wording, bad split) plus clean ones, and check the scores and the
     vote end to end.
   - The threshold calibration then runs on real 👍/👎 data as it accumulates.
+  - **How to run:** `npm run capture-review:verify [-- --keep]` (operator-run, live, a few cents;
+    needs the same environment as the smoke). Harness tenant `capture-review-verify`, reset by
+    default. Code in `evals/capture-review/` (`verify.ts`, `run-verify.ts`, `verify-*.ts`), cases
+    in `verify-cases.json` (12 made-up captures, 2 German). Exit 1 when a case, a vote check or an
+    operator delta fails; the full table is always printed.
+  - **What it covers.** Per case: capture with `captureThought` (`awaitEnrichment`), drain the
+    tenant queue, audit directly if still `pending_audit`, record parts and score. Mistake cases
+    then inject ONE generic mutation into the stored data at the source the audit reads, reset the
+    review to `pending_audit`, re-run `runCaptureReviewAudit` (same function the job calls) and
+    record parts and score again. Mutations: `shift_date` (+1 day on the one stored event),
+    `shift_time` (+3 h), `delete_dates`, `add_name` (a surface not in the capture, into
+    `entity_resolution_log`), `remove_name` (the name Jev rated surest in the clean audit),
+    `replace_wording` (normalized text, encrypted form too), `fragment_piece` (first half of the
+    words of one `metadata.splitInto` piece), `drop_last_piece`. No code branches on a capture's text.
+  - **PASS rule.** Mistake case: the targeted part has the negative label (`wrong` /
+    `something_missing`) AND the score is below `CAPTURE_REVIEW_THRESHOLD`. Clean case: score at or
+    above it. Other parts that changed label are reported, not failed; a mistake case already below
+    the threshold before the injection is flagged. Votes go through `voteOnCapture`: 👍 (place
+    `capture`), 👎 empty (`mesh`: verdict only), 👎 with a reason (`mesh`: `reason_kind` and
+    `edit_applied_at`), a re-vote. Operator counts (`loadCaptureQuality({ includeHarness: true })`
+    before and after) must move by exactly the votes' deltas, and the result must hold no capture text.
+  - **Latest result (third real run, 2026-10-27, $0.038).** Mistake cases: the targeted part was
+    negative and the score below 0.7 in 7 of 8 cases (rows below); the 4 clean cases all scored
+    below 0.7. Votes and operator deltas: all checks pass.
+
+    | case | mutation | before (score, weakest) | after score | target part, label, P(right) | result |
+    | --- | --- | --- | --- | --- | --- |
+    | clean_weekday_en | - | 0.64 name:n1 | - | - | FAIL (below 0.7) |
+    | clean_person_place_en | - | 0.47 category | - | - | FAIL (below 0.7) |
+    | clean_split_en | - | 0.67 name:n2 | - | - | FAIL (below 0.7) |
+    | clean_weekday_de | - | 0.68 date:d1 | - | - | FAIL (below 0.7) |
+    | wrong_date_en | date +1 day | 0.56 category | 0.02 | date:d1 wrong 0.02 | PASS |
+    | wrong_time_en | time +3 h | 0.71 name:n1 | 0.02 | date:d1 wrong 0.02 | PASS |
+    | missing_date_en | dates deleted | 0.23 date:d1 | 0.01 | missing_dates something_missing 0.01 | PASS |
+    | invented_name_en | name invented | 0.48 missing_dates | 0.00 | name:n3 wrong 0.00 | PASS |
+    | missing_name_en | name removed | 0.70 name:n1 | 0.01 | missing_names something_missing 0.01 | PASS |
+    | changed_wording_de | wording changed | 0.61 category | 0.00 | wording wrong 0.00 | PASS |
+    | bad_piece_en | piece 2 cut | 0.62 missing_dates | 0.44 | piece:p2 right 0.68 | FAIL (piece stayed right; pieces_cover went wrong 0.44) |
+    | lost_piece_en | last piece dropped | 0.07 date:d1 | 0.00 | pieces_cover wrong 0.00 | PASS |
+
+  - **Findings for the planner (not fixed here):** every clean capture scored below the threshold
+    before any injection (weakest: a name rated right at 0.64-0.67, a category at 0.47, a date at
+    0.68), most mistake cases were already weak before their injection, a fragment piece
+    ("return the drill") was rated right at 0.68-0.72, and the 👎 reason "wrong day, I said Friday"
+    was labelled `wrong_date` and applied as an edit but did not restore the captured date (stored
+    day stayed one day late). Calibration data and diagnosis belong to the planner.
 
 ## Decisions (operator, 2026-10-27)
 - **No review questions.** The vote is only visible right after capture on the stored thought and

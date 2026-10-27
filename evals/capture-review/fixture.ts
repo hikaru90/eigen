@@ -17,7 +17,8 @@ export type SmokeCapture = {
   capturedAtDate: Date
 }
 
-const ISO_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/
+export const ISO_WITH_OFFSET =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/
 
 const captureSchema = z.strictObject({
   text: z.string().refine((text) => text.trim() !== '', 'text must not be blank'),
@@ -30,7 +31,7 @@ const captureSchema = z.strictObject({
 })
 
 /** Whether the calendar date in `value` exists (Date.parse rolls 2026-02-30 over to March). */
-function dateExists(value: string): boolean {
+export function dateExists(value: string): boolean {
   const [year, month, day] = value.slice(0, 10).split('-').map(Number)
   const check = new Date(Date.UTC(year, month - 1, day))
   return (
