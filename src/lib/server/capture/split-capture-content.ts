@@ -1,245 +1,161 @@
-import { isContentRole, SPLIT_FANOUT_MAX, type ContentRole } from '$lib/server/capture/content-role'
 import { normalizeThoughtText } from '$lib/server/capture/service'
 import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { stripMarkdownJsonFences } from '$lib/server/memory/llm-json-content'
 import { extractChatContent } from '$lib/server/ontology/llm-json'
 
-export type CaptureContentRole = ContentRole
+export type CaptureContentSplitMode = 'thought_only' | 'split'
+
+export type CaptureContentSplitResult = {
+  mode: CaptureContentSplitMode
+  /**
+   * Text used for `normalized_text` downstream.
+   * For `thought_only`, always the verbatim capture (no LLM rewrite).
+   * For `split`, the distilled pointer/title line.
+   */
+  thoughtText: string
+  /** Present when mode is split — remainder stored as a linked text note. */
+  attachmentTitle: string
+  attachmentBody: string
+  /** Short LLM rationale for observability (not shown in UI v1). */
+  rationale: string
+}
+
+type SplitPass = 'default' | 'retry_strict'
 
 /**
- * Generation result for the decided content role (docs/planning/long-text-memory.md).
- * The LLM chooses WHERE to cut — it never rewrites the user's words:
- * - personal: the whole capture as verbatim spans, one per distinct thing (a short entry is one span).
- * - mixed: the personal parts as verbatim spans + the reference part as a note.
- * - reference: a pointer thought (LLM-written) + the reference body as a note.
+ * Long captures are never stored whole as a thought (operator rule, 2026-10-24):
+ * above this size the capture is always split — the LLM writes a short summary
+ * thought and the full text becomes a linked note. A size policy, not meaning:
+ * below it, the role judge (or the decision model) still decides.
  */
-export type CaptureContentSplitResult =
-  | { role: 'personal'; spans: string[]; rationale: string }
-  | {
-      role: 'mixed'
-      spans: string[]
-      attachmentTitle: string
-      attachmentBody: string
-      rationale: string
-    }
-  | {
-      role: 'reference'
-      /** The distilled pointer/title line stored as the thought's `normalized_text`. */
-      thoughtText: string
-      attachmentTitle: string
-      attachmentBody: string
-      rationale: string
-    }
+export const LONG_CAPTURE_MIN_CHARS = 500
 
-/**
- * Validates LLM-chosen spans against the capture. VALIDATION ONLY — no meaning is decided here:
- * every span must be a verbatim substring (after trimming surrounding whitespace), located in
- * text order without overlapping an earlier span; with `coverage` nothing but whitespace may be
- * left between or around spans (personal captures must not silently drop text). Returns the
- * trimmed spans.
- */
-export function validateVerbatimSpans(
+/** The storage mode to enforce, if any: forced split for long captures, else the given decision. */
+export function captureSplitMode(
   rawText: string,
-  spans: unknown,
-  options: { coverage: boolean },
-): string[] {
-  if (!Array.isArray(spans)) {
-    throw new Error('resolveCaptureContentSplit: spans must be an array of strings')
-  }
-  if (spans.length === 0) {
-    throw new Error('resolveCaptureContentSplit: at least one span is required')
-  }
-  if (spans.length > SPLIT_FANOUT_MAX) {
-    throw new Error(
-      `resolveCaptureContentSplit: ${spans.length} spans exceed the fan-out bound of ${SPLIT_FANOUT_MAX}`,
-    )
-  }
-
-  const validated: string[] = []
-  let cursor = 0
-  spans.forEach((span, index) => {
-    const n = index + 1
-    if (typeof span !== 'string' || !span.trim()) {
-      throw new Error(`resolveCaptureContentSplit: span ${n} is not a non-empty string`)
-    }
-    const text = span.trim()
-    const at = rawText.indexOf(text, cursor)
-    if (at === -1) {
-      throw new Error(
-        rawText.includes(text)
-          ? `resolveCaptureContentSplit: span ${n} overlaps an earlier span or is out of order`
-          : `resolveCaptureContentSplit: span ${n} is not a verbatim substring of the capture`,
-      )
-    }
-    if (options.coverage && rawText.slice(cursor, at).trim() !== '') {
-      throw new Error(
-        `resolveCaptureContentSplit: text before span ${n} is not covered by any span — a personal capture must be fully partitioned`,
-      )
-    }
-    validated.push(text)
-    cursor = at + text.length
-  })
-  if (options.coverage && rawText.slice(cursor).trim() !== '') {
-    throw new Error(
-      'resolveCaptureContentSplit: text after the last span is not covered by any span — a personal capture must be fully partitioned',
-    )
-  }
-  return validated
-}
-
-function optionalString(obj: Record<string, unknown>, camel: string, snake: string): string {
-  const value = typeof obj[camel] === 'string' ? obj[camel] : obj[snake]
-  return typeof value === 'string' ? value.trim() : ''
+  decided: CaptureContentSplitMode | undefined,
+): CaptureContentSplitMode | undefined {
+  if (rawText.trim().length > LONG_CAPTURE_MIN_CHARS) return 'split'
+  return decided
 }
 
 /**
- * Parses the generation answer. When `decidedRole` is set (Jev authoritative content_role) it
- * ALWAYS wins over the LLM's own `role` — the chat call is generation only. An undecided role
- * must be one of the three; anything else throws.
+ * Parses the split fields. When `decidedMode` is set (decision-model
+ * authoritative content_role), it ALWAYS wins over the LLM's own `mode` —
+ * the chat call is generation only; validation applies to the decided mode.
  */
 function parseSplitFields(
   obj: Record<string, unknown>,
-  rawText: string,
-  decidedRole?: ContentRole,
+  decidedMode?: CaptureContentSplitMode,
 ): CaptureContentSplitResult {
-  const labelled = obj.role
-  if (!decidedRole && !isContentRole(labelled)) {
-    throw new Error(`resolveCaptureContentSplit: invalid role "${String(labelled)}"`)
+  const modeRaw = obj.mode
+  const mode: CaptureContentSplitMode =
+    decidedMode ??
+    (modeRaw === 'split'
+      ? 'split'
+      : modeRaw === 'thought_only'
+        ? 'thought_only'
+        : (() => {
+            throw new Error(`resolveCaptureContentSplit: invalid mode "${String(modeRaw)}"`)
+          })())
+
+  const thoughtText =
+    typeof obj.thoughtText === 'string'
+      ? obj.thoughtText.trim()
+      : typeof obj.thought_text === 'string'
+        ? obj.thought_text.trim()
+        : ''
+  if (!thoughtText) {
+    throw new Error('resolveCaptureContentSplit: thoughtText is required')
   }
-  const role: ContentRole = decidedRole ?? (labelled as ContentRole)
+
+  const attachmentTitle =
+    typeof obj.attachmentTitle === 'string'
+      ? obj.attachmentTitle.trim()
+      : typeof obj.attachment_title === 'string'
+        ? obj.attachment_title.trim()
+        : ''
+
+  const attachmentBody =
+    typeof obj.attachmentBody === 'string'
+      ? obj.attachmentBody.trim()
+      : typeof obj.attachment_body === 'string'
+        ? obj.attachment_body.trim()
+        : ''
+
   const rationale =
     typeof obj.rationale === 'string' && obj.rationale.trim() ? obj.rationale.trim() : ''
 
-  if (role === 'personal') {
-    return { role, spans: validateVerbatimSpans(rawText, obj.spans, { coverage: true }), rationale }
-  }
-
-  const attachmentTitle = optionalString(obj, 'attachmentTitle', 'attachment_title')
-  const attachmentBody = optionalString(obj, 'attachmentBody', 'attachment_body')
-  if (!attachmentBody) {
-    throw new Error(`resolveCaptureContentSplit: attachmentBody is required when role is ${role}`)
-  }
-
-  if (role === 'mixed') {
-    return {
-      role,
-      spans: validateVerbatimSpans(rawText, obj.spans, { coverage: false }),
-      attachmentTitle,
-      attachmentBody,
-      rationale,
+  if (mode === 'split') {
+    if (!attachmentBody) {
+      throw new Error('resolveCaptureContentSplit: attachmentBody is required when mode is split')
+    }
+    if (attachmentBody === thoughtText) {
+      throw new Error(
+        'resolveCaptureContentSplit: attachmentBody must differ from thoughtText when mode is split',
+      )
     }
   }
 
-  const thoughtText = optionalString(obj, 'thoughtText', 'thought_text')
-  if (!thoughtText) {
-    throw new Error('resolveCaptureContentSplit: thoughtText is required when role is reference')
+  return {
+    mode: mode === 'split' ? 'split' : 'thought_only',
+    thoughtText,
+    attachmentTitle,
+    attachmentBody: mode === 'split' ? attachmentBody : '',
+    rationale,
   }
-  if (attachmentBody === thoughtText) {
-    throw new Error(
-      'resolveCaptureContentSplit: attachmentBody must differ from thoughtText when role is reference',
-    )
-  }
-  return { role, thoughtText, attachmentTitle, attachmentBody, rationale }
-}
-
-const SPAN_RULES = [
-  '- spans: cut the user message into pieces. EVERY span must be copied character for character from the user message (an exact substring — same words, punctuation, spelling, line breaks). You only choose WHERE to cut; never rewrite, shorten, summarize, translate, merge, fix or reorder anything.',
-  `- Spans appear in the same order as in the message, never overlap, and there are at most ${SPLIT_FANOUT_MAX}.`,
-]
-
-const PERSONAL_RULES = [
-  '- personal: the whole message is the user\'s own account (experiences, thoughts, plans, tasks, decisions, feelings, observations, things people told them). One span per distinct thing (topic, event, task). A short or single-topic message is ONE span containing the whole message.',
-  '- personal spans together must cover the entire message — only whitespace between spans may be left out. Do not drop greetings, asides or leftovers; attach them to the span they belong to.',
-  ...SPAN_RULES,
-]
-
-const MIXED_RULES = [
-  '- mixed: the message contains the user\'s own words (why they saved it, what it is for, a personal circumstance or plan) AND reference material (a pasted recipe, document, draft, transcript).',
-  '- mixed spans: only the user\'s own words, one span per distinct personal thing, at least one span. The reference material is NOT a span.',
-  ...SPAN_RULES,
-  '- attachmentBody: the reference part, verbatim except obvious speech-to-text fixes; do not summarize it. attachmentTitle: a short label (e.g. "Carbonara recipe").',
-]
-
-const REFERENCE_RULES = [
-  '- reference: the message is reference material rather than the user\'s own account — a recipe, checklist, template, procedure, spec, code, meeting agenda or transcript, article or pasted document, or an email/letter written to someone else.',
-  '- thoughtText: the distilled capture — intent, title, or why this was saved (e.g. "Pasta carbonara recipe from Nonna", "Weekly standup template"). For a long document it is a concise summary of what it says (at most two sentences, in the input\'s language) — never the full text.',
-  '- attachmentBody: the reference document body — recipe steps, template text, transcript, etc. Keep verbatim except obvious speech-to-text fixes; do not summarize into attachmentBody. When there is no separate intent line it holds the full original text.',
-  '- attachmentTitle: a short label (e.g. "Carbonara recipe", "Meeting transcript").',
-]
-
-const ROLE_SHAPES: Record<ContentRole, string[]> = {
-  personal: ['{', '  "role": "personal",', '  "spans": ["string", "…"],', '  "rationale": "one short sentence"', '}'],
-  mixed: [
-    '{',
-    '  "role": "mixed",',
-    '  "spans": ["string", "…"],',
-    '  "attachmentTitle": "string",',
-    '  "attachmentBody": "string",',
-    '  "rationale": "one short sentence"',
-    '}',
-  ],
-  reference: [
-    '{',
-    '  "role": "reference",',
-    '  "thoughtText": "string",',
-    '  "attachmentTitle": "string",',
-    '  "attachmentBody": "string",',
-    '  "rationale": "one short sentence"',
-    '}',
-  ],
-}
-
-const ROLE_RULES: Record<ContentRole, string[]> = {
-  personal: PERSONAL_RULES,
-  mixed: MIXED_RULES,
-  reference: REFERENCE_RULES,
 }
 
 async function resolveCaptureContentSplitOnce(
-  input: { userId: string; rawText: string; decidedRole?: ContentRole },
-  previousError?: string,
+  input: { userId: string; rawText: string; decidedMode?: CaptureContentSplitMode },
+  pass: SplitPass,
 ): Promise<CaptureContentSplitResult> {
-  const { decidedRole } = input
-  const strictRule = previousError
-    ? `Your previous JSON was invalid (${previousError}). ${
-        decidedRole
-          ? `The role is already decided: "${decidedRole}". Return role exactly as "${decidedRole}".`
-          : 'role must be exactly "personal", "reference" or "mixed".'
-      } Follow the rules below exactly.`
-    : ''
+  const strictRule =
+    pass === 'retry_strict'
+      ? input.decidedMode
+        ? `Your previous JSON was invalid. The storage mode is already decided: "${input.decidedMode}". Return mode exactly as "${input.decidedMode}" and produce the fields for it. When mode is split, attachmentBody must be non-empty and different from thoughtText.`
+        : 'Your previous JSON was invalid. mode must be exactly "thought_only" or "split". When mode is split, attachmentBody must be non-empty and different from thoughtText.'
+      : ''
 
-  const decidedRule = decidedRole
-    ? `The content role is ALREADY DECIDED: "${decidedRole}". Do not re-decide it — return role exactly as "${decidedRole}" and produce the fields for that role only.`
+  const decidedRule = input.decidedMode
+    ? `The storage mode is ALREADY DECIDED: "${input.decidedMode}". Do not re-decide it — return mode exactly as "${input.decidedMode}" and produce the remaining fields for that mode.`
     : ''
-
-  const shape = decidedRole
-    ? ROLE_SHAPES[decidedRole]
-    : ['Return one of these shapes, depending on the role:', ...Object.values(ROLE_SHAPES).flat()]
-  const rules = decidedRole
-    ? ROLE_RULES[decidedRole]
-    : [
-        '- When the role is not already decided, judge by what the text IS, never by its length: personal (the user\'s own account), reference (recipe, template, document, email written to someone else), or mixed (both).',
-        ...PERSONAL_RULES,
-        ...MIXED_RULES,
-        ...REFERENCE_RULES,
-      ]
 
   const prompt = [
     'The user submitted one capture message. Decide how to store it.',
-    ...(decidedRule ? [decidedRule] : []),
+    decidedRule,
     '',
     'Return ONLY JSON:',
-    ...shape,
+    '{',
+    '  "mode": "thought_only" | "split",',
+    '  "thoughtText": "string",',
+    '  "attachmentTitle": "string (optional, short label when split)",',
+    '  "attachmentBody": "string (required when mode is split)",',
+    '  "rationale": "one short sentence"',
+    '}',
     '',
     'Rules:',
-    ...rules,
+    '- When the mode is not already decided, judge by **role**: atomic memory note vs reusable reference document.',
+    '- Use "thought_only" when the entire message is a concise personal memory note (task, fact, decision, reminder, fleeting observation, bug report).',
+    '- When mode is "thought_only": thoughtText MUST be the full capture returned unchanged. Do not rephrase, summarize, shorten, paraphrase, or "fix" wording. Prefer copying the user message exactly.',
+    '- Use "split" when part of the message is a **pointer/intent line** and the rest is **reference material** that should live as its own editable note — even if the input is not very long. Examples:',
+    '    • Recipe, checklist, template, procedure, spec, code block, meeting agenda, letter draft',
+    '    • Long paste, transcript, email body, or voice-to-text ramble with an implicit summary',
+    '    • Any structured document the user may revise over time or link from multiple future thoughts',
+    '- When mode is "split": thoughtText is the distilled capture — intent, title, or why this was saved (e.g. "Pasta carbonara recipe from Nonna", "Weekly standup template"). For a long report, ramble or document, thoughtText is a concise summary of what it says (at most two sentences, in the input\'s language) — never the full text.',
+    '- When mode is "split", attachmentBody holds the full original text when there is no separate intent line.',
+    '- attachmentBody: the reference document body — recipe steps, template text, transcript, etc. Keep verbatim except obvious STT fixes; do not summarize into attachmentBody.',
+    '- attachmentTitle: short label when split (e.g. "Carbonara recipe", "Meeting transcript").',
+    '- When the whole input is reference material with no separate intent line, still use split: thoughtText = short descriptive title; attachmentBody = full document.',
     '- Do not invent facts not present in the input.',
-    ...(strictRule ? [strictRule] : []),
+    strictRule,
     '',
     'User message:',
     input.rawText,
-  ].join('\n')
+  ]
+    .filter((line) => line.length > 0)
+    .join('\n')
 
   const response = await llmChatCompletion({
     userId: input.userId,
@@ -247,7 +163,7 @@ async function resolveCaptureContentSplitOnce(
       {
         role: 'system',
         content:
-          'You split user capture input by role: personal text into verbatim spans (one per distinct thing — you only choose cut points and never rewrite the user\'s words), reference material (recipes, templates, documents, emails to others) into a pointer thought plus a note body, or both for mixed input. When the role is already decided, follow it. Return only valid JSON matching the schema in the user message.',
+          'You partition user capture input into a memory thought (pointer/intent or short summary) vs an optional attached reference note (recipes, templates, documents, long texts). When the mode is already decided, follow it. For thought_only, never rewrite the user text. Return only valid JSON matching the schema in the user message.',
       },
       { role: 'user', content: prompt },
     ],
@@ -261,36 +177,41 @@ async function resolveCaptureContentSplitOnce(
     if (!parsed || typeof parsed !== 'object') {
       throw new Error('resolveCaptureContentSplit: output must be a JSON object')
     }
-    return parseSplitFields(parsed as Record<string, unknown>, input.rawText, decidedRole)
+    return parseSplitFields(parsed as Record<string, unknown>, input.decidedMode)
   })
 }
 
 /**
- * LLM generation for the content role: whole input → verbatim personal spans and/or a pointer
- * + reference note body. When `decidedRole` is set (decision-model authoritative content_role)
- * the chat call only generates the fields for that role; it never re-decides. One strict retry
- * on an invalid answer, then the first error surfaces (the ingest retry ladder owns the rest).
+ * LLM judge: whole input → thought, or thought pointer + linked reference note.
+ * For thought_only, thoughtText is forced to the verbatim capture (no LLM rewrite).
+ * When `decidedMode` is set (decision-model authoritative content_role), the
+ * chat call only generates the fields for that mode; it never re-decides.
  */
 export async function resolveCaptureContentSplit(input: {
   userId: string
   rawText: string
-  decidedRole?: ContentRole
+  decidedMode?: CaptureContentSplitMode
 }): Promise<CaptureContentSplitResult> {
   const rawText = input.rawText.trim()
   if (!rawText) {
     throw new Error('resolveCaptureContentSplit: rawText is required')
   }
 
+  let result: CaptureContentSplitResult
   try {
-    return await resolveCaptureContentSplitOnce({ ...input, rawText })
+    result = await resolveCaptureContentSplitOnce({ ...input, rawText }, 'default')
   } catch (firstErr) {
-    const message = firstErr instanceof Error ? firstErr.message : String(firstErr)
     try {
-      return await resolveCaptureContentSplitOnce({ ...input, rawText }, message)
+      result = await resolveCaptureContentSplitOnce({ ...input, rawText }, 'retry_strict')
     } catch {
       throw firstErr
     }
   }
+
+  if (result.mode === 'thought_only') {
+    return { ...result, thoughtText: rawText }
+  }
+  return result
 }
 
 export function normalizedThoughtFromSplit(thoughtText: string): string {

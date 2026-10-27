@@ -186,11 +186,15 @@ describe('enrichQueuedThought', () => {
     applyCaptureContentSplitIfNeededMock.mockImplementation(
       async ({ rawText }: { rawText: string }) => ({
         rawText,
-        enrichRawText: rawText,
         normalizedText: rawText,
-        role: 'personal' as const,
+        split: {
+          mode: 'thought_only' as const,
+          thoughtText: rawText,
+          attachmentTitle: '',
+          attachmentBody: '',
+          rationale: '',
+        },
         attachedFileId: null,
-        childThoughtIds: [],
       }),
     )
     loadEnrichmentContextMock.mockResolvedValue(baseContext)
@@ -256,7 +260,7 @@ describe('enrichQueuedThought', () => {
     runDecisionModelMock.mockResolvedValue(
       decisionResponse({
         category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.3, observation: 0.1 } },
-        content_role: { choice: 'personal', probabilities: { personal: 0.8, reference: 0.15, mixed: 0.05 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 0.8, split: 0.2 } },
       }),
     )
     const db = standardDbQueue()
@@ -290,7 +294,7 @@ describe('enrichQueuedThought', () => {
     runDecisionModelMock.mockResolvedValue(
       decisionResponse({
         category: { choice: 'made_up_key', probabilities: { made_up_key: 1 } },
-        content_role: { choice: 'personal', probabilities: { personal: 1 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 1 } },
       }),
     )
     getDbMock.mockReturnValue(standardDbQueue())
@@ -303,13 +307,13 @@ describe('enrichQueuedThought', () => {
     errorSpy.mockRestore()
   })
 
-  it('enforced content_role: the early call decides the role and the generation call receives it', async () => {
+  it('enforced content_role: the early call decides the mode and the split call receives it', async () => {
     resolveEnforceKindsMock.mockReturnValue(new Set(['content_role']))
     resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
     runDecisionModelMock
       .mockResolvedValueOnce(
         decisionResponse({
-          content_role: { choice: 'reference', probabilities: { reference: 0.9, personal: 0.1 } },
+          content_role: { choice: 'split', probabilities: { split: 0.9, thought_only: 0.1 } },
         }),
       )
       .mockResolvedValueOnce(
@@ -329,7 +333,7 @@ describe('enrichQueuedThought', () => {
     expect(Object.keys(runDecisionModelMock.mock.calls[1][1].questions)).toEqual(['category'])
 
     expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledWith(
-      expect.objectContaining({ decidedRole: 'reference' }),
+      expect.objectContaining({ decidedMode: 'split' }),
     )
     expect(db.updateSet).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'task', ontologyEntityKindId: 'ek-1' }),
@@ -343,7 +347,7 @@ describe('enrichQueuedThought', () => {
     runDecisionModelMock
       .mockResolvedValueOnce(
         decisionResponse({
-          content_role: { choice: 'personal', probabilities: { personal: 0.8, reference: 0.15, mixed: 0.05 } },
+          content_role: { choice: 'thought_only', probabilities: { thought_only: 0.8, split: 0.2 } },
         }),
       )
       .mockResolvedValueOnce(
@@ -357,161 +361,12 @@ describe('enrichQueuedThought', () => {
     await enrichQueuedThought('u1', 't1')
 
     expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledWith(
-      expect.objectContaining({ decidedRole: 'personal' }),
+      expect.objectContaining({ decidedMode: 'thought_only' }),
     )
     expect(db.updateSet).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'idea', ontologyEntityKindId: 'ek-idea' }),
     )
     expect(metadataPatchCalls()[0]).toMatchObject({ categorySource: 'decision_model' })
-  })
-
-  it('enforced content_role: a retired thought_only/split choice fails the enrich loudly and nothing is applied', async () => {
-    resolveEnforceKindsMock.mockReturnValue(new Set(['content_role']))
-    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
-    runDecisionModelMock.mockResolvedValue(
-      decisionResponse({
-        content_role: { choice: 'thought_only', probabilities: { thought_only: 0.9, split: 0.1 } },
-      }),
-    )
-    getDbMock.mockReturnValue(standardDbQueue())
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow(/off-catalog choice "thought_only"/)
-    expect(applyCaptureContentSplitIfNeededMock).not.toHaveBeenCalled()
-    expect(markEnrichQueueFailedMock).toHaveBeenCalledWith('t1', expect.stringContaining('thought_only'))
-    errorSpy.mockRestore()
-  })
-
-  it('shadow-only content_role: the role the judge applied is the chat primary beside the decision model', async () => {
-    resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
-    runDecisionModelMock.mockResolvedValue(
-      decisionResponse({
-        category: { choice: 'task', probabilities: { task: 0.7 } },
-        content_role: { choice: 'mixed', probabilities: { mixed: 0.6, personal: 0.4 } },
-      }),
-    )
-    applyCaptureContentSplitIfNeededMock.mockImplementation(
-      async ({ rawText }: { rawText: string }) => ({
-        rawText,
-        enrichRawText: rawText,
-        normalizedText: rawText,
-        role: 'mixed' as const,
-        attachedFileId: 'file-1',
-        childThoughtIds: [],
-      }),
-    )
-    const db = standardDbQueue()
-    getDbMock.mockReturnValue(db)
-
-    await enrichQueuedThought('u1', 't1')
-
-    expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledWith(
-      expect.objectContaining({ decidedRole: undefined }),
-    )
-    const rows = db.insertValues.mock.calls.flatMap((c) => c[0] as Array<Record<string, unknown>>)
-    expect(rows.find((r) => r.decisionKind === 'content_role')).toMatchObject({
-      llmChoice: 'mixed',
-      decisionChoice: 'mixed',
-      agree: true,
-      authoritativeEngine: 'chat_judge',
-    })
-  })
-
-  it('enrichment sees the thought\'s own text, never the whole capture of a split thought', async () => {
-    const recipe = 'Carbonara recipe from Nonna\n\nIngredients: spaghetti, guanciale, eggs…'
-    applyCaptureContentSplitIfNeededMock.mockResolvedValue({
-      rawText: recipe,
-      enrichRawText: 'Carbonara recipe from Nonna',
-      normalizedText: 'Carbonara recipe from Nonna',
-      role: 'reference' as const,
-      attachedFileId: 'file-1',
-      childThoughtIds: [],
-    })
-    getDbMock.mockReturnValue(
-      makeDb([
-        [{ ...baseRow, rawText: recipe, normalizedText: recipe }],
-        [{ metadata: {}, metadataEncrypted: null }],
-        [{ n: 5 }],
-        [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-        [{ normalizedText: 'Carbonara recipe from Nonna', category: 'idea', enrichedAt: new Date() }],
-      ]),
-    )
-
-    await enrichQueuedThought('u1', 't1')
-
-    expect(loadEnrichmentContextMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        normalizedText: 'Carbonara recipe from Nonna',
-        rawText: 'Carbonara recipe from Nonna',
-      }),
-    )
-  })
-
-  describe('a role is decided exactly once per capture', () => {
-    function rowWithMetadata(metadata: Record<string, unknown>) {
-      return makeDb([
-        [{ ...baseRow, metadata: { encrypted: true }, metadataEncrypted: `enc:${JSON.stringify(metadata)}` }],
-        [{ metadata: {}, metadataEncrypted: null }],
-        [{ n: 5 }],
-        [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-        [{ normalizedText: 'raw input', category: 'idea', enrichedAt: new Date() }],
-      ])
-    }
-
-    it('a span child (metadata.splitFrom) asks no content_role question at all', async () => {
-      resolveEnforceKindsMock.mockReturnValue(new Set(['content_role']))
-      resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
-      runDecisionModelMock.mockResolvedValue(
-        decisionResponse({ category: { choice: 'task', probabilities: { task: 0.7 } } }),
-      )
-      getDbMock.mockReturnValue(rowWithMetadata({ splitFrom: 'parent-1' }))
-
-      await enrichQueuedThought('u1', 'child-1')
-
-      // only the generic call (category) — no early content_role call, no content_role question
-      expect(runDecisionModelMock).toHaveBeenCalledTimes(1)
-      expect(Object.keys(runDecisionModelMock.mock.calls[0][1].questions)).toEqual(['category'])
-      expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledWith(
-        expect.objectContaining({ decidedRole: undefined }),
-      )
-    })
-
-    it('a retried attempt that already persisted its plan resumes it without deciding again', async () => {
-      resolveEnforceKindsMock.mockReturnValue(new Set(['content_role']))
-      resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
-      runDecisionModelMock.mockResolvedValue(
-        decisionResponse({ category: { choice: 'task', probabilities: { task: 0.7 } } }),
-      )
-      getDbMock.mockReturnValue(
-        rowWithMetadata({
-          captureContentSplit: {
-            role: 'personal',
-            rationale: 'r',
-            spans: ['a', 'b'],
-            spanThoughtIds: ['t1', 'child-1'],
-            note: null,
-            attachedFileId: null,
-          },
-        }),
-      )
-
-      await enrichQueuedThought('u1', 't1')
-
-      expect(runDecisionModelMock).toHaveBeenCalledTimes(1)
-      expect(Object.keys(runDecisionModelMock.mock.calls[0][1].questions)).toEqual(['category'])
-      expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledTimes(1)
-    })
-
-    it('a marker with a role outside the three fails the enrich loudly', async () => {
-      getDbMock.mockReturnValue(
-        rowWithMetadata({ captureContentSplit: { role: 'both', rationale: 'r', spans: [], spanThoughtIds: [], note: null, attachedFileId: null } }),
-      )
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-      await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow(/role/)
-      expect(applyCaptureContentSplitIfNeededMock).not.toHaveBeenCalled()
-      errorSpy.mockRestore()
-    })
   })
 
   it('enforced entity_type: per-mention decision answers override the bundle graph before persist', async () => {
@@ -533,7 +388,7 @@ describe('enrichQueuedThought', () => {
       }
       return decisionResponse({
         category: { choice: 'task', probabilities: { task: 0.7, idea: 0.3 } },
-        content_role: { choice: 'personal', probabilities: { personal: 0.8, reference: 0.15, mixed: 0.05 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 0.8, split: 0.2 } },
       })
     })
     const db = standardDbQueue()
@@ -695,7 +550,7 @@ describe('enrichQueuedThought', () => {
       }
       return decisionResponse({
         category: { choice: 'task', probabilities: { task: 0.7, idea: 0.3 } },
-        content_role: { choice: 'personal', probabilities: { personal: 0.8, reference: 0.15, mixed: 0.05 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 0.8, split: 0.2 } },
       })
     })
     const db = standardDbQueue()
@@ -758,7 +613,7 @@ describe('enrichQueuedThought', () => {
       }
       return decisionResponse({
         category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.4 } },
-        content_role: { choice: 'personal', probabilities: { personal: 1 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 1 } },
       })
     })
     getDbMock.mockReturnValue(standardDbQueue())
@@ -787,7 +642,7 @@ describe('enrichQueuedThought', () => {
       }
       return decisionResponse({
         category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.4 } },
-        content_role: { choice: 'personal', probabilities: { personal: 1 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 1 } },
       })
     })
     const db = standardDbQueue()
@@ -810,7 +665,7 @@ describe('enrichQueuedThought', () => {
       }
       return decisionResponse({
         category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.4 } },
-        content_role: { choice: 'personal', probabilities: { personal: 1 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 1 } },
       })
     })
     const db = standardDbQueue()
@@ -833,7 +688,7 @@ describe('enrichQueuedThought', () => {
       }
       return decisionResponse({
         category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.4 } },
-        content_role: { choice: 'personal', probabilities: { personal: 1 } },
+        content_role: { choice: 'thought_only', probabilities: { thought_only: 1 } },
       })
     })
     const db = standardDbQueue()
@@ -1004,11 +859,15 @@ describe('enrichQueuedThought', () => {
     applyCaptureContentSplitIfNeededMock.mockImplementation(
       async ({ rawText }: { rawText: string }) => ({
         rawText,
-        enrichRawText: rawText,
         normalizedText: 'secret normalized',
-        role: 'personal' as const,
+        split: {
+          mode: 'thought_only' as const,
+          thoughtText: 'secret normalized',
+          attachmentTitle: '',
+          attachmentBody: '',
+          rationale: '',
+        },
         attachedFileId: null,
-        childThoughtIds: [],
       }),
     )
 

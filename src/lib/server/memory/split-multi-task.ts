@@ -8,8 +8,7 @@
  * It runs during the capture's own enrich pass, after GTD assignment: the parent
  * keeps its thread, and every child copies that thread membership as a `project`
  * decision (never as `manual` — the user did not pick the children). Children
- * carry `metadata.splitFrom` so they are never split again. (Child creation is the shared
- * `queueSplitChild` step, also used by the content-role span split.)
+ * carry `metadata.splitFrom` so they are never split again.
  *
  * Failures are loud: a broken judge answer or a contract violation throws, so the
  * enrich worker's deterministic retry applies and the explicit error surfaces —
@@ -19,8 +18,7 @@ import { and, eq } from 'drizzle-orm'
 import { m } from '$lib/paraglide/messages.js'
 import { resolveCategoryKindId } from '$lib/server/capture/capture-confirmation'
 import { scheduleCaptureEnrichWorker } from '$lib/server/capture/capture-enrich-worker'
-import { SPLIT_FANOUT_MAX } from '$lib/server/capture/content-role'
-import { queueSplitChild } from '$lib/server/capture/queue-split-child'
+import { queueCapture } from '$lib/server/capture/queue-capture'
 import { encryptTenantValue, decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { thought, type MemoryAuthor } from '$lib/server/db/schema'
@@ -31,7 +29,7 @@ import { loadProjectMembershipEntityIds } from '$lib/server/memory/project-membe
 import { linkThoughtToProject } from '$lib/server/memory/project-next-action'
 
 /** Hard bound on one capture's fan-out: beyond this the judge answer is a contract violation. */
-export const MULTI_TASK_FANOUT_MAX = SPLIT_FANOUT_MAX
+export const MULTI_TASK_FANOUT_MAX = 10
 
 type MultiTaskJudgeResult = { tasks: string[] }
 
@@ -132,28 +130,41 @@ export async function fanOutMultipleTasks(input: {
   const taskKindId = await resolveCategoryKindId(input.userId, 'task')
   const childIds: string[] = []
   for (const taskText of judge.tasks) {
+    const queued = await queueCapture(input.userId, taskText, {
+      source: 'ui',
+      author: row.author as MemoryAuthor,
+      ...(row.authorLabel !== null ? { authorLabel: row.authorLabel } : {}),
+      ...(row.authorKeyId !== null ? { authorKeyId: row.authorKeyId } : {}),
+      // a child is as old as the capture it came from, not as old as the enrich pass
+      capturedAt: row.createdAt,
+    })
+
     // the child is already known to be a task — set its kind and provenance now,
     // so enrich classifies nothing and the fan-out guard holds on its own pass
-    const childId = await queueSplitChild({
+    const metadataEncrypted = await encryptTenantValue({
       userId: input.userId,
-      parentThoughtId: input.thoughtId,
-      parent: {
-        author: row.author as MemoryAuthor,
-        authorLabel: row.authorLabel,
-        authorKeyId: row.authorKeyId,
-        createdAt: row.createdAt,
-      },
-      text: taskText,
-      category: { key: 'task', ontologyEntityKindId: taskKindId },
+      table: 'thought',
+      column: 'metadata',
+      plaintext: JSON.stringify({ splitFrom: input.thoughtId }),
     })
+    await db
+      .update(thought)
+      .set({
+        category: 'task',
+        ontologyEntityKindId: taskKindId,
+        metadata: { encrypted: true },
+        metadataEncrypted,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(thought.id, queued.thoughtId), eq(thought.userId, input.userId)))
 
     // the children land on the parent's thread — the pipeline's decision, never 'manual'
     const projectEntityIds = await loadProjectMembershipEntityIds(input.userId, input.thoughtId)
     for (const entityId of projectEntityIds) {
-      await linkThoughtToProject(input.userId, entityId, childId, 'project')
+      await linkThoughtToProject(input.userId, entityId, queued.thoughtId, 'project')
     }
 
-    childIds.push(childId)
+    childIds.push(queued.thoughtId)
   }
 
   if (childIds.length > 0) {

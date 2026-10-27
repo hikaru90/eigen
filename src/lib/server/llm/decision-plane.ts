@@ -25,7 +25,6 @@
  */
 
 import { logActivityCall } from '$lib/server/activity/log-call'
-import { isContentRole, type ContentRole } from '$lib/server/capture/content-role'
 import { getDb } from '$lib/server/db'
 import { decisionShadowLog } from '$lib/server/db/schema'
 import {
@@ -60,13 +59,14 @@ export type DecisionShadowSurface =
   | 'delete_gate'
   | 'chat_turn'
 
-export type { ContentRole }
+/** The mode answer for the content-split decision. */
+export type ContentRoleMode = 'thought_only' | 'split'
 
 export type DecisionCatalogKind = { key: string; name: string; definition: string }
 
 /** The early content_role decision when the kind is decision-model authoritative. */
 export type EnforcedContentRole = {
-  role: ContentRole
+  mode: ContentRoleMode
   probability: number
   /** Probabilities of the non-chosen options. */
   alternatives: Record<string, number>
@@ -89,7 +89,7 @@ export type DecisionShadowContext = {
   categoryKinds: DecisionCatalogKind[]
   /** Active entity_type kinds — enables the `entity_type` question when non-empty. */
   entityTypeKinds?: DecisionCatalogKind[]
-  /** Enables the `content_role` question (personal | reference | mixed). */
+  /** Enables the `content_role` question (thought_only vs split). */
   contentRoleEnabled?: boolean
   /**
    * Present when content_role is ENFORCED and the early pre-split call
@@ -102,10 +102,10 @@ export type DecisionShadowPrimaries = {
   /** Authoritative category decision — always required. */
   category: { choice: string; confidence: number | null }
   /**
-   * Chat content-role decision — absent when the decision model is
-   * authoritative (the chat call then only generates for the decided role).
+   * Chat content-split decision — absent when enforcement skipped the chat
+   * call entirely (content_role=thought_only no longer runs it).
    */
-  contentRole?: { choice: ContentRole; confidence?: number | null }
+  contentRole?: { choice: ContentRoleMode; confidence?: number | null }
   /** Dominant mention's resolved entity type — recorded only when a mention exists. */
   entityType?: { choice: string; confidence: number | null }
 }
@@ -126,22 +126,16 @@ export function dominantEntityType(
   return { choice: best.entityType, confidence: best.confidence }
 }
 
-/**
- * Content role (docs/planning/long-text-memory.md, L1–L6). Decided by MEANING, never by length:
- * the ~300-character remark is guidance for the model, not a rule anywhere in code.
- */
-const CONTENT_ROLE_CRITERIA: Record<ContentRole, string> = {
-  personal:
-    "The whole text is the user's own account: their experiences, thoughts, plans, tasks, decisions, feelings, observations, or things people told them. It is stored as the user's own thoughts — one thought for a short entry, one thought per distinct thing (topic, event, task) for a longer one. A long text stays personal when all of it is the user's own account.",
-  reference:
-    "The text is reference material rather than the user's own account: a recipe, template, procedure, checklist, specification, code, meeting transcript, article or pasted document, or an email or letter written to someone else. It is stored as a short pointer thought plus the full text as a linked note.",
-  mixed:
-    "The text contains BOTH the user's own words (why they saved it, what it is for, a personal circumstance or plan) AND reference material such as a pasted recipe, document or draft. The personal parts are stored as the user's own thoughts and the reference part as a linked note.",
+const CONTENT_ROLE_CRITERIA: Record<string, string> = {
+  thought_only:
+    'A self-contained thought (task, bug report, ordinary note) — store the text itself as the thought.',
+  split:
+    'Reference material (recipe, template, procedure, transcript, pasted document) — store a distilled pointer as the thought plus the full body as a linked note.',
 }
 
 const CATEGORY_INSTRUCTIONS = 'Which ontology thought category best matches this captured thought?'
 const CONTENT_ROLE_INSTRUCTIONS =
-  "Decide by what the text is, not by how long it is: is the whole captured input the user's own personally relevant account (personal), reference material (reference), or both (mixed)? Length is only a hint: text longer than about 300 characters (longer than a tweet) is more likely to hold several distinct things or a pasted document and deserves a closer look, but a long text that is entirely the user's own account is still personal and a short text can still be reference."
+  'Is this captured input one self-contained thought, or reference material that should be split into a linked note?'
 const ENTITY_TYPE_INSTRUCTIONS =
   'Which ontology entity type best matches the dominant entity mentioned in this captured thought?'
 
@@ -238,9 +232,9 @@ function errorText(err: unknown): string {
 /**
  * Early content_role decision for the ENFORCED path (spec §6 P): one
  * Decisions API call with only the content_role question, kicked before the
- * content_split phase so the pipeline can act on the role (the generation
- * call then runs for the decided role only). Returns null when content_role
- * is not enforced — the caller keeps the shadow-only flow.
+ * content_split phase so the pipeline can act on the mode (skip the split
+ * chat call for thought_only). Returns null when content_role is not
+ * enforced — the caller keeps the shadow-only flow.
  *
  * decide() FAILS LOUD on call errors and off-catalog choices — an enforced
  * decision has no fallback; the enrich retry ladder owns recovery.
@@ -282,7 +276,7 @@ export function startContentRoleDecision(input: {
         })
       }
       const answer = res.answers['content_role']
-      if (!isContentRole(answer.choice)) {
+      if (answer.choice !== 'thought_only' && answer.choice !== 'split') {
         throw new Error(
           `[decision-plane] enforced content_role returned off-catalog choice "${answer.choice}" — no repair, no fallback`,
         )
@@ -307,7 +301,7 @@ export function startContentRoleDecision(input: {
         console.error('[decision-plane] failed to record content_role activity row', err)
       }
       return {
-        role: answer.choice,
+        mode: answer.choice,
         probability: answer.probabilities[answer.choice],
         alternatives,
         durationMs: Date.now() - startedAt,
@@ -717,7 +711,7 @@ export function startDecisionShadow(
       if (ctx.enforcedContentRole) {
         byKind['content_role'] = {
           ok: true,
-          choice: ctx.enforcedContentRole.role,
+          choice: ctx.enforcedContentRole.mode,
           probability: ctx.enforcedContentRole.probability,
           alternatives: ctx.enforcedContentRole.alternatives,
         }
@@ -813,7 +807,7 @@ async function recordRows(
       // the later call failed (the inflight ok-branch also carries it).
       const earlyOutcome: KindOutcome = {
         ok: true,
-        choice: ctx.enforcedContentRole.role,
+        choice: ctx.enforcedContentRole.mode,
         probability: ctx.enforcedContentRole.probability,
         alternatives: ctx.enforcedContentRole.alternatives,
       }

@@ -73,7 +73,7 @@ function makeEnrichContext(overrides?: Partial<DecisionShadowContext>): Decision
 function enrichPrimaries(overrides?: Partial<DecisionShadowPrimaries>): DecisionShadowPrimaries {
   return {
     category: { choice: 'task', confidence: 0.95 },
-    contentRole: { choice: 'personal' },
+    contentRole: { choice: 'thought_only' },
     entityType: { choice: 'technology', confidence: 0.7 },
     ...overrides,
   }
@@ -100,7 +100,7 @@ function choiceAnswers(
 function allAnswersResponse() {
   return choiceAnswers({
     category: { choice: 'task', probabilities: { task: 0.51, idea: 0.49 }, confidence: 0.39 },
-    content_role: { choice: 'personal', probabilities: { personal: 0.8, reference: 0.15, mixed: 0.05 } },
+    content_role: { choice: 'thought_only', probabilities: { thought_only: 0.8, split: 0.2 } },
     entity_type: { choice: 'technology', probabilities: { technology: 0.7, person: 0.3 } },
   })
 }
@@ -152,11 +152,9 @@ describe('startDecisionShadow', () => {
       person: 'Person: A human being',
       technology: 'Technology: A software tool or system',
     })
-    expect(Object.keys(req.questions.content_role.criteria)).toEqual(['personal', 'reference', 'mixed'])
     expect(req.questions.content_role.criteria).toEqual({
-      personal: expect.stringMatching(/own account/),
-      reference: expect.stringMatching(/linked note/),
-      mixed: expect.stringMatching(/BOTH/),
+      thought_only: expect.stringMatching(/self-contained/),
+      split: expect.stringMatching(/linked note/),
     })
   })
 
@@ -195,9 +193,9 @@ describe('startDecisionShadow', () => {
     const contentRoleRow = rows.find((r) => r.decisionKind === 'content_role')
     expect(contentRoleRow).toMatchObject({
       decisionKind: 'content_role',
-      llmChoice: 'personal',
+      llmChoice: 'thought_only',
       llmConfidence: null,
-      decisionChoice: 'personal',
+      decisionChoice: 'thought_only',
       agree: true,
     })
 
@@ -255,7 +253,7 @@ describe('startDecisionShadow', () => {
       expect(r.decisionProbability).toBeNull()
     }
     expect(rows.find((r) => r.decisionKind === 'category')?.llmChoice).toBe('task')
-    expect(rows.find((r) => r.decisionKind === 'content_role')?.llmChoice).toBe('personal')
+    expect(rows.find((r) => r.decisionKind === 'content_role')?.llmChoice).toBe('thought_only')
     expect(rows.find((r) => r.decisionKind === 'entity_type')?.llmChoice).toBe('technology')
   })
 
@@ -373,14 +371,14 @@ describe('enforcement — startContentRoleDecision (early, pre-split call)', () 
     resolveConfigMock.mockReturnValue(config)
     runDecisionMock.mockResolvedValue(
       choiceAnswers({
-        content_role: { choice: 'reference', probabilities: { reference: 0.9, personal: 0.06, mixed: 0.04 } },
+        content_role: { choice: 'split', probabilities: { split: 0.9, thought_only: 0.1 } },
       }),
     )
     const handle = startContentRoleDecision({ userId: 'user-1', state: 'recipe text' })
     const decided = await handle!.decide()
-    expect(decided.role).toBe('reference')
+    expect(decided.mode).toBe('split')
     expect(decided.probability).toBe(0.9)
-    expect(decided.alternatives).toEqual({ personal: 0.06, mixed: 0.04 })
+    expect(decided.alternatives).toEqual({ thought_only: 0.1 })
     expect(decided.durationMs).toBeTypeOf('number')
     expect(logActivityCallMock).toHaveBeenCalledTimes(1)
     expect(logActivityCallMock.mock.calls[0][1]).toBe('user-1')
@@ -399,31 +397,6 @@ describe('enforcement — startContentRoleDecision (early, pre-split call)', () 
     await expect(handle!.decide()).rejects.toThrow(/off-catalog choice "both_somehow"/)
   })
 
-  it.each(['thought_only', 'split'])(
-    'decide() rejects the retired %s choice — the vocabulary is personal | reference | mixed',
-    async (retired) => {
-      resolveEnforceMock.mockReturnValue(ENFORCED)
-      resolveConfigMock.mockReturnValue(config)
-      runDecisionMock.mockResolvedValue(
-        choiceAnswers({ content_role: { choice: retired, probabilities: { [retired]: 1 } } }),
-      )
-      const handle = startContentRoleDecision({ userId: 'user-1', state: 'text' })
-      await expect(handle!.decide()).rejects.toThrow(
-        new RegExp(`off-catalog choice "${retired}"`),
-      )
-    },
-  )
-
-  it.each(['personal', 'reference', 'mixed'] as const)('decide() accepts %s', async (role) => {
-    resolveEnforceMock.mockReturnValue(ENFORCED)
-    resolveConfigMock.mockReturnValue(config)
-    runDecisionMock.mockResolvedValue(
-      choiceAnswers({ content_role: { choice: role, probabilities: { [role]: 0.7 } } }),
-    )
-    const decided = await startContentRoleDecision({ userId: 'user-1', state: 'text' })!.decide()
-    expect(decided.role).toBe(role)
-  })
-
   it('decide() throws when the call fails (into the ingest retry ladder)', async () => {
     resolveEnforceMock.mockReturnValue(ENFORCED)
     resolveConfigMock.mockReturnValue(config)
@@ -439,9 +412,9 @@ describe('enforcement — startDecisionShadow settle contract', () => {
   function contentRoleContext(): DecisionShadowContext {
     return makeEnrichContext({
       enforcedContentRole: {
-        role: 'personal',
+        mode: 'thought_only',
         probability: 0.8,
-        alternatives: { reference: 0.15, mixed: 0.05 },
+        alternatives: { split: 0.2 },
         durationMs: 321,
       },
     })
@@ -489,10 +462,10 @@ describe('enforcement — startDecisionShadow settle contract', () => {
 
     const row = insertedRows().find((r) => r.decisionKind === 'content_role')
     expect(row).toMatchObject({
-      llmChoice: 'personal',
-      decisionChoice: 'personal',
+      llmChoice: 'thought_only',
+      decisionChoice: 'thought_only',
       decisionProbability: 0.8,
-      decisionAlternatives: { reference: 0.15, mixed: 0.05 },
+      decisionAlternatives: { split: 0.2 },
       agree: true,
       authoritativeEngine: 'decision_model',
     })
@@ -511,7 +484,7 @@ describe('enforcement — startDecisionShadow settle contract', () => {
     expect(row).toMatchObject({
       llmChoice: null,
       llmConfidence: null,
-      decisionChoice: 'personal',
+      decisionChoice: 'thought_only',
       decisionProbability: 0.8,
       agree: null,
       decisionError: null,
@@ -533,7 +506,7 @@ describe('enforcement — startDecisionShadow settle contract', () => {
     expect(categoryRow.decisionError).toBe('502 bad gateway')
     // The early-decided content_role is unaffected by the later call's failure.
     const contentRoleRow = insertedRows().find((r) => r.decisionKind === 'content_role')
-    expect(contentRoleRow.decisionChoice).toBe('personal')
+    expect(contentRoleRow.decisionChoice).toBe('thought_only')
     expect(contentRoleRow.decisionError).toBeNull()
   })
 

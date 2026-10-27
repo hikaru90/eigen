@@ -35,27 +35,6 @@ describe('summarizeShadowRows', () => {
     expect(result.confusionPairs).toEqual([])
   })
 
-  it('reads content_role rows from before the personal|reference|mixed vocabulary verbatim — no migration, no remap', () => {
-    const result = summarizeShadowRows([
-      row({ id: 'old1', decisionKind: 'content_role', llmChoice: 'thought_only', decisionChoice: 'thought_only' }),
-      row({ id: 'old2', decisionKind: 'content_role', llmChoice: 'split', decisionChoice: 'split' }),
-      row({ id: 'new1', decisionKind: 'content_role', llmChoice: 'personal', decisionChoice: 'personal' }),
-      row({ id: 'new2', decisionKind: 'content_role', llmChoice: 'reference', decisionChoice: 'mixed', agree: false }),
-    ])
-    expect(result.kinds).toEqual([
-      expect.objectContaining({ decisionKind: 'content_role', total: 4, compared: 4, agreed: 3, disagreed: 1 }),
-    ])
-    expect(result.confusionPairs).toEqual([
-      { decisionKind: 'content_role', llmChoice: 'reference', decisionChoice: 'mixed', count: 1 },
-    ])
-    expect(result.recent.map((r) => r.decisionChoice).sort()).toEqual([
-      'mixed',
-      'personal',
-      'split',
-      'thought_only',
-    ])
-  })
-
   it('computes agreement over comparable pairs only (errors excluded)', () => {
     const result = summarizeShadowRows([
       row(),
