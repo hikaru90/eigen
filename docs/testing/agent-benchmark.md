@@ -30,6 +30,40 @@ feature is not done.
 7. One negative probe per contract (e.g. out-of-range `threshold`) — must fail
    loud with the constraint in the message.
 
+## The capture review test-drive (capture feedback C3)
+
+Plan: [`docs/planning/capture-feedback.md`](../planning/capture-feedback.md) §7. Automated in
+`src/lib/server/mcp/capture-review-test-drive.spec.ts` (a real MCP client and server over an
+in-memory transport; fakes for the stores, the job queue and Jev; no network).
+
+**Budget: 3 calls.** `capture_thought` → `get_capture_review` → `rate_capture`. The `rate_capture`
+answer already carries the verdict, so a read after it is verification, not part of the budget.
+
+1. `capture_thought` (`as_user`) → the `thoughtId`.
+2. `get_capture_review { thought_id }`:
+   - Right after capture: `status: "none"` with a note ("not reviewed yet … rating it starts its
+     review"). That is an answer, not an error.
+   - After enrichment: `pending_audit`, the Jev capture decisions, no score, a note that the audit
+     has not finished.
+   - After the audit: `scored`, `score`, `below_threshold`, every part with `label`,
+     `probability`, `counts_toward_score` and `about`.
+3. `rate_capture { thought_id, verdict: "up" }` → `{ verdict, reason_kind: null, edit_applied:
+   false, edit_error: null }`. A read after it shows `vote` with `voted_on: null` (a vote over MCP
+   has no place).
+4. `rate_capture { verdict: "down", reason }` → the reason is applied as an edit (`edit_applied:
+   true`, `thought` in the answer) and labelled (`reason_kind`). The reason text is never returned
+   by any tool; a read says the parts describe the capture before its latest edit.
+5. **Cleanup:** `delete_thought` archives the thought. `retrieve_thoughts` no longer lists it, and
+   `get_capture_review` on it still answers truthfully (the review stays with an archived thought;
+   the note says so).
+6. **Negative probes** (each fails loud with the constraint, and stores nothing):
+   `rate_capture { verdict: "maybe" }` → `verdict must be up or down`;
+   `rate_capture { verdict: "up", reason }` → `reason is only allowed with verdict down`;
+   a `thought_id` that is not a uuid → `thought_id must be a uuid`; an unknown or another user's
+   thought → `Thought not found`; an unknown argument → `Unknown argument: … Allowed: …`.
+
+Neither tool is offered to the in-app Ask agent (`exposeInChat: false`); the test-drive asserts it.
+
 ## Regression watchlist (agent-trust data quality)
 
 These data defects break agent trust even when tools behave; check them when

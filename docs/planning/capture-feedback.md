@@ -1,7 +1,7 @@
 # Capture feedback: did Eigen store this right?
 
 Status: **draft for the operator (2026-10-27)**. C0 (criteria and `npm run jev:check`), C1
-(record, audit, score; no UI) and C2 (the vote) are built; C3 to C5 are not. It builds on `main` *after* the
+(record, audit, score; no UI), C2 (the vote) and C3 (MCP tools) are built; C4 and C5 are not. It builds on `main` *after* the
 capture work moved to branch `benchmark-work`, so it starts once that cut has landed. Risk:
 **high**: it reads every capture after enrichment and writes through the edit path. Planner: Opus.
 Builders: Sonnet subagents, tests first, one phase at a time.
@@ -73,7 +73,8 @@ calibrated. Internal parts the user never sees (retrieval cues, ask-question) ar
   - `id`, `user_id`, `thought_id` (FK to thought, cascade delete);
   - `parts` (jsonb, explained below);
   - `score`, `status` (`pending_audit | scored | audit_failed`);
-  - `verdict` (`up | down`, null until voted), `voted_at`, `voted_on` (`capture | mesh`). One
+  - `verdict` (`up | down`, null until voted), `voted_at`, `voted_on` (`capture | mesh`, or
+    NULL for a vote cast by an agent over MCP; C3, no migration: the column was nullable). One
     vote per thought; voting again replaces it.
   - `reason_encrypted` (tenant-encrypted like thought text), `reason_kind`;
   - `edit_applied_at`, `created_at`, `updated_at`.
@@ -152,11 +153,14 @@ in the user's own tenant.
   The record has the vote and no score; there is no back-fill audit.
 
 ### 7. MCP (DoD gate)
-- `get_capture_review(thought_id)`: the parts in words, the score and the status.
+- `get_capture_review(thought_id)`: the status (`none | pending_audit | scored | audit_failed`),
+  the score against the 0.7 threshold, every part in words and the vote. Details under C3.
 - `rate_capture(thought_id, verdict, reason?)`: the same as the card. A reason is applied as an
   edit and labelled.
-- **Budget:** `capture_thought` → `get_capture_review` → `rate_capture`, at most 3 calls.
-- **Cleanup:** `delete_thought` removes the review (cascade).
+- **Budget:** `capture_thought` → `get_capture_review` → `rate_capture`, 3 calls.
+- **Cleanup:** `delete_thought` archives the thought (soft-remove). The review row stays with it
+  (it is only removed by a hard delete, through the foreign key's cascade), and
+  `get_capture_review` on an archived thought still answers, with a note saying so.
 - **Negative probe:** `verdict: "maybe"` fails loudly with "verdict must be up or down".
 
 ### 8. Operator view (aggregates only): `/admin/capture-quality`
@@ -313,7 +317,63 @@ in the user's own tenant.
     the capture review recorder (only the queued enrichment does), so an edit made by a 👎 reason
     does not reset the review's parts or queue a new audit: the score keeps describing the text
     before the edit. The vote columns are independent of that.
-- **C3 — MCP tools.**
+- **C3 — MCP tools.** **Built (2026-10-27).** Code: `src/lib/server/mcp/capture-review-tools.ts`
+  (the two tools), `src/lib/server/capture-review/review-view.ts` (the view), the registry entries
+  in `src/lib/server/mcp/registry.ts`; where it hooks in is in
+  [`docs/repo-map/ingestion.md`](../repo-map/ingestion.md). The test-drive is in
+  [`docs/testing/agent-benchmark.md`](../testing/agent-benchmark.md). Decisions made while
+  building it:
+  - **`get_capture_review { thought_id }`** answers `{ thought_id, status, score, threshold: 0.7,
+    below_threshold, parts, vote, note }`. `status` is `none` when the thought has no review row
+    (not an error; the note says enrichment may still be running or the thought predates reviews,
+    and that rating it starts its review). `below_threshold` is null without a score, and a score
+    at the threshold is not below it. `parts` lists every stored part in its stored order as
+    `{ part, ref, label, probability, counts_toward_score, about }`; `counts_toward_score` is
+    `SCORED_PARTS` membership, so the hidden decisions (entity type, kind of time, content role)
+    are listed but flagged. `vote` is `{ verdict, voted_on, reason_kind, edit_applied }` or null;
+    it never carries the reason text (the read does not select it, encrypted or not). Embeddings
+    never appear (`sanitizeMcpToolResult`, like every tool).
+  - **`about`** is built from the thought as it is stored now, through the C1 audit input and no
+    model: a name is its surface, a date is `"{event}" — {the date question's phrase}` (from the
+    new `describeStoredDatePhrases`, the pieces `describeStoredDates` joins), a piece is its text,
+    the category is the thought's current category key. Whole-capture parts (wording, missing
+    names or dates, pieces cover, content role) and the hidden decisions (entity type, kind of time;
+    their refs index the enrichment's mentions and times, which are not stored) have `about` null,
+    and so has a name, date or piece whose ref no longer points at anything.
+  - **Notes** (`note`, joined with one space when more than one applies, otherwise null): `none`;
+    `pending_audit` (the audit has not finished, no score, the audited parts are not listed yet);
+    `audit_failed` (it gave up, with the stored closed sentence; the thought is stored as it is);
+    "The parts describe the capture before its latest edit." when `edit_applied_at` is after the
+    review's `updated_at`; and an archived thought keeps its review.
+  - **`updated_at` now means "the last write of the audit columns".** `saveCaptureVote` no longer
+    bumps it (a vote used to set it after `edit_applied_at`, which would have made the stale-parts
+    note impossible to trigger). Only an edit applied through a 👎 reason is detected; an edit
+    through `edit_thought` or the Mesh "Edit words" is not recorded on the review, so the note
+    stays null there (the known gap of C2 stands).
+  - **`rate_capture { thought_id, verdict, reason? }`** is `voteOnCapture` with place `mcp`, with
+    the same semantics as the card: 👍 stores the verdict; 👎 without a reason stores the verdict;
+    👎 with a reason is labelled by Jev, applied as an edit and stored encrypted. It answers
+    `{ verdict, reason_kind, edit_applied, edit_error, thought }`, with `thought` (the edit result,
+    the shape `edit_thought` returns) only when an edit ran. A label that cannot be made fails the
+    call and stores nothing (as in the app).
+  - **Place.** `CaptureVotePlace` is `capture | mesh | mcp`; `voteOnCapture` accepts all three and
+    `saveCaptureVote` is the one place that maps `mcp` to NULL (`votedOnColumn`). `voted_on` NULL
+    therefore means "via an agent/MCP"; the HTTP vote endpoint still accepts only `capture` and
+    `mesh`. No migration (the column was nullable and its check constraint allows NULL).
+  - **Errors, exact and before any DB or Jev work:** `Arguments must be a JSON object`;
+    `Unknown argument: {key}. Allowed: …` (strict keys, no `thoughtId` or `id` aliases);
+    `thought_id must be a uuid`; `verdict must be up or down`; `reason must be a string`;
+    `reason must be at most 2000 characters`; `reason is only allowed with verdict down`. After
+    that: `Thought not found` (unknown, or another user's) and the label-failed sentence.
+  - **Exposure.** Both tools are in `MCP_CLIENT_TOOL_NAMES` (HTTP MCP) and carry
+    `exposeInChat: false`, the registry flag that keeps a definition out of the in-app Ask/chat
+    agent. The flag replaced the earlier name-based exclusions (`capture_thought`, the board
+    tools), so there is one mechanism. The operator decided the vote in the app lives only in the
+    Capture strip and the Mesh row.
+  - **Tests.** Unit specs for the arguments, the shapes, the `about` builder per part kind, every
+    status note, the `mcp` mapping and the exposure; the agent test-drive
+    (`capture-review-test-drive.spec.ts`: a real MCP client and server over an in-memory transport,
+    fakes for the stores, the job queue and Jev, no network).
 - **C4 — operator page.**
 - **C5 — verification:**
   - Run ~10 made-up captures in a test account, each built to contain one known mistake (wrong
