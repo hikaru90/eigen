@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CAPTURE_VOTE_PLACES,
   CAPTURE_VOTE_REASON_MAX_CHARS,
+  CAPTURE_VOTE_UI_PLACES,
   CaptureVoteInputError,
+  isCaptureVoteThoughtId,
   parseCaptureVoteBody,
   validateCaptureVote,
 } from './vote-input'
@@ -70,8 +73,8 @@ describe('parseCaptureVoteBody (the vote boundary: exact messages, before any DB
     }
   })
 
-  it('rejects a place that is not capture or mesh', () => {
-    for (const place of [undefined, '', 'yarn', 'Capture', 'both', 2]) {
+  it('rejects a place that is not capture or mesh — the HTTP body never carries mcp', () => {
+    for (const place of [undefined, '', 'yarn', 'Capture', 'both', 2, 'mcp']) {
       expect(message(() => parseCaptureVoteBody({ thoughtId: ID, verdict: 'up', place }))).toBe(
         'place must be capture or mesh',
       )
@@ -138,5 +141,36 @@ describe('validateCaptureVote (the same contract for typed callers)', () => {
         }),
       ),
     ).toBe('verdict must be up or down')
+  })
+})
+
+describe('the places of a vote', () => {
+  it('names the two app places and the agent place', () => {
+    expect([...CAPTURE_VOTE_UI_PLACES]).toEqual(['capture', 'mesh'])
+    expect([...CAPTURE_VOTE_PLACES]).toEqual(['capture', 'mesh', 'mcp'])
+  })
+
+  it('the typed (service) contract also takes mcp: a vote from an agent over MCP', () => {
+    expect(validateCaptureVote({ thoughtId: ID, verdict: 'up', place: 'mcp' })).toEqual({
+      thoughtId: ID,
+      verdict: 'up',
+      place: 'mcp',
+      reason: undefined,
+    })
+  })
+
+  it('the typed contract names all three places when the place is none of them', () => {
+    expect(message(() => validateCaptureVote({ thoughtId: ID, verdict: 'up', place: 'yarn' }))).toBe(
+      'place must be capture, mesh or mcp',
+    )
+  })
+})
+
+describe('isCaptureVoteThoughtId (the thought id every capture review tool takes)', () => {
+  it('is true for a uuid and false for everything else', () => {
+    expect(isCaptureVoteThoughtId(ID)).toBe(true)
+    for (const value of [undefined, null, '', 'abc', 12, ` ${ID}`, `${ID} `, `${ID}x`, {}]) {
+      expect(isCaptureVoteThoughtId(value)).toBe(false)
+    }
   })
 })

@@ -105,7 +105,7 @@ describe('voteOnCapture: thumbs-up', () => {
       userId: 'u1',
       thoughtId: ID,
       verdict: 'up',
-      votedOn: 'capture',
+      place: 'capture',
       reasonEncrypted: null,
       reasonKind: null,
     })
@@ -122,6 +122,20 @@ describe('voteOnCapture: thumbs-up', () => {
   it('clears a reason and kind left by an earlier thumbs-down', async () => {
     await vote({ verdict: 'up', reason: undefined })
     expect(savedVote()).toMatchObject({ reasonEncrypted: null, reasonKind: null })
+  })
+})
+
+describe('voteOnCapture: a vote from an agent over MCP', () => {
+  it('hands the mcp place to the store as it is (the store maps it to NULL in one place)', async () => {
+    await vote({ verdict: 'up', reason: undefined, place: 'mcp' })
+    expect(savedVote()).toMatchObject({ verdict: 'up', place: 'mcp' })
+  })
+
+  it('a thumbs-down with a reason from an agent labels, edits and stores the same way', async () => {
+    const result = await vote({ place: 'mcp' })
+    expect(result).toMatchObject({ reasonKind: 'wrong_name', editApplied: true, editError: null })
+    expect(mocks.editStoredThought).toHaveBeenCalledWith('u1', ID, REASON)
+    expect(savedVote()).toMatchObject({ verdict: 'down', place: 'mcp', reasonKind: 'wrong_name' })
   })
 })
 
@@ -142,7 +156,7 @@ describe('voteOnCapture: thumbs-down without a reason', () => {
         userId: 'u1',
         thoughtId: ID,
         verdict: 'down',
-        votedOn: 'mesh',
+        place: 'mesh',
         reasonEncrypted: null,
         reasonKind: null,
       })
@@ -197,7 +211,7 @@ describe('voteOnCapture: thumbs-down with a reason', () => {
       userId: 'u1',
       thoughtId: ID,
       verdict: 'down',
-      votedOn: 'mesh',
+      place: 'mesh',
       reasonEncrypted: `enc(${REASON.length})`,
       reasonKind: 'wrong_name',
     })
@@ -394,7 +408,7 @@ describe('voteOnCapture: re-voting replaces the vote', () => {
       userId: 'u1',
       thoughtId: ID,
       verdict: 'up',
-      votedOn: 'capture',
+      place: 'capture',
       reasonEncrypted: null,
       reasonKind: null,
     })
@@ -440,7 +454,7 @@ describe('voteOnCapture: refusals', () => {
 
   it('rejects a bad verdict, place or id before any lookup', async () => {
     await expect(vote({ verdict: 'maybe' as never })).rejects.toThrow('verdict must be up or down')
-    await expect(vote({ place: 'yarn' as never })).rejects.toThrow('place must be capture or mesh')
+    await expect(vote({ place: 'yarn' as never })).rejects.toThrow('place must be capture, mesh or mcp')
     await expect(vote({ thoughtId: 'nope' })).rejects.toThrow('thoughtId must be a uuid')
     expect(mocks.loadVoteTarget).not.toHaveBeenCalled()
   })

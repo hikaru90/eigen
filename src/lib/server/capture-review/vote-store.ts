@@ -4,11 +4,14 @@
  *
  * It writes only the vote columns of `capture_review` (verdict, voted_at, voted_on, reason_encrypted,
  * reason_kind, edit_applied_at). The audit columns (parts, score, status) belong to the audit and
- * enrichment (`review-store.ts`), which leaves these columns alone in turn.
+ * enrichment (`review-store.ts`), which leaves these columns alone in turn. A vote also leaves
+ * `updated_at` alone: it marks the last write of the audit columns, so a reader can tell that an
+ * `edit_applied_at` after it means the parts describe the capture from before that edit.
  *
  * Reads for the Mesh lists return the verdict only: never the reason, its kind or the parts.
  */
 
+import type { CaptureVotePlace } from './vote-input'
 import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import {
@@ -82,11 +85,20 @@ export async function deleteCaptureReview(input: {
     .where(and(eq(captureReview.id, input.reviewId), eq(captureReview.userId, input.userId)))
 }
 
+/**
+ * The `voted_on` value stored for a place. The two app places are stored as they are. A vote from an
+ * agent over MCP has no place in the app, so it is stored as NULL: `voted_on` NULL means "via an
+ * agent/MCP". This is the only place that maps it; everything else passes the place through.
+ */
+export function votedOnColumn(place: CaptureVotePlace): CaptureReviewVotedOn | null {
+  return place === 'mcp' ? null : place
+}
+
 export type CaptureVoteRecord = {
   userId: string
   thoughtId: string
   verdict: CaptureReviewVerdict
-  votedOn: CaptureReviewVotedOn
+  place: CaptureVotePlace
   /** Tenant-encrypted reason, or null to clear it. */
   reasonEncrypted: string | null
   /** The closed label of the mistake, or null to clear it. */
@@ -111,11 +123,10 @@ export async function saveCaptureVote(vote: CaptureVoteRecord): Promise<void> {
     .set({
       verdict: vote.verdict,
       votedAt: now,
-      votedOn: vote.votedOn,
+      votedOn: votedOnColumn(vote.place),
       reasonEncrypted: vote.reasonEncrypted,
       reasonKind: vote.reasonKind,
       ...(vote.editAppliedAt === undefined ? {} : { editAppliedAt: vote.editAppliedAt }),
-      updatedAt: now,
     })
     .where(and(eq(captureReview.thoughtId, vote.thoughtId), eq(captureReview.userId, vote.userId)))
     .returning({ id: captureReview.id })

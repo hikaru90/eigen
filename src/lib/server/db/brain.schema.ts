@@ -608,7 +608,10 @@ export type CaptureReviewStatus = (typeof captureReviewStatusEnum)[number]
 export const captureReviewVerdictEnum = ['up', 'down'] as const
 export type CaptureReviewVerdict = (typeof captureReviewVerdictEnum)[number]
 
-/** Where the owner voted: right after capture (`capture`) or on the Mesh thought row (`mesh`). */
+/**
+ * Where the owner voted: right after capture (`capture`) or on the Mesh thought row (`mesh`). The
+ * column is NULL for a vote cast by an agent over MCP (`rate_capture`).
+ */
 export const captureReviewVotedOnEnum = ['capture', 'mesh'] as const
 export type CaptureReviewVotedOn = (typeof captureReviewVotedOnEnum)[number]
 
@@ -654,6 +657,7 @@ export const captureReview = pgTable(
     reasonKind: text('reason_kind'),
     editAppliedAt: timestamp('edit_applied_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    /** The last write of the audit columns (parts, score, status); a vote leaves it alone. */
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [

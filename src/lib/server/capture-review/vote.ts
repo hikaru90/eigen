@@ -1,7 +1,8 @@
 /**
  * The owner's vote on a stored thought (docs/planning/capture-feedback.md §6), from the two places
  * that offer it: the strip right after Capture and the unfolded Mesh row. Eigen never asks; this
- * runs only when the owner presses 👍 or 👎.
+ * runs only when the owner presses 👍 or 👎, or when the owner's agent rates a capture over MCP
+ * (`rate_capture`, place `mcp`, which is stored as no place).
  *
  * - 👍: the verdict, nothing else.
  * - 👎 with no text: the verdict, nothing else. No edit, no label.
@@ -23,7 +24,7 @@
 import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
 import { editStoredThought } from '$lib/server/capture/service'
 import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
-import type { CaptureReviewVerdict, CaptureReviewVotedOn } from '$lib/server/db/schema'
+import type { CaptureReviewVerdict } from '$lib/server/db/schema'
 import { isRetryExhaustedError, runIngestWithRetries } from '$lib/server/ingest/retry'
 import { enqueueUserJob } from '$lib/server/job-queue/enqueue'
 import { runCaptureReasonLabel } from '$lib/server/llm/decision-plane'
@@ -36,7 +37,7 @@ import {
 } from './reason-question'
 import { buildStoredSummary } from './stored-summary'
 import { CaptureVoteError } from './vote-error'
-import { validateCaptureVote } from './vote-input'
+import { validateCaptureVote, type CaptureVotePlace } from './vote-input'
 import {
   createPendingCaptureReviewIfMissing,
   deleteCaptureReview,
@@ -52,7 +53,8 @@ export type VoteOnCaptureInput = {
   verdict: CaptureReviewVerdict
   /** Only with a thumbs-down. Trimmed by the contract; empty means no reason. */
   reason?: string
-  place: CaptureReviewVotedOn
+  /** `capture` and `mesh` are the two app places; `mcp` is an agent over MCP (stored as no place). */
+  place: CaptureVotePlace
 }
 
 export type VoteOnCaptureResult = {
@@ -187,7 +189,7 @@ export async function voteOnCapture(input: VoteOnCaptureInput): Promise<VoteOnCa
       userId,
       thoughtId,
       verdict,
-      votedOn: place,
+      place,
       reasonEncrypted: null,
       reasonKind: null,
     })
@@ -220,7 +222,7 @@ export async function voteOnCapture(input: VoteOnCaptureInput): Promise<VoteOnCa
     userId,
     thoughtId,
     verdict,
-    votedOn: place,
+    place,
     reasonEncrypted,
     reasonKind,
     editAppliedAt: edit.applied ? new Date() : null,

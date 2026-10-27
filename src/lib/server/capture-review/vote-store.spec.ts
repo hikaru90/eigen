@@ -143,7 +143,7 @@ describe('saveCaptureVote', () => {
     userId: 'u1',
     thoughtId: ID,
     verdict: 'down' as const,
-    votedOn: 'mesh' as const,
+    place: 'mesh' as const,
     reasonEncrypted: 'cipher',
     reasonKind: 'wrong_name',
   }
@@ -165,6 +165,28 @@ describe('saveCaptureVote', () => {
     const where = dialect.sqlToQuery(dbMocks.updateWhere.mock.calls[0][0] as never)
     expect(where.sql).toContain('"capture_review"."thought_id" = $1')
     expect(where.params).toEqual([ID, 'u1'])
+  })
+
+  it('stores the place of the two app places as they are', async () => {
+    dbMocks.returningUpdate.mockResolvedValue([{ id: 'review-1' }])
+    await saveCaptureVote({ ...base, place: 'capture' })
+    await saveCaptureVote({ ...base, place: 'mesh' })
+    expect(dbMocks.updateSet.mock.calls[0][0]).toMatchObject({ votedOn: 'capture' })
+    expect(dbMocks.updateSet.mock.calls[1][0]).toMatchObject({ votedOn: 'mesh' })
+  })
+
+  it('stores a vote from an agent over MCP with voted_on NULL (the one place that maps it)', async () => {
+    dbMocks.returningUpdate.mockResolvedValue([{ id: 'review-1' }])
+    await saveCaptureVote({ ...base, place: 'mcp' })
+    const set = dbMocks.updateSet.mock.calls[0][0] as Record<string, unknown>
+    expect(set).toHaveProperty('votedOn', null)
+    expect(Object.values(set)).not.toContain('mcp')
+  })
+
+  it('leaves updated_at alone: it tracks the audit columns, so a later edit_applied_at can tell the parts are older', async () => {
+    dbMocks.returningUpdate.mockResolvedValue([{ id: 'review-1' }])
+    await saveCaptureVote({ ...base, editAppliedAt: new Date('2026-10-27T10:00:00Z') })
+    expect(Object.keys(dbMocks.updateSet.mock.calls[0][0] as object)).not.toContain('updatedAt')
   })
 
   it('never touches the audit columns (parts, score, status)', async () => {
