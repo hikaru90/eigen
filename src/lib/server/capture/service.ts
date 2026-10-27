@@ -6,11 +6,6 @@ import {
 } from '$lib/server/capture/apply-thought-edit'
 import { getDb } from '$lib/server/db'
 import { temporalEvent, thought, thoughtEntity } from '$lib/server/db/schema'
-import { rederiveUserFactsForThought } from '$lib/server/facts/rederive-user-facts'
-import {
-  factIdsDerivedFromThought,
-  retireFactsWithoutLiveSource,
-} from '$lib/server/facts/user-fact-lifecycle'
 import { removeThoughtGraphArtifacts, upsertThoughtNode } from '$lib/server/graph/age'
 import { createThoughtEmbedding } from '$lib/server/llm/embedding'
 import { pruneCanonicalEntitiesWithNoThoughtLinks } from '$lib/server/memory/canonical-entity-admin'
@@ -503,13 +498,6 @@ export async function editStoredThought(
           })
         })
       }
-      // An archived thought's facts were retired with it; any other thought now says something
-      // else, so its facts are derived again (docs/planning/user-facts-layer.md).
-      if (nextLifecycle !== 'archived') {
-        await timer.time('rederive_facts', async () => {
-          await rederiveUserFactsForThought(userId, thoughtId)
-        })
-      }
       logEditComplete({
         logCtx,
         path: 'full_reenrich',
@@ -539,12 +527,6 @@ export async function editStoredThought(
         onProgress,
         thoughtEmbedding: embedding,
       })
-    })
-
-    // The text changed: the facts it carried are released and derived again from the new text
-    // (docs/planning/user-facts-layer.md). Facts other captures or notes still carry stay.
-    await timer.time('rederive_facts', async () => {
-      await rederiveUserFactsForThought(userId, thoughtId)
     })
 
     const resultThought = await timer.time('load_result', async () =>
@@ -657,9 +639,6 @@ export async function deleteThoughtForUser(userId: string, thoughtId: string) {
   const { loadProjectContextForThought } = await import('$lib/server/agents/project-context')
   const projectCtx = await loadProjectContextForThought(userId, existing.id)
 
-  // the fact links cascade away with the row: read what this thought carried first
-  const carriedFactIds = await factIdsDerivedFromThought(userId, existing.id)
-
   await removeThoughtGraphArtifacts({
     userId,
     thoughtId: existing.id,
@@ -669,9 +648,6 @@ export async function deleteThoughtForUser(userId: string, thoughtId: string) {
   await getDb()
     .delete(thought)
     .where(and(eq(thought.id, existing.id), eq(thought.userId, userId)))
-
-  // facts nothing else carries go with it (docs/planning/user-facts-layer.md)
-  await retireFactsWithoutLiveSource(userId, carriedFactIds, { revive: true })
 
   await pruneCanonicalEntitiesWithNoThoughtLinks(userId, linkedEntityIds)
 

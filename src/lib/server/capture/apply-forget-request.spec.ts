@@ -9,8 +9,6 @@ const m = vi.hoisted(() => ({
   removeNoteDetailMock: vi.fn(),
   loadResultMock: vi.fn(),
   logActivityCallMock: vi.fn(),
-  forgetFactsMock: vi.fn(),
-  removeFactDetailMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/db', () => ({ getDb: () => ({ tag: 'db' }) }))
@@ -29,10 +27,6 @@ vi.mock('$lib/server/capture/capture-result', () => ({
   loadThoughtCaptureResult: m.loadResultMock,
 }))
 vi.mock('$lib/server/activity/log-call', () => ({ logActivityCall: m.logActivityCallMock }))
-vi.mock('$lib/server/facts/user-fact-lifecycle', () => ({ forgetUserFacts: m.forgetFactsMock }))
-vi.mock('$lib/server/facts/remove-fact-detail', () => ({
-  removeDetailFromFact: m.removeFactDetailMock,
-}))
 
 import type { ForgetHit } from './find-forget-hits'
 import type { JudgedForgetHit } from './judge-forget-hits'
@@ -61,19 +55,6 @@ const noteHit = (id: string, ordinals = [2]): ForgetHit => ({
   matchedOrdinals: ordinals,
   createdAt: new Date('2026-05-01T00:00:00Z'),
   score: 0.8,
-})
-
-const F1 = '55555555-5555-4555-8555-555555555555'
-const F2 = '66666666-6666-4666-8666-666666666666'
-const factHit = (id: string, text = `statement of ${id}`): ForgetHit => ({
-  kind: 'fact',
-  id,
-  text,
-  subject: 'the user',
-  factKind: 'habit',
-  inferred: false,
-  createdAt: new Date('2026-05-01T00:00:00Z'),
-  score: 0.85,
 })
 
 const removeAll = (hit: ForgetHit, confidence = 0.95): JudgedForgetHit => ({
@@ -118,8 +99,6 @@ beforeEach(() => {
   m.archiveThoughtMock.mockResolvedValue({ ok: true })
   m.archiveNoteMock.mockResolvedValue(true)
   m.removeNoteDetailMock.mockResolvedValue('edited')
-  m.forgetFactsMock.mockImplementation(async (_u: string, ids: string[]) => ids)
-  m.removeFactDetailMock.mockResolvedValue('edited')
   m.loadResultMock.mockImplementation(async (_u: string, id: string) => ({
     id,
     normalizedText: `text of ${id}`,
@@ -244,87 +223,6 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
     })
   })
 
-  describe('facts (docs/planning/user-facts-layer.md)', () => {
-    it('remove_all forgets the fact: it leaves every search at once and the instruction goes with it', async () => {
-      arrange([removeAll(factHit(F1))])
-      const outcome = await run()
-      expect(m.forgetFactsMock).toHaveBeenCalledWith('u1', [F1])
-      expect(m.removeFactDetailMock).not.toHaveBeenCalled()
-      expect(outcome).toMatchObject({
-        status: 'applied',
-        factsForgotten: [F1],
-        factsEdited: [],
-        instruction: 'archived',
-      })
-      expect(m.archiveThoughtMock).toHaveBeenCalledWith('u1', CAPTURE)
-    })
-
-    it('remove_detail rewrites the statement without the detail', async () => {
-      arrange([removeDetail(factHit(F1), 'that I drink coffee')])
-      const outcome = await run()
-      expect(m.removeFactDetailMock).toHaveBeenCalledWith({
-        userId: 'u1',
-        factId: F1,
-        detail: 'that I drink coffee',
-      })
-      expect(m.forgetFactsMock).not.toHaveBeenCalled()
-      expect(outcome).toMatchObject({ status: 'applied', factsEdited: [F1], factsForgotten: [] })
-    })
-
-    it('a detail removal that leaves nothing of the fact counts as forgotten', async () => {
-      arrange([removeDetail(factHit(F1), 'everything')])
-      m.removeFactDetailMock.mockResolvedValue('forgotten')
-      expect(await run()).toMatchObject({ factsForgotten: [F1], factsEdited: [] })
-    })
-
-    it('a fact that is gone (archived with its source, or forgotten since retrieval) counts as neither removed nor unresolved', async () => {
-      arrange([removeAll(factHit(F1)), removeDetail(factHit(F2), 'x')])
-      m.forgetFactsMock.mockResolvedValue([])
-      m.removeFactDetailMock.mockResolvedValue('gone')
-      expect(await run()).toMatchObject({
-        status: 'nothing_removed',
-        factsForgotten: [],
-        factsEdited: [],
-        unresolved: [],
-        instruction: 'kept',
-      })
-    })
-
-    it('a fact below the confidence gate is left untouched and recorded as unresolved by id', async () => {
-      arrange([removeAll(factHit(F1), 0.6), removeAll(thoughtHit(T1))])
-      const outcome = await run()
-      expect(m.forgetFactsMock).not.toHaveBeenCalled()
-      expect(outcome).toMatchObject({
-        status: 'partial',
-        unresolved: [{ kind: 'fact', id: F1 }],
-        instruction: 'kept',
-      })
-    })
-
-    it('a kept fact is left alone', async () => {
-      arrange([keep(factHit(F1))])
-      const outcome = await run()
-      expect(m.forgetFactsMock).not.toHaveBeenCalled()
-      expect(m.removeFactDetailMock).not.toHaveBeenCalled()
-      expect(outcome.status).toBe('nothing_removed')
-    })
-
-    it('audits the fact decisions and removals by id, never by text', async () => {
-      arrange([removeAll(factHit(F1, 'Drinks three coffees a day'))])
-      await run()
-      expect(auditContexts().some((c) => c.includes(`fact_forgotten=${F1}`))).toBe(true)
-      expect(auditContexts().some((c) => c.includes(`hit=fact:${F1}`))).toBe(true)
-      expect(auditContexts().join('\n')).not.toContain('coffees')
-    })
-
-    it('a failing fact removal propagates and the instruction stays', async () => {
-      arrange([removeDetail(factHit(F1), 'x')])
-      m.removeFactDetailMock.mockRejectedValue(new Error('fact detail removal: response is not valid JSON'))
-      await expect(run()).rejects.toThrow(/fact detail removal/)
-      expect(m.archiveThoughtMock).not.toHaveBeenCalledWith('u1', CAPTURE)
-    })
-  })
-
   describe('confidence gate and the instruction', () => {
     it('mixed confident + uncertain hits: the confident removal is applied, the uncertain one is left untouched and recorded, the instruction is kept', async () => {
       arrange([
@@ -386,8 +284,6 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
         edited: [],
         notesArchived: [],
         notesEdited: [],
-        factsForgotten: [],
-        factsEdited: [],
         unresolved: [],
         instruction: 'kept',
       })
@@ -464,7 +360,7 @@ describe('applyForgetRequest (S2b: find first, decide per hit)', () => {
       `forget capture=${CAPTURE} archived=${T1}`,
       `forget capture=${CAPTURE} edited=${T2}`,
       `forget capture=${CAPTURE} unresolved=note:${N2}`,
-      `forget capture=${CAPTURE} status=partial archived=1 edited=1 notes_archived=0 notes_edited=0 facts_forgotten=0 facts_edited=0 unresolved=1 instruction=kept`,
+      `forget capture=${CAPTURE} status=partial archived=1 edited=1 notes_archived=0 notes_edited=0 unresolved=1 instruction=kept`,
     ])
     for (const call of m.logActivityCallMock.mock.calls) {
       expect(call[1]).toBe('u1')

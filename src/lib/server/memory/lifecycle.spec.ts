@@ -7,11 +7,6 @@ const EVENT_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
 const mocks = vi.hoisted(() => ({
   updateCalls: [] as unknown[],
   getDb: vi.fn(),
-  retireFacts: vi.fn(),
-}))
-
-vi.mock('$lib/server/facts/user-fact-lifecycle', () => ({
-  retireFactsForArchivedThought: mocks.retireFacts,
 }))
 
 vi.mock('$lib/server/db', () => ({
@@ -94,7 +89,6 @@ describe('lifecycle service', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.updateCalls = []
-    mocks.retireFacts.mockResolvedValue({ retired: [], revived: [] })
   })
 
   it('resolves task ids to thoughts', async () => {
@@ -130,41 +124,6 @@ describe('lifecycle service', () => {
     expect(result.ok).toBe(true)
     expect(mocks.updateCalls[0]).toMatchObject({
       lifecycleStatus: 'completed',
-    })
-  })
-
-  describe('facts follow their source (docs/planning/user-facts-layer.md)', () => {
-    const row = {
-      id: THOUGHT_ID,
-      userId: 'u1',
-      normalizedText: 'I drink three coffees a day',
-      metadata: {},
-      category: 'task',
-    }
-
-    it('archiving a thought retires the facts it was the last live source of, after the status is written', async () => {
-      chainSelect([[row], []])
-      await setThoughtLifecycleStatus('u1', THOUGHT_ID, 'archived')
-      expect(mocks.retireFacts).toHaveBeenCalledTimes(1)
-      expect(mocks.retireFacts).toHaveBeenCalledWith('u1', THOUGHT_ID)
-      // the thought row already says archived when the retirement looks at its sources
-      expect(mocks.updateCalls[0]).toMatchObject({ lifecycleStatus: 'archived' })
-    })
-
-    it('completing or reopening a thought leaves its facts alone', async () => {
-      chainSelect([[row], []])
-      await setThoughtLifecycleStatus('u1', THOUGHT_ID, 'completed')
-      chainSelect([[row], []])
-      await setThoughtLifecycleStatus('u1', THOUGHT_ID, 'open')
-      expect(mocks.retireFacts).not.toHaveBeenCalled()
-    })
-
-    it('a failing retirement fails the archive loudly: no silent fact left behind', async () => {
-      chainSelect([[row], []])
-      mocks.retireFacts.mockRejectedValue(new Error('retire failed'))
-      await expect(setThoughtLifecycleStatus('u1', THOUGHT_ID, 'archived')).rejects.toThrow(
-        /retire failed/,
-      )
     })
   })
 })

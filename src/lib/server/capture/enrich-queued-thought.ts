@@ -28,7 +28,6 @@ import { toPgVectorLiteral, type CaptureProgressEvent } from '$lib/server/captur
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import { thought } from '$lib/server/db/schema'
-import { deriveUserFactsForThought } from '$lib/server/facts/derive-user-facts'
 import { runIngestWithRetries } from '$lib/server/ingest/retry'
 import {
   resolveDecisionEnforceKinds,
@@ -540,24 +539,6 @@ export async function enrichQueuedThought(
         .limit(1)
       if (!enrichedRow?.enrichedAt) {
         throw new Error('Enrichment finished without setting enriched_at')
-      }
-
-      // Facts about people (docs/planning/user-facts-layer.md, F1): last, so the extractor sees the
-      // people the graph linked to this thought. One json-mode call on the redacted text (plus the
-      // reference note, if the split saved one), reconciled against the facts already stored. A
-      // request to forget is an instruction, not a fact: a kept forget instruction yields none. A
-      // failure throws into the ingest retry ladder; a re-run starts from what other sources say.
-      if (captureIntent !== 'forget') {
-        await time('derive_user_facts', () =>
-          deriveUserFactsForThought({
-            userId,
-            thoughtId,
-            text: splitApplied.normalizedText,
-            attachedFileId: splitApplied.attachedFileId,
-            capturedAt: row.createdAt,
-            queryEmbedding: prefetched.embedding,
-          }),
-        )
       }
     })
 

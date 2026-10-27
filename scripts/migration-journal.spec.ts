@@ -68,35 +68,4 @@ describe('drizzle migration journal', () => {
     // nullable, no default: NULL = active note
     expect(sqlText).not.toMatch(/archived_at"[^;]*NOT NULL/)
   })
-
-  it('registers 0085_user_facts with the next sequential idx and the three fact tables', () => {
-    const journal = JSON.parse(readFileSync(journalPath, 'utf-8')) as {
-      entries: Array<{ tag: string; idx: number }>
-    }
-    const entry = journal.entries.find((e) => e.tag === '0085_user_facts')
-    expect(entry).toBeDefined()
-    expect(entry!.idx).toBe(85)
-    expect(journal.entries.map((e) => e.idx)).toEqual(journal.entries.map((_, i) => i))
-    const sqlText = readFileSync(path.join(migrationsDir, '0085_user_facts.sql'), 'utf-8')
-    expect(sqlText).toContain('CREATE TABLE IF NOT EXISTS "user_secure_value"')
-    expect(sqlText).toContain('CREATE TABLE IF NOT EXISTS "user_fact"')
-    expect(sqlText).toContain('CREATE TABLE IF NOT EXISTS "user_fact_source"')
-    // facts are searched like thoughts: 1536-d cosine HNSW + a generated tsvector over lexical_text
-    expect(sqlText).toContain('"embedding" vector(1536) NOT NULL')
-    expect(sqlText).toContain('USING hnsw ("embedding" vector_cosine_ops)')
-    expect(sqlText).toContain('GENERATED ALWAYS AS (to_tsvector(\'simple\', coalesce("lexical_text", \'\'))) STORED')
-    // the statement is stored encrypted only
-    expect(sqlText).toContain('"statement_encrypted" text NOT NULL')
-  })
-
-  it('keeps the secure value table out of every index: no embedding, no lexical surface', () => {
-    const sqlText = readFileSync(path.join(migrationsDir, '0085_user_facts.sql'), 'utf-8')
-    const start = sqlText.indexOf('CREATE TABLE IF NOT EXISTS "user_secure_value"')
-    const end = sqlText.indexOf(');', start)
-    const table = sqlText.slice(start, end)
-    expect(table).toContain('"value_encrypted" text NOT NULL')
-    expect(table).not.toMatch(/embedding|lexical|tsv|vector/i)
-    // nothing may index the secure value table's value
-    expect(sqlText).not.toMatch(/INDEX[^;]*"user_secure_value"[^;]*value/i)
-  })
 })

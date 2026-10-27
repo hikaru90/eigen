@@ -23,7 +23,6 @@ const {
   runDecisionModelMock,
   logActivityCallMock,
   applyForgetRequestMock,
-  deriveUserFactsMock,
 } = vi.hoisted(() => ({
   getDbMock: vi.fn(),
   createThoughtEmbeddingMock: vi.fn(),
@@ -46,7 +45,6 @@ const {
   runDecisionModelMock: vi.fn(),
   logActivityCallMock: vi.fn(),
   applyForgetRequestMock: vi.fn(),
-  deriveUserFactsMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }))
@@ -97,9 +95,6 @@ vi.mock('$lib/server/capture/apply-forget-request', () => ({
 }))
 vi.mock('$lib/server/activity/log-call', () => ({
   logActivityCall: logActivityCallMock,
-}))
-vi.mock('$lib/server/facts/derive-user-facts', () => ({
-  deriveUserFactsForThought: deriveUserFactsMock,
 }))
 // decision-plane stays REAL — only its OpenRouter client is mocked, so these
 // tests exercise the actual enforcement/settle contract.
@@ -222,7 +217,6 @@ describe('enrichQueuedThought', () => {
     resolveEnforceKindsMock.mockReturnValue(new Set())
     resolveShadowConfigMock.mockReturnValue(null)
     logActivityCallMock.mockResolvedValue(undefined)
-    deriveUserFactsMock.mockResolvedValue({ added: 0, superseded: 0, confirmed: 0, droppedLowConfidence: 0 })
   })
 
   function decisionResponse(answers: Record<string, { choice: string; probabilities: Record<string, number> }>) {
@@ -1046,79 +1040,6 @@ describe('enrichQueuedThought', () => {
     )
   })
 
-  describe('user facts (docs/planning/user-facts-layer.md, F1)', () => {
-    it('derives the facts of the enriched thought as the last step: its own text, the reference note, the capture time and the embedding enrichment already made', async () => {
-      applyCaptureContentSplitIfNeededMock.mockResolvedValue({
-        rawText: 'Email to Prof. Lee',
-        enrichRawText: 'Email to Prof. Lee',
-        normalizedText: 'Email to Prof. Lee about the keynote',
-        role: 'reference' as const,
-        attachedFileId: 'file-1',
-        childThoughtIds: [],
-      })
-      loadEnrichmentContextMock.mockResolvedValue({
-        ...baseContext,
-        normalizedText: 'Email to Prof. Lee about the keynote',
-      })
-      getDbMock.mockReturnValue(standardDbQueue())
-
-      await enrichQueuedThought('u1', 't1')
-
-      expect(deriveUserFactsMock).toHaveBeenCalledTimes(1)
-      expect(deriveUserFactsMock).toHaveBeenCalledWith({
-        userId: 'u1',
-        thoughtId: 't1',
-        text: 'Email to Prof. Lee about the keynote',
-        attachedFileId: 'file-1',
-        capturedAt: baseRow.createdAt,
-        queryEmbedding: [0.1, 0.2],
-      })
-      // after enrichment, so the extractor can see the people the graph linked to this thought
-      expect(enrichThoughtMock.mock.invocationCallOrder[0]).toBeLessThan(
-        deriveUserFactsMock.mock.invocationCallOrder[0]!,
-      )
-      expect(markEnrichQueueCompleteMock).toHaveBeenCalledWith('t1')
-    })
-
-    it('hands over redacted text only (a credential in the capture never reaches the extractor)', async () => {
-      const raw = `token ${FAKE_SECRETS.githubClassic} for deploy, and I swim daily`
-      getDbMock.mockReturnValue(
-        makeDb([
-          [{ ...baseRow, rawText: raw, normalizedText: raw }],
-          [{ metadata: {}, metadataEncrypted: null }],
-          [{ n: 5 }],
-          [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-          [{ normalizedText: 'x', category: 'idea', enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
-        ]),
-      )
-      applyCaptureContentSplitIfNeededMock.mockImplementation(
-        async ({ existingNormalizedText }: { existingNormalizedText: string }) => ({
-          rawText: existingNormalizedText,
-          enrichRawText: existingNormalizedText,
-          normalizedText: existingNormalizedText,
-          role: 'personal' as const,
-          attachedFileId: null,
-          childThoughtIds: [],
-        }),
-      )
-
-      await enrichQueuedThought('u1', 't1')
-
-      expect(leaks(JSON.stringify(deriveUserFactsMock.mock.calls))).toBe(false)
-    })
-
-    it('a failure while deriving fails the enrich loudly: no silent success without facts', async () => {
-      deriveUserFactsMock.mockRejectedValue(new Error('user fact extraction: response is not valid JSON'))
-      getDbMock.mockReturnValue(standardDbQueue())
-      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-      await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow(/user fact extraction/)
-      expect(markEnrichQueueFailedMock).toHaveBeenCalledWith('t1', expect.stringContaining('user fact extraction'))
-      expect(markEnrichQueueCompleteMock).not.toHaveBeenCalled()
-      errorSpy.mockRestore()
-    })
-  })
-
   describe('forget requests at capture (S2, capture_intent)', () => {
     const FORGET_AT = baseRow.createdAt
     const FORGET_APPLIED = {
@@ -1241,8 +1162,6 @@ describe('enrichQueuedThought', () => {
       // the instruction is memory now: split, embed, enrich, notify
       expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledTimes(1)
       expect(enrichThoughtMock).toHaveBeenCalledTimes(1)
-      // ...but a request to forget is an instruction, never a fact about the user
-      expect(deriveUserFactsMock).not.toHaveBeenCalled()
     })
 
     it('S2b: an archived instruction (everything removed) records no marker and is not enriched', async () => {
@@ -1255,7 +1174,6 @@ describe('enrichQueuedThought', () => {
 
       expect(forgetInstructionPersisted()).toEqual([])
       expect(enrichThoughtMock).not.toHaveBeenCalled()
-      expect(deriveUserFactsMock).not.toHaveBeenCalled()
     })
 
     it('S2b: a retried attempt of a kept instruction does not apply the forget request a second time and continues the pipeline', async () => {
@@ -1281,8 +1199,6 @@ describe('enrichQueuedThought', () => {
       expect(runDecisionModelMock.mock.calls.every(([, req]) => !('capture_intent' in req.questions))).toBe(true)
       expect(applyForgetRequestMock).not.toHaveBeenCalled()
       expect(enrichThoughtMock).toHaveBeenCalledTimes(1)
-      // the retried kept instruction still yields no facts
-      expect(deriveUserFactsMock).not.toHaveBeenCalled()
     })
 
     it('regression: a capture merely MENTIONING forgetting ("I forgot my keys") is store and runs the normal pipeline', async () => {
@@ -1297,7 +1213,6 @@ describe('enrichQueuedThought', () => {
       expect(applyForgetRequestMock).not.toHaveBeenCalled()
       expect(intentPersisted()).toEqual(['store'])
       expect(applyCaptureContentSplitIfNeededMock).toHaveBeenCalledTimes(1)
-      expect(deriveUserFactsMock).toHaveBeenCalledTimes(1)
       expect(enrichThoughtMock).toHaveBeenCalledTimes(1)
     })
 

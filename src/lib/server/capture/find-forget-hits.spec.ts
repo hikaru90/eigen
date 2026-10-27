@@ -4,7 +4,6 @@ const m = vi.hoisted(() => ({
   deriveMock: vi.fn(),
   embedMock: vi.fn(),
   retrieveMock: vi.fn(),
-  searchFactsMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/retrieval/derive-delete-search-query', () => ({
@@ -14,7 +13,6 @@ vi.mock('$lib/server/llm/embedding', () => ({ createThoughtEmbeddings: m.embedMo
 vi.mock('$lib/server/qa/retrieve-answer-evidence', () => ({
   retrieveAnswerEvidence: m.retrieveMock,
 }))
-vi.mock('$lib/server/facts/search-user-facts', () => ({ searchUserFacts: m.searchFactsMock }))
 
 import { CONTEXT_WEIGHTS } from '$lib/server/retrieval'
 import { FAKE_SECRETS, leaks } from '$lib/test/secret-fixtures'
@@ -68,7 +66,6 @@ beforeEach(() => {
   vi.clearAllMocks()
   m.deriveMock.mockResolvedValue(['surfing', 'waves and boards'])
   m.embedMock.mockResolvedValue([[1], [2]])
-  m.searchFactsMock.mockResolvedValue([])
 })
 
 describe('findForgetHits', () => {
@@ -177,103 +174,5 @@ describe('findForgetHits', () => {
     await findForgetHits({ userId: 'u1', request: 'r', createdBefore: CUTOFF })
     expect(leaks(JSON.stringify(m.embedMock.mock.calls))).toBe(false)
     expect(leaks(JSON.stringify(m.retrieveMock.mock.calls))).toBe(false)
-  })
-
-  describe('facts (docs/planning/user-facts-layer.md)', () => {
-    const fact = (id: string, asOf: string, score: number, over: Record<string, unknown> = {}) => ({
-      id,
-      subjectKind: 'user',
-      subjectLabel: null,
-      subjectEntityId: null,
-      statement: `statement of ${id}`,
-      kind: 'preference',
-      inferred: false,
-      confidence: 0.9,
-      status: 'active',
-      supersededBy: null,
-      asOf: new Date(asOf),
-      secureValueId: null,
-      sourceThoughtIds: [],
-      sourceTextFileIds: [],
-      score,
-      vectorScore: score,
-      ...over,
-    })
-
-    it('searches the facts for every phrase with its embedding, only facts known BEFORE the forget capture, same wide pool', async () => {
-      m.retrieveMock.mockResolvedValue(evidence([], []))
-
-      await findForgetHits({ userId: 'u1', request: 'r', createdBefore: CUTOFF })
-
-      expect(m.searchFactsMock).toHaveBeenCalledTimes(2)
-      expect(m.searchFactsMock.mock.calls).toEqual([
-        ['u1', { query: 'surfing', queryEmbedding: [1], topK: FORGET_TOP_K_PER_PHRASE, asOfBefore: CUTOFF }],
-        ['u1', { query: 'waves and boards', queryEmbedding: [2], topK: FORGET_TOP_K_PER_PHRASE, asOfBefore: CUTOFF }],
-      ])
-    })
-
-    it('a fact is a hit: id, statement in display form, who it is about, kind, as-of and score', async () => {
-      m.retrieveMock.mockResolvedValue(evidence([], []))
-      m.searchFactsMock.mockResolvedValueOnce([
-        fact('f1', '2026-05-01T00:00:00Z', 0.9),
-        fact('f2', '2026-05-02T00:00:00Z', 0.6, {
-          subjectKind: 'person',
-          subjectLabel: 'Mia (friend)',
-          kind: 'health',
-          inferred: true,
-          statement: 'Mia (friend) keeps getting headaches',
-        }),
-      ])
-      m.searchFactsMock.mockResolvedValueOnce([])
-
-      const { hits } = await findForgetHits({ userId: 'u1', request: 'r', createdBefore: CUTOFF })
-
-      expect(hits).toEqual([
-        {
-          kind: 'fact',
-          id: 'f1',
-          text: 'statement of f1',
-          subject: 'the user',
-          factKind: 'preference',
-          inferred: false,
-          createdAt: new Date('2026-05-01T00:00:00Z'),
-          score: 0.9,
-        },
-        {
-          kind: 'fact',
-          id: 'f2',
-          text: 'Mia (friend) keeps getting headaches',
-          subject: 'Mia (friend)',
-          factKind: 'health',
-          inferred: true,
-          createdAt: new Date('2026-05-02T00:00:00Z'),
-          score: 0.6,
-        },
-      ])
-    })
-
-    it('merges phrases by best score per fact and sorts facts among thoughts and notes by score', async () => {
-      m.retrieveMock.mockResolvedValueOnce(evidence([thought('t1', '2026-06-01T00:00:00Z', 0.7)], []))
-      m.retrieveMock.mockResolvedValueOnce(evidence([], []))
-      m.searchFactsMock.mockResolvedValueOnce([fact('f1', '2026-05-01T00:00:00Z', 0.4)])
-      m.searchFactsMock.mockResolvedValueOnce([fact('f1', '2026-05-01T00:00:00Z', 0.8)])
-
-      const { hits } = await findForgetHits({ userId: 'u1', request: 'r', createdBefore: CUTOFF })
-
-      expect(hits.map((h) => `${h.kind}:${h.id}:${h.score}`)).toEqual(['fact:f1:0.8', 'thought:t1:0.7'])
-    })
-
-    it('an identifier fact is judged by its placeholder: neither the value nor the reference id is in the hit', async () => {
-      m.retrieveMock.mockResolvedValue(evidence([], []))
-      m.searchFactsMock.mockResolvedValueOnce([
-        fact('f1', '2026-05-01T00:00:00Z', 0.9, {
-          statement: "The user's licence plate is [secure:22222222-2222-4222-8222-222222222222]",
-          secureValueId: '22222222-2222-4222-8222-222222222222',
-        }),
-      ])
-      const { hits } = await findForgetHits({ userId: 'u1', request: 'r', createdBefore: CUTOFF })
-      expect(hits[0]).toMatchObject({ text: "The user's licence plate is [secure value]" })
-      expect(JSON.stringify(hits)).not.toContain('22222222')
-    })
   })
 })

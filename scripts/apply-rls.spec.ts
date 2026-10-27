@@ -36,19 +36,4 @@ describe('apply-rls', () => {
       "WITH CHECK (user_id = current_setting('app.current_user_id', true))",
     )
   })
-
-  it.each(['user_fact', 'user_fact_source', 'user_secure_value'])(
-    'isolates %s by user_id with the same policy shape as thought',
-    (table) => {
-      expect(rls).toContain(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;`)
-      expect(rls).toContain(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY;`)
-      const policy = rls.slice(rls.indexOf(`CREATE POLICY ${table}_isolation`))
-      const statement = policy.slice(0, policy.indexOf(';'))
-      expect(statement).toContain(`ON ${table}`)
-      expect(statement).toContain("USING (user_id = current_setting('app.current_user_id', true))")
-      expect(statement).toContain(
-        "WITH CHECK (user_id = current_setting('app.current_user_id', true))",
-      )
-    },
-  )
 })

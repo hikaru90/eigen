@@ -32,7 +32,6 @@ export type IngestPhase =
   | 'load_enrichment_context'
   | 'prefetch_enrich_llm'
   | 'persist_classify_embed'
-  | 'derive_user_facts'
 
 export type IngestPhaseEntry = { phase: IngestPhase; ms: number }
 

@@ -31,9 +31,7 @@ const {
   loadStoredPassagesMock,
   createDbNoteSearchSourcesMock,
   createThoughtEmbeddingMock,
-  retireFactsForArchivedNoteMock,
 } = vi.hoisted(() => ({
-  retireFactsForArchivedNoteMock: vi.fn(),
   getDbMock: vi.fn(),
   preparePassageSyncMock: vi.fn(),
   applyPassageSyncMock: vi.fn(),
@@ -52,10 +50,6 @@ vi.mock('$lib/server/db', () => ({
     const db = getDbMock()
     return { ...db, transaction: async (fn: (tx: unknown) => unknown) => fn(db) }
   },
-}))
-
-vi.mock('$lib/server/facts/user-fact-lifecycle', () => ({
-  retireFactsForArchivedNote: retireFactsForArchivedNoteMock,
 }))
 
 vi.mock('./note-passages', () => ({
@@ -1131,27 +1125,6 @@ describe('text-files service: archived notes (docs/planning/personamem-score-pla
       })),
     })
     expect(await archiveTextFile('u1', 'missing')).toBe(false)
-  })
-
-  it('archiving a note retires the facts derived from it that nothing else carries; a note that was not archived touches no fact', async () => {
-    retireFactsForArchivedNoteMock.mockResolvedValue({ retired: [], revived: [] })
-    getDbMock.mockReturnValue({
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => [{ id: 'f1' }]) })) })),
-      })),
-    })
-    expect(await archiveTextFile('u1', 'f1')).toBe(true)
-    expect(retireFactsForArchivedNoteMock).toHaveBeenCalledTimes(1)
-    expect(retireFactsForArchivedNoteMock).toHaveBeenCalledWith('u1', 'f1')
-
-    retireFactsForArchivedNoteMock.mockClear()
-    getDbMock.mockReturnValue({
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => []) })) })),
-      })),
-    })
-    expect(await archiveTextFile('u1', 'missing')).toBe(false)
-    expect(retireFactsForArchivedNoteMock).not.toHaveBeenCalled()
   })
 
   it('getTextFile hides an archived note by default and shows it with includeArchived', async () => {
