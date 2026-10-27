@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm'
 import { captureThought, editStoredThought, listThoughts } from '$lib/server/capture/service'
+import type { AskTurnState } from '$lib/server/chat/ask-proposals'
 import { encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { parseOptionalIsoTimestamp } from '$lib/server/datetime/parse-iso'
 import { getDb } from '$lib/server/db'
@@ -73,6 +74,11 @@ export type McpToolContext = {
   /** Present when MCP authenticated via Bearer API key — default capture authorship. */
   authenticatedApiKey?: AuthenticatedApiKey
   onToolProgress?: (event: McpToolProgress) => void
+  /**
+   * Ask only: the per-turn proposal state (Jev's decisions, the session) the agent loop sets
+   * for propose_thoughts / store_thoughts. Never set for HTTP MCP clients.
+   */
+  askTurn?: AskTurnState
 }
 
 function asObject(input: unknown): Record<string, unknown> {

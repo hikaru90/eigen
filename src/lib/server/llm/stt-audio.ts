@@ -1,12 +1,13 @@
-/** Longest segment the voice recorder sends (forced cut, see `$lib/capture/segmented-stt`). */
-export const STT_SEGMENT_MAX_SECONDS = 10
+/** Longest voice clip the recorder sends (it ends the recording and sends at this length). */
+export const STT_CLIP_MAX_SECONDS = 300
 
 /**
- * Maximum bytes for one uploaded segment: 10 s of 48 kHz 16-bit stereo PCM
- * (the largest format a recorder emits, WAV) rounded up to 2 MiB. Opus/WebM
- * segments are far smaller.
+ * Maximum bytes for one uploaded voice clip. Sized for 5 minutes of the largest format a
+ * recorder emits (MP4/WebM at the 32 kbps the client asks for ≈ 1.2 MB) with generous
+ * headroom, because encoders treat the bitrate as a hint and containers add overhead.
+ * adapter-node's `BODY_SIZE_LIMIT` (Dockerfile, `.env.example`) must stay above this.
  */
-export const STT_SEGMENT_MAX_AUDIO_BYTES = 2 * 1024 * 1024
+export const STT_CLIP_MAX_AUDIO_BYTES = 8 * 1024 * 1024
 
 const MIME_TO_FORMAT: Record<string, string> = {
   'audio/webm': 'webm',

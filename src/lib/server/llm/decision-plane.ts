@@ -951,6 +951,9 @@ async function recordRows(
     message_intent: undefined,
     open_loop: undefined,
     salience_band: undefined,
+    // Ask turn kinds — bounded whole-question decisions with no chat-judge primary.
+    capture_worthy: undefined,
+    proposal_reply: undefined,
     // Jev-only audit (runCaptureAudit) — never part of the generic shadow.
     capture_audit: undefined,
   }

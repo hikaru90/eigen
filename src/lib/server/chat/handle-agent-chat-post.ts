@@ -210,6 +210,8 @@ export async function handleAgentChatPost(
                 messages: [...history, { role: 'user', content: agentUserMessage }],
                 mode: sessionMode,
                 aiSessionId: sessionId,
+                // a bootstrap prompt is system-made: no Ask decisions, no thought proposals
+                ...(bootstrap ? {} : { chatSessionId: sessionId }),
                 onEvent: (evt) => {
                   if (!streamClosed) {
                     writeLine(evt)
@@ -223,7 +225,7 @@ export async function handleAgentChatPost(
           ),
         )
 
-        const responseText = finalAnswerText(result.response, intermediateSteps)
+        const responseText = finalAnswerText(result.response, intermediateSteps, result.appendix)
         const { messageId } = await persistStreamedAssistantTurn({
           db: scopedDb,
           sessionId,

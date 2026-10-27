@@ -13,6 +13,9 @@ const {
   mcpToolMap,
   resolveEnforceKindsMock,
   runEnforcedBoundedDecisionsMock,
+  proposeThoughtsMock,
+  storeThoughtsMock,
+  loadOpenProposalMock,
 } = vi.hoisted(() => {
   const retrieveThoughtsMock = vi.fn()
   const deleteThoughtMock = vi.fn()
@@ -20,6 +23,8 @@ const {
   const captureThoughtMock = vi.fn()
   const createTextFileMock = vi.fn()
   const answerQuestionMock = vi.fn()
+  const proposeThoughtsMock = vi.fn()
+  const storeThoughtsMock = vi.fn()
   const mcpToolMap = new Map<string, typeof retrieveThoughtsMock>([
     ['retrieve_thoughts', retrieveThoughtsMock],
     ['delete_thought', deleteThoughtMock],
@@ -27,6 +32,8 @@ const {
     ['capture_thought', captureThoughtMock],
     ['create_text_file', createTextFileMock],
     ['answer_question', answerQuestionMock],
+    ['propose_thoughts', proposeThoughtsMock],
+    ['store_thoughts', storeThoughtsMock],
   ])
   return {
     llmChatCompletionMock: vi.fn(),
@@ -41,6 +48,9 @@ const {
     mcpToolMap,
     resolveEnforceKindsMock: vi.fn(),
     runEnforcedBoundedDecisionsMock: vi.fn(),
+    proposeThoughtsMock,
+    storeThoughtsMock,
+    loadOpenProposalMock: vi.fn(),
   }
 })
 
@@ -64,6 +74,20 @@ vi.mock('$lib/server/llm/decision-plane', async (importOriginal) => {
   const actual = await importOriginal<typeof import('$lib/server/llm/decision-plane')>()
   return { ...actual, runEnforcedBoundedDecisions: runEnforcedBoundedDecisionsMock }
 })
+vi.mock('$lib/paraglide/messages.js', () => ({
+  m: {
+    ask_proposal_lead_in: () => 'LEAD',
+    ask_proposal_footer: () => 'FOOT',
+    ask_capture_check_failed: () => 'NOTE capture check failed',
+    ask_reply_check_failed: () => 'NOTE reply check failed',
+    ask_proposal_missing: () => 'NOTE proposal missing',
+    ask_store_missing: () => 'NOTE store missing',
+  },
+}))
+vi.mock('$lib/server/chat/ask-proposals', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('$lib/server/chat/ask-proposals')>()
+  return { ...actual, loadOpenProposal: loadOpenProposalMock }
+})
 vi.mock('$lib/server/mcp/registry', () => {
   const ALL_AGENT_TOOLS = [
     'capture_thought',
@@ -80,6 +104,8 @@ vi.mock('$lib/server/mcp/registry', () => {
     'search_text_files',
     'link_text_file_to_thought',
     'unlink_text_file_from_thought',
+    'propose_thoughts',
+    'store_thoughts',
   ]
   const CHAT_TOOLS = ALL_AGENT_TOOLS.filter((name) => name !== 'capture_thought')
   return {
@@ -110,6 +136,10 @@ describe('agentChat', () => {
     logActivityCallMock.mockResolvedValue(undefined)
     resolveEnforceKindsMock.mockReturnValue(new Set())
     runEnforcedBoundedDecisionsMock.mockResolvedValue(new Map())
+    loadOpenProposalMock.mockReset()
+    loadOpenProposalMock.mockResolvedValue(null)
+    proposeThoughtsMock.mockReset()
+    storeThoughtsMock.mockReset()
   })
 
   it('rejects a final answer when no tool has run', async () => {
@@ -673,9 +703,13 @@ describe('agentChat', () => {
     expect(result.response).not.toBe('')
   })
 
-  it('system prompt is capture-free: Ask never offers storing new thoughts', () => {
+  it('system prompt never offers capture_thought; it states the propose -> confirm rule (AP-6)', () => {
     expect(AGENT_SYSTEM_PROMPT).not.toContain('capture_thought')
-    expect(AGENT_SYSTEM_PROMPT).toContain('ask-only')
+    expect(AGENT_SYSTEM_PROMPT).not.toContain('ask-only')
+    expect(AGENT_SYSTEM_PROMPT).toContain('propose_thoughts')
+    expect(AGENT_SYSTEM_PROMPT).toContain('store_thoughts')
+    expect(AGENT_SYSTEM_PROMPT).toMatch(/only store_thoughts stores/i)
+    expect(AGENT_SYSTEM_PROMPT).toMatch(/never say they are saved/i)
   })
 
   it('creates a text note via create_text_file when the model chooses it', async () => {
@@ -859,5 +893,483 @@ describe('agentChat', () => {
     expect(runEnforcedBoundedDecisionsMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ surface: 'chat_turn', state: 'thanks, that is all' }),
     )
+  })
+})
+
+describe('agentChat — Ask proposes thoughts, stores them on a confirmed reply', () => {
+  const SESSION = 's1'
+  const BOULDERING_QUESTION =
+    'I started bouldering on Tuesdays with Jonas, what should I plan for the weekend?'
+  const PROPOSED = ['Started bouldering on Tuesdays with Jonas']
+  const PROPOSAL = { proposalId: 'p1', thoughts: PROPOSED }
+  const COMPOSED = {
+    answer: 'Answer: Plan a rest day on Saturday.\nEvidence:\n- none\nUnknown:\n- none',
+    citations: [],
+    retrieved: [],
+    conflicts: [],
+  }
+
+  const choice = (value: string) => ({
+    type: 'choice' as const,
+    choice: value,
+    probabilities: { [value]: 0.9 },
+    confidence: 0.9,
+  })
+  function decisions(captureWorthy: string, proposalReply?: string) {
+    const answers = new Map([['capture_worthy', choice(captureWorthy)]])
+    if (proposalReply) answers.set('proposal_reply', choice(proposalReply))
+    runEnforcedBoundedDecisionsMock.mockResolvedValue(answers)
+  }
+  const systemPrompt = () =>
+    llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string
+  /** The loop's messages are one array mutated across iterations — read the final state, not call args. */
+  const userMessagesOf = (result: { messages: Array<{ role: string; content: string }> }) =>
+    result.messages.filter((m) => m.role === 'user').map((m) => m.content)
+  const askInput = (message: string) => ({
+    userId: 'u1',
+    chatSessionId: SESSION,
+    messages: [{ role: 'user' as const, content: message }],
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    llmChatCompletionMock.mockReset()
+    getDbMock.mockReturnValue({})
+    logActivityCallMock.mockResolvedValue(undefined)
+    resolveEnforceKindsMock.mockReturnValue(new Set())
+    runEnforcedBoundedDecisionsMock.mockReset()
+    loadOpenProposalMock.mockReset()
+    loadOpenProposalMock.mockResolvedValue(null)
+    proposeThoughtsMock.mockReset()
+    storeThoughtsMock.mockReset()
+    answerQuestionMock.mockReset()
+  })
+
+  it('asks Jev once per Ask turn on the chat_turn surface, and not at all without a session', async () => {
+    decisions('no')
+    answerQuestionMock.mockResolvedValue(COMPOSED)
+    llmChatCompletionMock.mockResolvedValue(
+      llmJson({ tool: 'answer_question', arguments: { question: 'what is on my list?' } }),
+    )
+
+    await agentChat(askInput('what is on my list?'))
+    expect(runEnforcedBoundedDecisionsMock).toHaveBeenCalledTimes(1)
+    expect(runEnforcedBoundedDecisionsMock.mock.calls[0]![0]).toMatchObject({
+      userId: 'u1',
+      surface: 'chat_turn',
+      state: 'what is on my list?',
+    })
+    expect(loadOpenProposalMock).toHaveBeenCalledWith(expect.anything(), SESSION)
+
+    runEnforcedBoundedDecisionsMock.mockClear()
+    loadOpenProposalMock.mockClear()
+    await agentChat({ userId: 'u1', messages: [{ role: 'user', content: 'what is on my list?' }] })
+    expect(runEnforcedBoundedDecisionsMock).not.toHaveBeenCalled()
+    expect(loadOpenProposalMock).not.toHaveBeenCalled()
+    // the second turn (no session) carries no Ask hints: byte-identical system prompt
+    expect(llmChatCompletionMock.mock.calls.at(-1)![0].messages[0].content).toBe(
+      AGENT_SYSTEM_PROMPT,
+    )
+  })
+
+  it('shares the single Ask decision call with the open proposal in the same turn (AP-3)', async () => {
+    loadOpenProposalMock.mockResolvedValue(PROPOSAL)
+    decisions('no', 'confirm')
+    storeThoughtsMock.mockResolvedValue({
+      proposalId: 'p1',
+      stored: [{ thoughtId: 't1', text: PROPOSED[0] }],
+    })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(llmJson({ tool: 'store_thoughts', arguments: { proposal_id: 'p1' } }))
+      .mockResolvedValueOnce(llmJson({ answer: 'Stored.' }))
+
+    await agentChat(askInput('yes'))
+
+    expect(runEnforcedBoundedDecisionsMock).toHaveBeenCalledTimes(1)
+    const specs = runEnforcedBoundedDecisionsMock.mock.calls[0]![0].specs as Array<{ id: string }>
+    expect(specs.map((s) => s.id)).toEqual(['capture_worthy', 'proposal_reply'])
+  })
+
+  it('AC-1: answers the question, then proposes the thought in plain text; nothing is stored', async () => {
+    decisions('yes')
+    answerQuestionMock.mockResolvedValue(COMPOSED)
+    proposeThoughtsMock.mockResolvedValue(PROPOSAL)
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'answer_question', arguments: { question: 'what should I plan?' } }),
+      )
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'propose_thoughts', arguments: { thoughts: PROPOSED } }),
+      )
+    const events: Array<{ type: string; tool?: string }> = []
+
+    const result = await agentChat({
+      ...askInput(BOULDERING_QUESTION),
+      onEvent: (e) => events.push(e),
+    })
+
+    // the question is answered...
+    expect(result.response).toMatch(/rest day on Saturday/)
+    // ...and the proposal rides in plain text after it
+    expect(result.appendix).toBe(`LEAD\n\n1. ${PROPOSED[0]}\n\nFOOT`)
+    expect(proposeThoughtsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ thoughts: PROPOSED }),
+    )
+    // asking never stores
+    expect(storeThoughtsMock).not.toHaveBeenCalled()
+    expect(captureThoughtMock).not.toHaveBeenCalled()
+    expect(events.filter((e) => e.type === 'tool_call').map((e) => e.tool)).toEqual([
+      'answer_question',
+      'propose_thoughts',
+    ])
+    // the model was told to propose once the answer_question result came back
+    const toolResultMessage = userMessagesOf(result).find((c) =>
+      c.startsWith('Tool result for answer_question'),
+    )
+    expect(toolResultMessage).toContain('Call propose_thoughts now')
+  })
+
+  it('tells the model per turn what Jev decided, in the system context', async () => {
+    decisions('yes')
+    proposeThoughtsMock.mockResolvedValue(PROPOSAL)
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'propose_thoughts', arguments: { thoughts: PROPOSED } }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'Noted.' }))
+
+    await agentChat(askInput('I started bouldering'))
+
+    expect(systemPrompt().startsWith(AGENT_SYSTEM_PROMPT)).toBe(true)
+    expect(systemPrompt()).toContain('[capture_worthy: yes')
+  })
+
+  it('hands the tools the per-turn Ask state; the model cannot change it', async () => {
+    loadOpenProposalMock.mockResolvedValue(PROPOSAL)
+    decisions('no', 'confirm')
+    storeThoughtsMock.mockResolvedValue({
+      proposalId: 'p1',
+      stored: [{ thoughtId: 't1', text: PROPOSED[0] }],
+    })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'store_thoughts', arguments: { proposal_id: 'p1', thoughts: ['forged'] } }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'Stored.' }))
+
+    await agentChat(askInput('yes'))
+
+    const ctx = storeThoughtsMock.mock.calls[0]![0] as { askTurn: Record<string, unknown> }
+    expect(ctx.askTurn).toMatchObject({
+      sessionId: SESSION,
+      captureWorthy: 'no',
+      proposalReply: 'confirm',
+      storeStarted: false,
+    })
+  })
+
+  it('AC-2: a confirmed reply stores through store_thoughts, visibly, and answers', async () => {
+    loadOpenProposalMock.mockResolvedValue(PROPOSAL)
+    decisions('no', 'confirm')
+    storeThoughtsMock.mockResolvedValue({
+      proposalId: 'p1',
+      stored: [{ thoughtId: 't1', text: PROPOSED[0] }],
+    })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(llmJson({ tool: 'store_thoughts', arguments: { proposal_id: 'p1' } }))
+      .mockResolvedValueOnce(llmJson({ answer: 'Stored in your mesh.' }))
+    const events: Array<{ type: string; tool?: string }> = []
+
+    const result = await agentChat({ ...askInput('yes'), onEvent: (e) => events.push(e) })
+
+    expect(storeThoughtsMock).toHaveBeenCalledWith(expect.anything(), { proposal_id: 'p1' })
+    expect(events.filter((e) => e.type === 'tool_call').map((e) => e.tool)).toEqual([
+      'store_thoughts',
+    ])
+    expect(result.response).toBe('Stored in your mesh.')
+    expect(result.appendix).toBeUndefined()
+    // the model was shown the open proposal and the confirm decision
+    expect(systemPrompt()).toContain('proposal_reply: confirm')
+    expect(systemPrompt()).toContain('p1')
+    expect(proposeThoughtsMock).not.toHaveBeenCalled()
+  })
+
+  it('a store attempt that Jev did not confirm is surfaced to the model as the tool error (AC-6)', async () => {
+    decisions('no')
+    storeThoughtsMock.mockRejectedValue(new Error('Nothing was stored: the user has not confirmed'))
+    llmChatCompletionMock
+      .mockResolvedValueOnce(llmJson({ tool: 'store_thoughts', arguments: { proposal_id: 'p1' } }))
+      .mockResolvedValueOnce(llmJson({ answer: 'I could not store that.' }))
+
+    const result = await agentChat(askInput('what is on my list?'))
+
+    expect(
+      userMessagesOf(result).find((c) => c.startsWith('Tool result for store_thoughts')),
+    ).toContain('Nothing was stored')
+    expect(result.response).toBe('I could not store that.')
+  })
+
+  it('AC-3: a revise reply produces a new proposal and still stores nothing', async () => {
+    loadOpenProposalMock.mockResolvedValue({
+      proposalId: 'p1',
+      thoughts: ['Bouldering on Tuesdays', 'Climbing with Jonas on Tuesdays'],
+    })
+    decisions('no', 'revise')
+    proposeThoughtsMock.mockResolvedValue({
+      proposalId: 'p2',
+      thoughts: ['Bouldering on Tuesdays', 'Climbing with Jonas on Wednesdays'],
+    })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({
+          tool: 'propose_thoughts',
+          arguments: { thoughts: ['Bouldering on Tuesdays', 'Climbing with Jonas on Wednesdays'] },
+        }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'Updated.' }))
+
+    const result = await agentChat(askInput("the second one is wrong, it's Wednesdays"))
+
+    expect(result.appendix).toBe(
+      'LEAD\n\n1. Bouldering on Tuesdays\n2. Climbing with Jonas on Wednesdays\n\nFOOT',
+    )
+    expect(storeThoughtsMock).not.toHaveBeenCalled()
+    expect(systemPrompt()).toContain('proposal_reply: revise')
+    expect(systemPrompt()).toContain('2. Climbing with Jonas on Tuesdays')
+  })
+
+  it('AC-4: an unrelated reply closes the proposal — nothing is stored and nothing is required', async () => {
+    loadOpenProposalMock.mockResolvedValue(PROPOSAL)
+    decisions('no', 'unrelated')
+    answerQuestionMock.mockResolvedValue(COMPOSED)
+    llmChatCompletionMock.mockResolvedValueOnce(
+      llmJson({ tool: 'answer_question', arguments: { question: 'what is on my list?' } }),
+    )
+
+    const result = await agentChat(askInput("what's on my list for next week?"))
+
+    expect(result.response).toMatch(/rest day on Saturday/)
+    expect(result.appendix).toBeUndefined()
+    expect(storeThoughtsMock).not.toHaveBeenCalled()
+    expect(proposeThoughtsMock).not.toHaveBeenCalled()
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('AC-5: a pure question is answered directly, with no proposal', async () => {
+    decisions('no')
+    answerQuestionMock.mockResolvedValue(COMPOSED)
+    llmChatCompletionMock.mockResolvedValueOnce(
+      llmJson({ tool: 'answer_question', arguments: { question: "what's on my list?" } }),
+    )
+
+    const result = await agentChat(askInput("what's on my list for next week?"))
+
+    expect(result.response).toMatch(/rest day on Saturday/)
+    expect(result.appendix).toBeUndefined()
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
+    expect(systemPrompt()).toContain('[capture_worthy: no')
+    expect(proposeThoughtsMock).not.toHaveBeenCalled()
+  })
+
+  it('AC-7: a failed capture_worthy decision shows a visible note and still answers', async () => {
+    runEnforcedBoundedDecisionsMock.mockRejectedValue(new Error('decisions api down'))
+    answerQuestionMock.mockResolvedValue(COMPOSED)
+    llmChatCompletionMock.mockResolvedValueOnce(
+      llmJson({ tool: 'answer_question', arguments: { question: 'what should I plan?' } }),
+    )
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const result = await agentChat(askInput(BOULDERING_QUESTION))
+
+    expect(result.response).toMatch(/rest day on Saturday/)
+    expect(result.appendix).toBe('NOTE capture check failed')
+    expect(systemPrompt()).toMatch(/do not call propose_thoughts or store_thoughts/)
+    expect(proposeThoughtsMock).not.toHaveBeenCalled()
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('proposes first, then answers: the answer ends the turn and the proposal is attached', async () => {
+    decisions('yes')
+    answerQuestionMock.mockResolvedValue(COMPOSED)
+    proposeThoughtsMock.mockResolvedValue(PROPOSAL)
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'propose_thoughts', arguments: { thoughts: PROPOSED } }),
+      )
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'answer_question', arguments: { question: 'what should I plan?' } }),
+      )
+
+    const result = await agentChat(askInput(BOULDERING_QUESTION))
+
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
+    expect(result.response).toMatch(/rest day on Saturday/)
+    expect(result.appendix).toContain(`1. ${PROPOSED[0]}`)
+  })
+
+  it('a failed propose call is retried by the model; the last successful proposal is the one shown', async () => {
+    decisions('yes')
+    proposeThoughtsMock
+      .mockRejectedValueOnce(new Error('thoughts[0] must be at most 500 characters'))
+      .mockResolvedValueOnce(PROPOSAL)
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'propose_thoughts', arguments: { thoughts: ['x'.repeat(600)] } }),
+      )
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'propose_thoughts', arguments: { thoughts: PROPOSED } }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'Noted.' }))
+
+    const result = await agentChat(askInput('I started bouldering'))
+
+    expect(result.response).toBe('Noted.')
+    expect(result.appendix).toBe(`LEAD\n\n1. ${PROPOSED[0]}\n\nFOOT`)
+  })
+
+  it('re-asks twice when the model skips the required propose, then gives a visible note (no silent skip)', async () => {
+    decisions('yes')
+    retrieveThoughtsMock.mockResolvedValue({ results: [] })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'retrieve_thoughts', arguments: { order: 'created_at' } }),
+      )
+      .mockResolvedValue(llmJson({ answer: 'Here you go.' }))
+
+    const result = await agentChat(askInput('I started bouldering, show my recent thoughts'))
+
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(4)
+    const reasks = userMessagesOf(result).filter((c) =>
+      c.startsWith('Error: This turn is not finished'),
+    )
+    expect(reasks).toHaveLength(2)
+    expect(reasks[0]).toContain('{"tool": "propose_thoughts"')
+    expect(result.response).toBe('Here you go.')
+    expect(result.appendix).toBe('NOTE proposal missing')
+    expect(proposeThoughtsMock).not.toHaveBeenCalled()
+  })
+
+  it('a required tool that never succeeds before the step limit still ends with a visible note', async () => {
+    decisions('yes')
+    retrieveThoughtsMock.mockResolvedValue({ results: [] })
+    llmChatCompletionMock.mockResolvedValue(
+      llmJson({ tool: 'retrieve_thoughts', arguments: { order: 'created_at' } }),
+    )
+
+    const result = await agentChat(askInput('I started bouldering, show my recent thoughts'))
+
+    expect(result.response).toMatch(/too many steps/)
+    expect(result.appendix).toBe('NOTE proposal missing')
+  })
+
+  it('a held answer survives the step limit: the user still gets it, plus the note', async () => {
+    decisions('yes')
+    answerQuestionMock.mockResolvedValue(COMPOSED)
+    llmChatCompletionMock.mockResolvedValue(
+      llmJson({ tool: 'answer_question', arguments: { question: 'q' } }),
+    )
+
+    const result = await agentChat(askInput(BOULDERING_QUESTION))
+
+    expect(result.response).toMatch(/rest day on Saturday/)
+    expect(result.appendix).toBe('NOTE proposal missing')
+  })
+
+  it('a confirmed reply whose store never happens ends with a visible note, never a silent "stored"', async () => {
+    loadOpenProposalMock.mockResolvedValue(PROPOSAL)
+    decisions('no', 'confirm')
+    retrieveThoughtsMock.mockResolvedValue({ results: [] })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'retrieve_thoughts', arguments: { order: 'created_at' } }),
+      )
+      .mockResolvedValue(llmJson({ answer: 'Done!' }))
+
+    const result = await agentChat(askInput('yes'))
+
+    expect(storeThoughtsMock).not.toHaveBeenCalled()
+    expect(result.appendix).toBe('NOTE store missing')
+  })
+
+  it('a failed decision with an open proposal says the reply was not applied; nothing is stored', async () => {
+    loadOpenProposalMock.mockResolvedValue(PROPOSAL)
+    runEnforcedBoundedDecisionsMock.mockRejectedValue(new Error('decisions api down'))
+    retrieveThoughtsMock.mockResolvedValue({ results: [] })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'retrieve_thoughts', arguments: { order: 'created_at' } }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'Sorry.' }))
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const result = await agentChat(askInput('yes'))
+
+    expect(result.appendix).toBe('NOTE capture check failed\n\nNOTE reply check failed')
+    expect(storeThoughtsMock).not.toHaveBeenCalled()
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('regression: capture_thought is still rejected in Ask, even on a capture_worthy turn', async () => {
+    decisions('yes')
+    captureThoughtMock.mockResolvedValue({ thoughtId: 't-new', status: 'queued' })
+    proposeThoughtsMock.mockResolvedValue(PROPOSAL)
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'capture_thought', arguments: { raw: 'I started bouldering' } }),
+      )
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'propose_thoughts', arguments: { thoughts: PROPOSED } }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'Noted.' }))
+
+    const result = await agentChat(askInput('I started bouldering'))
+
+    expect(captureThoughtMock).not.toHaveBeenCalled()
+    const rejection = userMessagesOf(result).find((c) =>
+      c.includes('"capture_thought" is not available'),
+    )
+    expect(rejection).toContain('propose_thoughts')
+    expect(rejection).toContain('store_thoughts')
+    expect(result.appendix).toContain(PROPOSED[0])
+  })
+
+  it('regression: a question never stores — store_thoughts is only ever the model asking, the server decides', async () => {
+    decisions('yes')
+    answerQuestionMock.mockResolvedValue(COMPOSED)
+    proposeThoughtsMock.mockResolvedValue(PROPOSAL)
+    llmChatCompletionMock
+      .mockResolvedValueOnce(llmJson({ tool: 'answer_question', arguments: { question: 'q' } }))
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'propose_thoughts', arguments: { thoughts: PROPOSED } }),
+      )
+
+    await agentChat(askInput(BOULDERING_QUESTION))
+
+    expect(storeThoughtsMock).not.toHaveBeenCalled()
+    expect(captureThoughtMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps message_intent as an advisory call that runs beside the Ask decisions', async () => {
+    resolveEnforceKindsMock.mockReturnValue(new Set(['message_intent']))
+    runEnforcedBoundedDecisionsMock.mockImplementation(
+      async (input: { specs: Array<{ id: string }> }) => {
+        const id = input.specs[0]!.id
+        return new Map([[id, choice(id === 'intent' ? 'memory_question' : 'no')]])
+      },
+    )
+    answerQuestionMock.mockResolvedValue(COMPOSED)
+    llmChatCompletionMock.mockResolvedValueOnce(
+      llmJson({ tool: 'answer_question', arguments: { question: 'q' } }),
+    )
+
+    await agentChat(askInput('what is on my list?'))
+
+    const ids = runEnforcedBoundedDecisionsMock.mock.calls.map(
+      (c) => (c[0] as { specs: Array<{ id: string }> }).specs[0]!.id,
+    )
+    expect(ids.sort()).toEqual(['capture_worthy', 'intent'])
+    expect(systemPrompt()).toContain('[detected intent: memory_question]')
+    expect(systemPrompt()).toContain('[capture_worthy: no')
   })
 })

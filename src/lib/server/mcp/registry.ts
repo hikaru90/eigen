@@ -1,3 +1,4 @@
+import { runProposeThoughtsTool, runStoreThoughtsTool } from '$lib/server/mcp/ask-proposal-tools'
 import {
   runForgetIdeaTool,
   runUpdateIdeaTool,
@@ -738,6 +739,46 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     handler: runUnlinkTextFileFromThoughtTool,
     exposeInMcp: false,
   },
+  {
+    name: 'propose_thoughts',
+    description:
+      "Ask only. Propose one or more self-contained thoughts, in the user's own voice, for their mesh. Nothing is stored: the system shows the proposal to the user, who must confirm it in their next message. Allowed only when the turn context says [capture_worthy: yes] or the user asked to change the open proposal. A new proposal replaces the previous one.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        thoughts: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'The thoughts to propose: 1-6 items, each a self-contained statement of at most 500 characters.',
+        },
+      },
+      required: ['thoughts'],
+    },
+    agentArgumentSchema:
+      '{"thoughts": ["string, 1-6 items, each at most 500 characters (required)"]}',
+    handler: runProposeThoughtsTool,
+    exposeInMcp: false,
+  },
+  {
+    name: 'store_thoughts',
+    description:
+      'Ask only. Store the thoughts of the open proposal exactly as they were proposed. Allowed only in the user message directly after the proposal, and only when the turn context says [proposal_reply: confirm]. The stored text always comes from the persisted proposal, never from this call.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        proposal_id: {
+          type: 'string',
+          description: 'The open proposal id given in the turn context.',
+        },
+      },
+      required: ['proposal_id'],
+    },
+    agentArgumentSchema:
+      '{"proposal_id": "string (required — the open proposal id from the turn context)"}',
+    handler: runStoreThoughtsTool,
+    exposeInMcp: false,
+  },
 ]
 
 export const MCP_EXPOSED_TOOL_DEFINITIONS = MCP_TOOL_DEFINITIONS.filter(
@@ -766,11 +807,12 @@ export const MCP_EXPOSED_TOOL_MAP = new Map<string, McpToolHandler>(
 export const MCP_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name)
 
 /**
- * Tools the in-app ask/chat loop may call. The ask surface is ask-only:
- * capture_thought is deliberately excluded so a question typed into Ask can
- * never be stored as a new thought (deterministic surface boundary — no string
- * heuristics deciding "is this a question"). Capturing belongs to the Capture
- * surface and to HTTP MCP clients, both of which keep the tool.
+ * Tools the in-app ask/chat loop may call. capture_thought is deliberately excluded so
+ * nothing typed into Ask is stored on its own (deterministic surface boundary — no string
+ * heuristics deciding "is this a question"). Ask keeps thoughts only through
+ * propose_thoughts → store_thoughts, and the server guard stores only what the user
+ * confirmed. Capturing belongs to the Capture surface and to HTTP MCP clients, both of which
+ * keep capture_thought.
  */
 export const CHAT_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.filter(
   (t) =>

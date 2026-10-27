@@ -1,149 +1,129 @@
 import { describe, expect, it, vi } from 'vitest'
-import { STT_SEGMENT_MAX_AUDIO_BYTES, sttFormatFromMime } from '$lib/server/llm/stt-audio'
 import { readAudioUpload } from './audio-upload'
 
-function binaryRequest(
+function formatFromMime(mime: string): string | null {
+  return { 'audio/webm': 'webm', 'audio/mp4': 'm4a' }[mime] ?? null
+}
+
+function audioRequest(
   body: Blob,
-  {
-    contentType,
-    meta,
-  }: { contentType?: string; meta?: Record<string, unknown> | string | null } = {},
+  { contentType, contentLength }: { contentType?: string; contentLength?: string | null } = {},
 ) {
   const headers = new Headers()
   headers.set('content-type', contentType ?? (body.type || 'application/octet-stream'))
-  if (meta !== null) {
-    headers.set('x-audio-meta', typeof meta === 'string' ? meta : JSON.stringify(meta ?? {}))
-  }
+  if (contentLength) headers.set('content-length', contentLength)
   return {
     headers,
     arrayBuffer: vi.fn(async () => body.arrayBuffer()),
     formData: vi.fn(async () => {
-      throw new Error('formData() must not be called for binary bodies')
+      throw new Error('formData() must not be called: audio arrives as a raw body')
     }),
-  } as unknown as Request
-}
-
-function multipartFormDataRequest(parts: { audio?: File }) {
-  const formData = new FormData()
-  if (parts.audio) formData.append('audio', parts.audio)
-  return {
-    headers: new Headers({ 'content-type': 'multipart/form-data; boundary=x' }),
-    arrayBuffer: vi.fn(async () => {
-      throw new Error('arrayBuffer() must not be called for multipart bodies')
-    }),
-    formData: vi.fn(async () => formData),
   } as unknown as Request
 }
 
 describe('readAudioUpload', () => {
-  it('parses the client segment index from x-audio-meta', async () => {
+  it('reads a raw audio body: bytes, the MIME type and the format it maps to', async () => {
     const upload = await readAudioUpload(
-      binaryRequest(new Blob([new Uint8Array(4)], { type: 'audio/webm' }), {
-        meta: { segment: 3 },
-      }),
-      STT_SEGMENT_MAX_AUDIO_BYTES,
-      sttFormatFromMime,
+      audioRequest(new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/webm' })),
+      1024,
+      formatFromMime,
     )
-    expect(upload.segment).toBe(3)
-  })
-
-  it('ignores a malformed segment index', async () => {
-    for (const segment of [-1, 1.5, '2', null]) {
-      const upload = await readAudioUpload(
-        binaryRequest(new Blob([new Uint8Array(4)], { type: 'audio/webm' }), { meta: { segment } }),
-        STT_SEGMENT_MAX_AUDIO_BYTES,
-        sttFormatFromMime,
-      )
-      expect(upload.segment).toBeUndefined()
-    }
-  })
-
-  it('rejects an oversize segment with the limit in the message', async () => {
-    await expect(
-      readAudioUpload(
-        binaryRequest(new Blob([new Uint8Array(STT_SEGMENT_MAX_AUDIO_BYTES + 1)], { type: 'audio/webm' })),
-        STT_SEGMENT_MAX_AUDIO_BYTES,
-        sttFormatFromMime,
-      ),
-    ).rejects.toMatchObject({
-      status: 400,
-      body: { message: `audio segment exceeds ${STT_SEGMENT_MAX_AUDIO_BYTES} bytes (max 10 s per segment)` },
-    })
-  })
-
-  it('drops a language hint from older clients: the model identifies the spoken language', async () => {
-    const upload = await readAudioUpload(
-      binaryRequest(new Blob([new Uint8Array(12)], { type: 'audio/webm' }), { meta: { language: 'EN' } }),
-      STT_SEGMENT_MAX_AUDIO_BYTES,
-      sttFormatFromMime,
-    )
-    expect(upload.bytes).toHaveLength(12)
+    expect([...upload.bytes]).toEqual([1, 2, 3])
     expect(upload.mimeType).toBe('audio/webm')
-    expect(upload).not.toHaveProperty('language')
+    expect(upload.format).toBe('webm')
   })
 
-  it('defaults to application/octet-stream when headers are absent', async () => {
-    const req = binaryRequest(new Blob([new Uint8Array(8)], { type: 'audio/wav' }))
-    ;(req.headers as Headers).delete('x-audio-meta')
-    const upload = await readAudioUpload(req, STT_SEGMENT_MAX_AUDIO_BYTES, sttFormatFromMime)
-    expect(upload.mimeType).toBe('audio/wav')
+  it('takes the MIME type from content-type and ignores its codecs parameter', async () => {
+    const upload = await readAudioUpload(
+      audioRequest(new Blob([new Uint8Array(4)]), { contentType: 'Audio/MP4; codecs=mp4a.40.2' }),
+      1024,
+      formatFromMime,
+    )
+    expect(upload.mimeType).toBe('audio/mp4')
+    expect(upload.format).toBe('m4a')
   })
 
-  it('rejects an empty binary body', async () => {
+  it('carries nothing but the audio: no segment index, no language', async () => {
+    const upload = await readAudioUpload(
+      audioRequest(new Blob([new Uint8Array(8)], { type: 'audio/webm' })),
+      1024,
+      formatFromMime,
+    )
+    expect(Object.keys(upload).sort()).toEqual(['bytes', 'format', 'mimeType'])
+  })
+
+  it('rejects an empty body', async () => {
     await expect(
       readAudioUpload(
-        binaryRequest(new Blob([new Uint8Array(0)], { type: 'audio/webm' })),
-        STT_SEGMENT_MAX_AUDIO_BYTES,
-        sttFormatFromMime,
+        audioRequest(new Blob([new Uint8Array(0)], { type: 'audio/webm' })),
+        1024,
+        formatFromMime,
       ),
     ).rejects.toMatchObject({ status: 400, body: { message: 'audio file is empty' } })
   })
 
-  it('enforces the byte ceiling on binary bodies', async () => {
+  it('rejects an unsupported MIME type', async () => {
     await expect(
       readAudioUpload(
-        binaryRequest(new Blob([new Uint8Array(16)], { type: 'audio/webm' })),
+        audioRequest(new Blob([new Uint8Array(8)], { type: 'text/plain' })),
+        1024,
+        formatFromMime,
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      body: { message: 'unsupported audio type: text/plain' },
+    })
+  })
+
+  it('names the byte limit and the five minutes when the clip is too large (AC-10)', async () => {
+    await expect(
+      readAudioUpload(
+        audioRequest(new Blob([new Uint8Array(16)], { type: 'audio/webm' })),
         10,
-        sttFormatFromMime,
+        formatFromMime,
       ),
-    ).rejects.toMatchObject({ status: 400, body: { message: 'audio segment exceeds 10 bytes (max 10 s per segment)' } })
+    ).rejects.toMatchObject({
+      status: 400,
+      body: { message: 'audio clip exceeds 10 bytes (max 5 minutes)' },
+    })
   })
 
-  it('rejects unsupported MIME types on binary bodies', async () => {
-    await expect(
-      readAudioUpload(
-        binaryRequest(new Blob([new Uint8Array(8)], { type: 'text/plain' })),
-        STT_SEGMENT_MAX_AUDIO_BYTES,
-        sttFormatFromMime,
-      ),
-    ).rejects.toMatchObject({ status: 400 })
-  })
-
-  it('survives a malformed x-audio-meta header', async () => {
+  it('accepts a clip of exactly the limit', async () => {
     const upload = await readAudioUpload(
-      binaryRequest(new Blob([new Uint8Array(8)], { type: 'audio/webm' }), { meta: 'not-json{[' }),
-      STT_SEGMENT_MAX_AUDIO_BYTES,
-      sttFormatFromMime,
+      audioRequest(new Blob([new Uint8Array(10)], { type: 'audio/webm' })),
+      10,
+      formatFromMime,
     )
-    expect(upload.segment).toBeUndefined()
+    expect(upload.bytes).toHaveLength(10)
   })
 
-  it('reads the legacy multipart path (audio file field)', async () => {
-    const upload = await readAudioUpload(
-      multipartFormDataRequest({
-        audio: new File([new Uint8Array(12)], 'recording.webm', { type: 'audio/webm' }),
-      }),
-      STT_SEGMENT_MAX_AUDIO_BYTES,
-      sttFormatFromMime,
-    )
-    expect(upload.bytes).toHaveLength(12)
-    expect(upload.mimeType).toBe('audio/webm')
-    expect(upload).not.toHaveProperty('language')
+  it('refuses an oversize clip from content-length alone, without reading the body', async () => {
+    const request = audioRequest(new Blob([new Uint8Array(4)], { type: 'audio/webm' }), {
+      contentLength: '999999',
+    })
+    await expect(readAudioUpload(request, 1024, formatFromMime)).rejects.toMatchObject({
+      status: 400,
+      body: { message: 'audio clip exceeds 1024 bytes (max 5 minutes)' },
+    })
+    expect(request.arrayBuffer).not.toHaveBeenCalled()
   })
 
-  it('rejects legacy multipart uploads without an audio file', async () => {
-    await expect(
-      readAudioUpload(multipartFormDataRequest({}), STT_SEGMENT_MAX_AUDIO_BYTES, sttFormatFromMime),
-    ).rejects.toMatchObject({ status: 400 })
+  it('does not trust a smaller content-length: the body itself is measured', async () => {
+    const request = audioRequest(new Blob([new Uint8Array(32)], { type: 'audio/webm' }), {
+      contentLength: '4',
+    })
+    await expect(readAudioUpload(request, 16, formatFromMime)).rejects.toMatchObject({
+      status: 400,
+    })
+  })
+
+  it('does not accept multipart: audio is a raw body only', async () => {
+    const request = audioRequest(new Blob([new Uint8Array(8)]), {
+      contentType: 'multipart/form-data; boundary=x',
+    })
+    await expect(readAudioUpload(request, 1024, formatFromMime)).rejects.toMatchObject({
+      status: 400,
+    })
+    expect(request.formData).not.toHaveBeenCalled()
   })
 })

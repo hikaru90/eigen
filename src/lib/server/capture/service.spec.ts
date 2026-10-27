@@ -219,6 +219,18 @@ describe('captureThought', () => {
     expect(loadThoughtCaptureResultMock).toHaveBeenCalledWith('u1', 'thought-1')
   })
 
+  it('passes the Ask source and the chat provenance through to the queue row', async () => {
+    await captureThought('u1', 'raw input', {
+      source: 'ask',
+      provenance: { askSessionId: 's1', askProposalId: 'p1' },
+    })
+    expect(queueCaptureMock).toHaveBeenCalledWith('u1', 'raw input', {
+      source: 'ask',
+      skipWorker: false,
+      provenance: { askSessionId: 's1', askProposalId: 'p1' },
+    })
+  })
+
   it('awaits enrichQueuedThought when awaitEnrichment is true', async () => {
     await captureThought('u1', 'raw input', { awaitEnrichment: true })
     expect(queueCaptureMock).toHaveBeenCalledWith('u1', 'raw input', {

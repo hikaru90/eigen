@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 
 const VOICE_FIXTURE_PATH = path.join(import.meta.dirname, 'fixtures', 'release-voice.wav')
 
@@ -9,20 +9,27 @@ export function readReleaseVoiceFixture(): Buffer {
   return fs.readFileSync(VOICE_FIXTURE_PATH)
 }
 
+/** What the mocked transcribe endpoint answers for a good clip. */
+export const VOICE_TRANSCRIPT = 'Release smoke voice capture test'
+
 /**
- * Replaces getUserMedia / MediaRecorder so the mic button records the release fixture
- * instead of a real microphone (stable in CI and headed runs). Every recorder instance
- * yields the whole fixture on stop, so each segment the button cuts is a standalone WAV
- * file; the mocked analyser reports silence, so the button cuts a segment ~3.35 s in.
+ * Replaces getUserMedia / MediaRecorder / AudioContext so the mic button records the
+ * release fixture instead of a real microphone (stable in CI and headed runs). One
+ * recorder is one clip: on `stop()` it hands over the whole fixture as a single WAV
+ * `dataavailable`, then `stop`. The analyser reports a moving signal, so the waveform
+ * visibly animates. `window.__voiceMock` counts what the page did, for assertions.
  */
-export async function installVoiceCaptureMocks(page: Page): Promise<void> {
+export async function installVoiceMocks(page: Page): Promise<void> {
   const audioBase64 = readReleaseVoiceFixture().toString('base64')
   await page.addInitScript(
     ({ audioBase64: b64, mimeType }) => {
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
       const fakeBlob = new Blob([bytes], { type: mimeType })
+      const counters = { recorders: 0, timeslices: [] as Array<number | null>, tracksStopped: 0 }
+      ;(window as unknown as { __voiceMock: typeof counters }).__voiceMock = counters
 
       class MockAudioContext {
+        state = 'suspended'
         createMediaStreamSource() {
           return { connect: () => undefined, disconnect: () => undefined }
         }
@@ -31,26 +38,29 @@ export async function installVoiceCaptureMocks(page: Page): Promise<void> {
             fftSize: 256,
             smoothingTimeConstant: 0.8,
             getByteTimeDomainData(samples: Uint8Array) {
-              samples.fill(128)
+              // a swell that moves with the clock: the bars visibly rise and fall
+              const amplitude = 4 + 14 * Math.abs(Math.sin(performance.now() / 400))
+              for (let i = 0; i < samples.length; i++) {
+                samples[i] = 128 + (i % 2 ? amplitude : -amplitude)
+              }
             },
           }
         }
         resume() {
+          this.state = 'running'
           return Promise.resolve()
         }
         close() {
           return Promise.resolve()
         }
       }
-
       window.AudioContext = MockAudioContext as unknown as typeof AudioContext
 
       class FakeMediaRecorder extends EventTarget {
-        static isTypeSupported(mimeType?: string) {
-          // Release fixture is WAV — do not claim webm/opus support or the UI
-          // labels WAV bytes as webm and STT returns empty / errors.
-          if (!mimeType) return true
-          return mimeType.includes('wav') || mimeType.includes('wave')
+        // The release fixture is WAV: claim no webm/mp4 support so the page records with
+        // the recorder default, and the clip is labelled with what its bytes are.
+        static isTypeSupported() {
+          return false
         }
 
         mimeType: string
@@ -62,32 +72,98 @@ export async function installVoiceCaptureMocks(page: Page): Promise<void> {
         constructor(_stream: MediaStream, options?: MediaRecorderOptions) {
           super()
           this.mimeType = options?.mimeType || mimeType
+          counters.recorders += 1
         }
 
-        start() {
+        start(timeslice?: number) {
           this.state = 'recording'
+          counters.timeslices.push(timeslice ?? null)
         }
 
         stop() {
+          if (this.state === 'inactive') return
           this.state = 'inactive'
-          this.ondataavailable?.({ data: fakeBlob } as BlobEvent)
-          this.onstop?.()
+          setTimeout(() => {
+            this.ondataavailable?.({ data: fakeBlob } as BlobEvent)
+            this.onstop?.()
+          }, 0)
         }
       }
+      window.MediaRecorder = FakeMediaRecorder as unknown as typeof MediaRecorder
 
-      navigator.mediaDevices.getUserMedia = async () =>
-        ({
-          getTracks: () => [{ stop: () => undefined }],
-          getAudioTracks: () => [{ stop: () => undefined }],
-        }) as MediaStream
-
-      window.MediaRecorder = FakeMediaRecorder as typeof MediaRecorder
+      navigator.mediaDevices.getUserMedia = async () => {
+        const track = { stop: () => (counters.tracksStopped += 1) }
+        return {
+          getTracks: () => [track],
+          getAudioTracks: () => [track],
+        } as unknown as MediaStream
+      }
     },
     { audioBase64, mimeType: 'audio/wav' },
   )
 }
 
-/** Authenticated single-segment POST to `/api/capture/transcribe-chunk` with the release fixture. */
+export type TranscribeMock = {
+  /** Every request body the endpoint received (the whole clip each time). */
+  bodies: Buffer[]
+  contentTypes: string[]
+  /** The next request fails with this status and message; later ones succeed again. */
+  failNext(status: number, error: string): void
+}
+
+/** Answers `POST /api/capture/transcribe` without calling the provider. */
+export async function mockTranscribeEndpoint(
+  page: Page,
+  transcript = VOICE_TRANSCRIPT,
+): Promise<TranscribeMock> {
+  const failures: Array<{ status: number; error: string }> = []
+  const mock: TranscribeMock = {
+    bodies: [],
+    contentTypes: [],
+    failNext(status, error) {
+      failures.push({ status, error })
+    },
+  }
+  await page.route('**/api/capture/transcribe', async (route) => {
+    const request = route.request()
+    const body = request.postDataBuffer()
+    if (body) mock.bodies.push(body)
+    mock.contentTypes.push(request.headers()['content-type'] ?? '')
+    const failure = failures.shift()
+    if (failure) {
+      await route.fulfill({
+        status: failure.status,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: failure.error }),
+      })
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ transcript }),
+    })
+  })
+  return mock
+}
+
+/**
+ * Keeps Capture off the model: the live read (`/api/capture/read`, an LLM call while typing)
+ * is refused, and a submit is answered with an error instead of storing and enriching a
+ * thought. The specs only look at what the page sends, never at what the server does with it.
+ */
+export async function mockCaptureWithoutLlm(page: Page): Promise<void> {
+  await page.route('**/api/capture/read', (route) => route.abort('failed'))
+  await page.route(/\/api\/capture\/(submit|keep)$/, (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'not under test' }),
+    }),
+  )
+}
+
+/** Authenticated POST of the release fixture to the real `/api/capture/transcribe` (live provider). */
 export async function assertVoiceTranscribeApi(
   page: Page,
   options?: { timeoutMs?: number },
@@ -99,26 +175,16 @@ export async function assertVoiceTranscribeApi(
   await expect
     .poll(
       async () => {
-        const res = await page.request.post('/api/capture/transcribe-chunk', {
-          multipart: {
-            audio: {
-              name: 'release-voice.wav',
-              mimeType: 'audio/wav',
-              buffer,
-            },
-          },
+        const res = await page.request.post('/api/capture/transcribe', {
+          headers: { 'content-type': 'audio/wav' },
+          data: buffer,
         })
 
         if (!res.ok()) {
           const bodyText = await res.text()
-          const transient =
-            res.status() === 429 ||
-            res.status() === 502 ||
-            res.status() === 503 ||
-            (res.status() === 500 && /(?:\b429\b|502|503|rate limit)/i.test(bodyText))
-          if (transient) {
-            return ''
-          }
+          // the server already tried the provider 3 times; only provider-side noise retries here
+          const transient = res.status() === 429 || res.status() === 502 || res.status() === 503
+          if (transient) return ''
           throw new Error(`transcribe API failed (${res.status()}): ${bodyText}`)
         }
 
@@ -137,86 +203,63 @@ export async function assertVoiceTranscribeApi(
   return transcript
 }
 
+function voiceMockCounters(page: Page) {
+  return page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __voiceMock: { recorders: number; timeslices: Array<number | null>; tracksStopped: number }
+        }
+      ).__voiceMock,
+  )
+}
+
 /**
- * Mic button → segmented recording → live partial in the field → stop → final
- * transcript (ordered join of segment transcripts) in the field.
- * Call `installVoiceCaptureMocks` before navigating to `/capture`.
+ * Taps the mic and waits for the voice bar: a moving waveform and a running timer
+ * replace the field, and no transcribe request has been made yet.
  */
-export async function exerciseVoiceCaptureUi(
-  page: Page,
-  options?: { timeoutMs?: number },
-): Promise<void> {
-  const timeoutMs = options?.timeoutMs ?? 120_000
-  const segmentBodies: Buffer[] = []
-  const fullUploads: string[] = []
-  // Read segment bodies through route interception: `request` events don't expose
-  // Blob upload bodies.
-  await page.route('**/api/capture/transcribe-chunk', async (route) => {
-    const body = route.request().postDataBuffer()
-    if (body) segmentBodies.push(body)
-    await route.continue()
-  })
-  await page.route('**/api/capture/transcribe', async (route) => {
-    fullUploads.push(route.request().url())
-    await route.continue()
-  })
-
-  await page.goto('/capture')
-  await expect(
-    page.getByRole('dialog', { name: /Your memory, not theirs\.|Just drop it in\./ }),
-  ).toBeHidden({
-    timeout: 15_000,
-  })
-  const input = page.locator('[data-testid="capture-input"]')
-  await expect(input).toBeVisible()
-
-  const mic = page.getByLabel('Start voice input', { exact: true })
+export async function startVoiceMessage(page: Page, transcribe: TranscribeMock): Promise<Locator> {
+  const mic = page.getByTestId('voice-mic')
   await expect(mic).toBeEnabled({ timeout: 15_000 })
-
-  // voice errors surface through the page's single error line (.page-error, role=status)
-  const errorBanner = page.locator('.page-error').first()
-  const stopMic = page.getByLabel('Stop recording and transcribe', { exact: true })
-
-  async function failOnVoiceError(): Promise<boolean> {
-    if (!(await errorBanner.isVisible().catch(() => false))) return false
-    const message = (await errorBanner.textContent())?.trim() ?? ''
-    if (/(?:\b429\b|502|503|rate limit)/i.test(message)) return true
-    throw new Error(message ? `Voice capture failed: ${message}` : 'Voice capture failed')
-  }
-
+  const requestsBefore = transcribe.bodies.length
   await mic.click()
-  await expect(stopMic).toHaveAttribute('aria-pressed', 'true')
+  const bar = page.getByTestId('voice-bar')
+  await expect(bar).toBeVisible()
 
-  // Still recording: the first pause-cut segment is transcribed and shown as a partial.
-  let partial = ''
+  // the waveform moves: the newest bar changes height while the mic swells
+  const newestBar = page.getByTestId('voice-waveform').locator(':scope > *').last()
+  const seen = new Set<string>()
   await expect
     .poll(
       async () => {
-        if (await failOnVoiceError()) return null
-        partial = (await input.inputValue()).trim()
-        return partial || null
+        seen.add((await newestBar.evaluate((el) => (el as HTMLElement).style.getPropertyValue('--lvl'))) ?? '')
+        return seen.size
       },
-      { timeout: timeoutMs, intervals: [500, 1000, 2000] },
+      { timeout: 10_000, intervals: [150] },
     )
-    .not.toBeNull()
-  await expect(stopMic).toHaveAttribute('aria-pressed', 'true')
-  expect(partial, 'partial transcript').toMatch(/release|voice|smoke|capture|test/i)
+    .toBeGreaterThan(2)
+  // the timer runs
+  await expect(page.getByTestId('voice-timer')).toContainText(/0:0[1-9]/, { timeout: 10_000 })
 
-  await stopMic.click()
-  // the shared writer's right-hand slot: once the field holds the transcript it is the
-  // send button, not the mic (glass-writer.svelte)
-  await expect(page.getByTestId('capture-submit')).toBeVisible({ timeout: timeoutMs })
-  if (await failOnVoiceError()) return
+  expect(transcribe.bodies.length, 'no request while recording').toBe(requestsBefore)
+  const counters = await voiceMockCounters(page)
+  expect(counters.timeslices.at(-1), 'one recorder, 1000 ms timeslice').toBe(1000)
+  return bar
+}
 
-  const finalText = (await input.inputValue()).trim()
-  // earlier text is never rewritten: the final transcript extends the partial
-  expect(finalText.startsWith(partial), `final "${finalText}" extends partial "${partial}"`).toBe(
-    true,
-  )
-  expect(finalText.length).toBeGreaterThan(partial.length)
-  expect(segmentBodies.length, 'one request per segment').toBeGreaterThanOrEqual(2)
-  for (const body of segmentBodies) {
-    expect(body.subarray(0, 4).toString('latin1'), 'segment is a standalone WAV').toBe('RIFF')
+/** After Send: exactly one request carried the whole fixture clip. */
+export function expectWholeClipUploaded(transcribe: TranscribeMock, uploads: number): void {
+  expect(transcribe.bodies, 'one upload per send/retry').toHaveLength(uploads)
+  const fixture = readReleaseVoiceFixture()
+  for (const body of transcribe.bodies) {
+    expect(body.subarray(0, 4).toString('latin1'), 'the clip is a standalone WAV').toBe('RIFF')
+    expect(body.equals(fixture), 'the whole clip, not a piece').toBe(true)
   }
-  expect(fullUploads, 'no full-recording upload').toEqual([])
+  for (const type of transcribe.contentTypes) expect(type).toBe('audio/wav')
+}
+
+export async function expectNoMicrophoneHeld(page: Page): Promise<void> {
+  await expect
+    .poll(async () => (await voiceMockCounters(page)).tracksStopped, { timeout: 10_000 })
+    .toBeGreaterThan(0)
 }

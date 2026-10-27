@@ -92,6 +92,9 @@ export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
     category: 'write',
     icon: 'pencil',
   },
+  // Ask proposes thoughts: nothing is stored until the user confirms (store_thoughts).
+  propose_thoughts: { title: 'Proposing thoughts', category: 'memory', icon: 'list' },
+  store_thoughts: { title: 'Saving to memory', category: 'write', icon: 'save' },
 }
 
 const UNKNOWN_TOOL_VISUAL: ChatToolVisual = {
@@ -142,6 +145,22 @@ export function formatToolArgumentsSummary(
       const t = raw.trim()
       return t.length > 120 ? `${t.slice(0, 117)}…` : t
     }
+  }
+
+  if (tool === 'propose_thoughts') {
+    const thoughts = Array.isArray(args.thoughts)
+      ? args.thoughts.filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+      : []
+    if (thoughts.length > 0) {
+      const first = thoughts[0]!.trim()
+      const head = first.length > 100 ? `${first.slice(0, 97)}…` : first
+      return thoughts.length > 1 ? `${head} (+${thoughts.length - 1} more)` : head
+    }
+  }
+
+  if (tool === 'store_thoughts') {
+    const id = args.proposal_id ?? args.proposalId
+    if (typeof id === 'string' && id.trim()) return `Proposal ${id.slice(0, 8)}…`
   }
 
   if (tool === 'edit_thought') {
@@ -243,6 +262,18 @@ function parseToolResultObject(
     const cat = t.category ? ` (${t.category})` : ''
     const body = t.normalizedText ?? t.snippet ?? '(no text)'
     return { kind: 'text', text: `Saved${cat}: ${body}` }
+  }
+
+  if (tool === 'propose_thoughts' && Array.isArray(parsed.thoughts)) {
+    const thoughts = parsed.thoughts.filter((t): t is string => typeof t === 'string')
+    return { kind: 'lines', lines: thoughts.map((t, i) => `${i + 1}. ${t}`) }
+  }
+
+  if (tool === 'store_thoughts' && Array.isArray(parsed.stored)) {
+    const texts = (parsed.stored as Array<{ text?: unknown }>)
+      .map((row) => (row && typeof row.text === 'string' ? row.text : ''))
+      .filter(Boolean)
+    return { kind: 'lines', lines: ['Saved to memory:', ...texts.map((t, i) => `${i + 1}. ${t}`)] }
   }
 
   if (

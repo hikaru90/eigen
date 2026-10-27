@@ -29,9 +29,11 @@ export type DecisionShadowConfig = {
 /**
  * Bounded decision kinds the decision plane compares (spec §3). Widened with
  * resolution_choice, delete_target, message_intent, open_loop, and
- * salience_band for the upcoming resolution / delete-gate / chat-turn
- * surfaces. `capture_audit` is Jev-only (the capture review's check of what
- * the chat model wrote, docs/planning/capture-feedback.md §4): it has no
+ * salience_band for the resolution / delete-gate / chat-turn surfaces, and
+ * with capture_worthy and proposal_reply for Ask proposing thoughts
+ * (docs/planning/feature-ask-proposes-thoughts.md, surface chat_turn).
+ * `capture_audit` (17 kinds in all) is Jev-only (the capture review's check of
+ * what the chat model wrote, docs/planning/capture-feedback.md §4): it has no
  * chat-judge counterpart, so it is NOT an enforceable kind.
  */
 export type DecisionKind =
@@ -49,6 +51,8 @@ export type DecisionKind =
   | 'message_intent'
   | 'open_loop'
   | 'salience_band'
+  | 'capture_worthy'
+  | 'proposal_reply'
   | 'capture_audit'
 
 /**
@@ -61,7 +65,9 @@ export type DecisionKind =
  * message_intent, open_loop, and salience_band widen the accepted registry
  * ahead of their surfaces — they parse and enforce (fail loud) today and
  * gain their question wiring with the resolution / delete-gate / chat-turn
- * surfaces. Config fail-louds rather than silently ignoring an unknown kind.
+ * surfaces. capture_worthy and proposal_reply run on EVERY Ask turn (not gated
+ * by this setting — listing them only validates the config). Config fail-louds
+ * rather than silently ignoring an unknown kind.
  */
 const ENFORCEABLE_KINDS = [
   'category',
@@ -78,6 +84,8 @@ const ENFORCEABLE_KINDS = [
   'message_intent',
   'open_loop',
   'salience_band',
+  'capture_worthy',
+  'proposal_reply',
 ] as const
 
 export type EnforceableDecisionKind = (typeof ENFORCEABLE_KINDS)[number]

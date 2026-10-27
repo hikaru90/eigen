@@ -1,10 +1,4 @@
-export type TranscribeAudioOptions = {
-  signal?: AbortSignal
-  /** Client segment index; sent in `x-audio-meta` and echoed by the server. */
-  segment?: number
-}
-
-/** A failed `/api/capture/transcribe-chunk` request, keeping the HTTP status (402 = billing). */
+/** A failed `/api/capture/transcribe` request, keeping the HTTP status (402 = billing). */
 export class TranscribeRequestError extends Error {
   readonly status: number
   constructor(status: number, message: string) {
@@ -15,47 +9,10 @@ export class TranscribeRequestError extends Error {
 }
 
 /**
- * File extension derived from a Blob MIME type (used by e2e fixtures to name
- * audio files). Must match the bytes (e.g. WAV fixture must not be labeled
- * `.webm`).
- */
-export function audioUploadExtension(mimeType: string): 'webm' | 'ogg' | 'wav' | 'mp4' {
-  const type = mimeType.toLowerCase()
-  if (type.includes('webm')) return 'webm'
-  if (type.includes('ogg')) return 'ogg'
-  if (type.includes('wav') || type.includes('wave')) return 'wav'
-  if (type.includes('mp4') || type.includes('m4a') || type.includes('aac')) return 'mp4'
-  return 'webm'
-}
-
-/**
- * Structured metadata for a binary audio upload. Sent in the `x-audio-meta`
- * JSON header instead of multipart form fields: raw audio content types
- * (`audio/*`, `application/octet-stream`) are exempt from SvelteKit's CSRF
- * origin check, which rejects cross-origin `multipart/form-data` POSTs with
- * "Cross-site POST form submissions are forbidden" whenever the deployed
- * `ORIGIN` does not exactly match the browser origin behind a proxy.
- */
-export type AudioUploadMeta = { segment?: number }
-
-export function audioUploadHeaders(mimeType: string, meta?: AudioUploadMeta): HeadersInit {
-  const headers: Record<string, string> = {
-    'content-type': mimeType.trim() || 'application/octet-stream',
-  }
-  if (meta?.segment !== undefined) {
-    headers['x-audio-meta'] = JSON.stringify({ segment: meta.segment })
-  }
-  return headers
-}
-
-/**
- * Combines a pre-existing draft with a voice transcript by appending the
- * transcript to the draft — audio capture must not overwrite text the user
- * already typed. Both sides are trimmed and separated by a single space.
- * Returns the draft unchanged when the transcript is empty, and the transcript
- * alone when the draft is empty. Voice partials are cumulative (the ordered
- * join of segment transcripts so far, not a delta), so this is recomputed from the original
- * draft on every partial — no duplication.
+ * Combines a pre-existing draft with a voice transcript by appending the transcript to the
+ * draft — a voice message must not overwrite text the user already typed. Both sides are
+ * trimmed and separated by a single space. Returns the draft unchanged when the transcript
+ * is empty, and the transcript alone when the draft is empty.
  */
 export function appendVoiceTranscript(draft: string, transcript: string): string {
   const text = transcript.trim()
@@ -82,19 +39,24 @@ export async function parseTranscribeErrorResponse(res: Response): Promise<strin
 }
 
 /**
- * Sends one recorded segment (a standalone audio file) to
- * `/api/capture/transcribe-chunk` and returns its transcript. An empty string is
- * a valid result (silence). Any failure throws {@link TranscribeRequestError} —
- * never a silent empty partial.
+ * Sends one whole voice clip to `/api/capture/transcribe` and returns its transcript. An
+ * empty string is a valid result (no speech). Any failure throws
+ * {@link TranscribeRequestError} (or the network's own error) — never a silent empty text.
+ *
+ * The clip goes as the raw request body with its audio MIME type as `content-type`, not as
+ * multipart: raw audio content types are exempt from SvelteKit's CSRF origin check, which
+ * rejects cross-origin `multipart/form-data` POSTs ("Cross-site POST form submissions are
+ * forbidden") whenever the deployed `ORIGIN` does not exactly match the browser origin
+ * behind a proxy. No language hint is sent: the model identifies the spoken language.
  */
-export async function transcribeAudioChunk(
-  segment: Blob,
-  options?: TranscribeAudioOptions,
+export async function transcribeVoiceClip(
+  clip: Blob,
+  options?: { signal?: AbortSignal },
 ): Promise<string> {
-  const res = await fetch('/api/capture/transcribe-chunk', {
+  const res = await fetch('/api/capture/transcribe', {
     method: 'POST',
-    headers: audioUploadHeaders(segment.type, { segment: options?.segment }),
-    body: segment,
+    headers: { 'content-type': clip.type || 'application/octet-stream' },
+    body: clip,
     credentials: 'same-origin',
     signal: options?.signal,
   })

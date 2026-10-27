@@ -131,7 +131,17 @@ describe('resolveDecisionEnforceKinds', () => {
     }
   })
 
-  it('accepts all 14 registry kinds in one setting', () => {
+  it('accepts the Ask kinds capture_worthy and proposal_reply (surface chat_turn)', () => {
+    const kinds = resolveDecisionEnforceKinds({
+      DECISION_ENFORCE_KINDS: 'capture_worthy, PROPOSAL_REPLY',
+    })
+    expect([...kinds].sort()).toEqual(['capture_worthy', 'proposal_reply'])
+    expect(() =>
+      resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: 'capture_worthies' }),
+    ).toThrow(/unknown decision kind "capture_worthies"/)
+  })
+
+  it('accepts all 16 registry kinds in one setting', () => {
     const all = [
       'category',
       'content_role',
@@ -147,9 +157,11 @@ describe('resolveDecisionEnforceKinds', () => {
       'message_intent',
       'open_loop',
       'salience_band',
+      'capture_worthy',
+      'proposal_reply',
     ]
     const kinds = resolveDecisionEnforceKinds({ DECISION_ENFORCE_KINDS: all.join(',') })
-    expect(kinds.size).toBe(14)
+    expect(kinds.size).toBe(16)
     expect([...kinds].sort()).toEqual([...all].sort())
   })
 

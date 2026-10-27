@@ -34,8 +34,6 @@
   let checked = $state<{ title: string; result: BoardCheckResult } | null>(null)
   let working = $state(false)
   let writer = $state<GlassWriter | null>(null)
-  /** The draft when dictation started; transcripts append to it, like Capture. */
-  let voiceBaseText = ''
 
   const shareable = $derived(canShare(text, maxLength) && !busy && !working)
   const current = $derived(checked && checked.title === text.trim() ? checked.result : null)
@@ -103,14 +101,9 @@
   busyLabel={current ? betterCopy.sharing : betterCopy.checking}
   spellcheck={false}
   onsubmit={() => void submit()}
-  onvoicestart={() => {
-    voiceBaseText = text
-  }}
   ontranscript={(transcript) => {
-    text = appendVoiceTranscript(voiceBaseText, transcript)
-  }}
-  onpartialtranscript={(transcript) => {
-    text = appendVoiceTranscript(voiceBaseText, transcript)
+    // the writer shares right after this: the transcript joins what was typed first
+    text = appendVoiceTranscript(text, transcript)
   }}
 >
   {#snippet above()}

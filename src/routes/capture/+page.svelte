@@ -99,8 +99,6 @@
   let raw = $state(pageInputDrafts.capture)
   let fieldEl = $state<HTMLTextAreaElement | null>(null)
   let voiceStopFn = $state<(() => void) | undefined>(undefined)
-  /** Draft text present when the current recording started; transcripts append to it. */
-  let voiceBaseText = ''
 
   /* ————— the reading (read as you type, decision #3 — nothing is stored until Capture) ————— */
 
@@ -928,19 +926,10 @@
   onsubmit={() => void submitCapture()}
   oninput={onFieldInput}
   onkeydown={onFieldKeydown}
-  onvoicestart={() => {
-    voiceBaseText = raw
-  }}
   ontranscript={(text) => {
-    raw = appendVoiceTranscript(voiceBaseText, text)
+    // the writer sends right after this: the transcript joins what was typed first
+    raw = appendVoiceTranscript(raw, text)
     onFieldInput()
-  }}
-  onpartialtranscript={(text) => {
-    raw = appendVoiceTranscript(voiceBaseText, text)
-    onFieldInput()
-  }}
-  onvoiceerror={(message) => {
-    err = message
   }}
 >
 </GlassWriter>
