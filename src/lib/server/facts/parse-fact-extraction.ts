@@ -62,42 +62,6 @@ function fail(index: number | null, detail: string): never {
   )
 }
 
-/**
- * The model named a ref it was never offered: a known person (E…) or a stored fact (F…) that is
- * not in the lists it was shown. A recoverable slip of the model, told apart from every other
- * contract error so the extractor can ask once more. The message is the one `fail` wrote before;
- * `detail` is what the corrective re-ask needs, without the ref the model used.
- */
-export class FactExtractionRefError extends Error {
-  constructor(
-    message: string,
-    readonly detail: {
-      /** Zero-based position of the fact in the reply. */
-      index: number
-      /** Which list the ref should have come from. */
-      list: 'known people' | 'stored facts'
-      /** The key of the reply that held the ref: `entity` (inside `subject`), `confirms` or `supersedes`. */
-      field: 'entity' | 'confirms' | 'supersedes'
-    },
-  ) {
-    super(message)
-    this.name = 'FactExtractionRefError'
-  }
-}
-
-function failRef(
-  index: number,
-  list: FactExtractionRefError['detail']['list'],
-  field: FactExtractionRefError['detail']['field'],
-  message: string,
-): never {
-  throw new FactExtractionRefError(`${FAIL_PREFIX}: fact #${index + 1}: ${message}`, {
-    index,
-    list,
-    field,
-  })
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -132,14 +96,8 @@ function parseSubject(
     return { kind: 'person', label: personLabel, entityId: null }
   }
   const entityId = typeof entity === 'string' ? entities.get(entity) : undefined
-  if (entityId === undefined) {
-    failRef(
-      index,
-      'known people',
-      'entity',
-      `subject entity ${JSON.stringify(entity)} was not offered`,
-    )
-  }
+  if (entityId === undefined)
+    fail(index, `subject entity ${JSON.stringify(entity)} was not offered`)
   return { kind: 'person', label: personLabel, entityId }
 }
 
@@ -224,15 +182,10 @@ export function parseFactExtraction(text: string, refs: FactExtractionRefs): Par
   const claimed = new Set<string>()
   let droppedLowConfidence = 0
 
-  const claimStored = (ref: unknown, field: 'confirms' | 'supersedes', index: number): string => {
+  const claimStored = (ref: unknown, field: string, index: number): string => {
     const factId = typeof ref === 'string' ? refs.facts.get(ref) : undefined
     if (factId === undefined) {
-      failRef(
-        index,
-        'stored facts',
-        field,
-        `${field} ${JSON.stringify(ref)} is not a stored fact that was offered`,
-      )
+      fail(index, `${field} ${JSON.stringify(ref)} is not a stored fact that was offered`)
     }
     return factId
   }

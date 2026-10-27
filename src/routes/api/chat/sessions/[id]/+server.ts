@@ -8,7 +8,7 @@ import { chatSession, chatMessage } from '$lib/server/db/brain.schema'
 export const GET: RequestHandler = async (event) => {
   const user = event.locals.user
   if (!user) error(401, 'Unauthorized')
-  const loaded = await loadChatSession(event.params.id, user.id)
+  const loaded = await loadChatSession(event.params.id)
   if (!loaded) error(404, 'Session not found')
   return json(loaded)
 }

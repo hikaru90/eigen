@@ -7,12 +7,6 @@ import {
 } from '$lib/chat/citation-tokens'
 import { getDb } from '$lib/server/db'
 import { thoughtRelation } from '$lib/server/db/schema'
-import {
-  factSubjectLabel,
-  type FactKind,
-  type FactSubjectKind,
-} from '$lib/server/facts/fact-vocabulary'
-import type { UserFactHit } from '$lib/server/facts/search-user-facts'
 import { loadGroundingProfileForEnrichment } from '$lib/server/grounding/profile'
 import { groundingProfilePromptBlock } from '$lib/server/grounding/prompt-block'
 import { createThoughtEmbedding, createThoughtEmbeddings } from '$lib/server/llm/embedding'
@@ -70,13 +64,6 @@ const STALENESS_THRESHOLD_MS = 6 * 30 * 24 * 60 * 60 * 1000 // ~6 months
 const DEFAULT_COMPOSE_TOP_K = 8
 /** Broader recall for corpus-wide questions (still uses retrieveEvidence + cited compose). */
 const GLOBAL_COMPOSE_TOP_K = 16
-/**
- * Facts kept per question. A fact is one short sentence, so facts have a budget of their own and
- * never take a thought or note slot; a corpus-wide question ("what do you know about me?")
- * integrates more of what is known about the person.
- */
-const DEFAULT_FACT_TOP_K = 8
-const GLOBAL_FACT_TOP_K = 24
 const TEMPORAL_COMPOSE_TOP_K = 18
 const TEMPORAL_SOLVER_KINDS: TemporalQuestionKind[] = [
   'ordering',
@@ -119,22 +106,9 @@ function shouldUsePerHintTemporalSeeds(kind: TemporalQuestionKind, hintCount: nu
   return hintCount >= 1 && TEMPORAL_SOLVER_KINDS.includes(kind)
 }
 
-/** What a fact context item says about the fact (the item's `normalizedText` carries the sentence). */
-export type FactContextDetails = {
-  /** "the user", or the person as the capture named them (e.g. "Mia (friend)"). */
-  subject: string
-  subjectKind: FactSubjectKind
-  factKind: FactKind
-  /** A likely implication of what the user wrote rather than something they said. */
-  inferred: boolean
-}
-
 export type RetrievalContextItem = {
   id: string
-  /** A stored thought, a note's matched passages, or a fact derived from the user's captures. */
-  kind: 'thought' | 'note' | 'fact'
   normalizedText: string
-  /** The thought's category; `note` for notes, `fact` for facts. */
   category: string
   author: 'user' | 'agent'
   authorLabel: string | null
@@ -149,8 +123,6 @@ export type RetrievalContextItem = {
   /** Validity of linked temporal_event rows relative to answer time. */
   temporalStatus: ThoughtTemporalStatus
   temporalEvents: TemporalEventValidity[]
-  /** Facts only. */
-  fact?: FactContextDetails
 }
 
 export type ConflictPair = {
@@ -166,9 +138,7 @@ export type ComposedAnswer = {
   retrieved: RetrievalContextItem[]
   /**
    * Every item given to the answer model, before citation filtering (`retrieved` is a subset):
-   * thoughts first, then matched note excerpts (kind `note`, id = the note id), then facts
-   * (kind `fact`, id = the fact id; an identifier fact holds its `[secure:<id>]` reference, never
-   * the value).
+   * thoughts first, then matched note excerpts (category `note`, id = the note id).
    */
   context: RetrievalContextItem[]
   /** Contradiction pairs detected among retrieved thoughts, if any. */
@@ -295,7 +265,6 @@ export function noteHitToContextItem(hit: TextFileSearchHit): RetrievalContextIt
   const title = hit.title.trim() || 'Untitled note'
   return {
     id: hit.id,
-    kind: 'note',
     normalizedText: `Note "${title}":\n${hit.excerpt}`,
     category: 'note',
     author: hit.author,
@@ -308,56 +277,6 @@ export function noteHitToContextItem(hit: TextFileSearchHit): RetrievalContextIt
     temporalStatus: 'none',
     temporalEvents: [],
   }
-}
-
-/**
- * A fact as a context item: the answer model's evidence, and what evals/tools see. The text names
- * the subject so a fact about another person can never read as the user's; an identifier fact
- * keeps its `[secure:<id>]` reference (the server substitutes the value into the response after
- * generation). Dated by its as-of time.
- */
-export function factHitToContextItem(hit: UserFactHit): RetrievalContextItem {
-  const subject = factSubjectLabel(hit)
-  return {
-    id: hit.id,
-    kind: 'fact',
-    normalizedText: `Fact about ${subject}: ${hit.statement}`,
-    category: 'fact',
-    author: 'user',
-    authorLabel: null,
-    score: hit.score,
-    vectorScore: hit.vectorScore,
-    graphScore: 0,
-    createdAt: hit.asOf,
-    isStale: false,
-    temporalStatus: 'none',
-    temporalEvents: [],
-    fact: {
-      subject,
-      subjectKind: hit.subjectKind,
-      factKind: hit.kind,
-      inferred: hit.inferred,
-    },
-  }
-}
-
-/** Facts are citable by their own id, exactly like thoughts and notes. */
-export function formatFactsForPrompt(items: RetrievalContextItem[]): string {
-  if (items.length === 0) return ''
-  return (
-    "\n\nKnown facts (short statements about people, derived from the user's captures; cite the fact id):\n" +
-    items
-      .map((f) => {
-        const details = f.fact
-        const attributes = [
-          details?.factKind,
-          `as of ${f.createdAt.toISOString().slice(0, 10)}`,
-          ...(details?.inferred ? ['inferred'] : []),
-        ].filter((a): a is string => a !== undefined)
-        return `${canonicalCitationToken(f.id)} ${f.normalizedText} (${attributes.join(', ')})`
-      })
-      .join('\n')
-  )
 }
 
 /** Non-authoritative thematic hints from consolidation (routing only — not citable evidence). */
@@ -490,29 +409,9 @@ const COMPUTED_TIMELINE_PROMPT_SUFFIX = [
   `- Cite solver-derived ordering or day-count facts with [id=${COMPUTED_TIMELINE_CITATION_ID}] (not a thought uuid).`,
 ].join('\n')
 
-/**
- * Appended only when facts were retrieved (docs/planning/user-facts-layer.md): a question without
- * facts gets the unchanged prompt. Rules: facts about other people are not the user's; no
- * personal identifier in an answer unless asked (then the reference token, filled in by the server
- * after generation); "what do you know about me?" is answered from the facts, grouped.
- */
-const KNOWN_FACTS_PROMPT_SUFFIX = [
-  'Known facts rules (only when a "Known facts" section is present in the user message):',
-  '- Known facts are short statements about one person each, derived from what the user wrote. They are evidence like thoughts: cite a fact with [id=<fact id>] using the id from its line, and a cited fact counts as a cited thought for every rule above.',
-  '- Facts about other people are not the user\'s. Only a fact "about the user" describes the user; never attribute a fact about another person (a friend, a colleague, a relative) to the user, and use such a fact only when the question is about that person.',
-  '- A fact marked "inferred" is a likely implication of what the user wrote, not something they said: use it where it bears on the question, but never present it as certain.',
-  '- Personal identifiers (licence plate, email, phone number, address, account / ID / policy number, date of birth) appear in facts only as a reference such as [secure:<id>], never as the value. Never write a reference or any identifier into the Answer or Evidence unless the user explicitly asked for that identifier. When the user asked for it, write the reference exactly as shown, where the value belongs; the system fills in the value after you. Never guess or invent an identifier value.',
-  '- If the question asks what you know about the user in general (for example "what do you know about me?"), answer from the Known facts: group them by theme (preferences, health, habits, activities, circumstances, relationships, plans, constraints, traits), give facts about other people in their own groups named after the person, cite every fact, and mention an identifier fact only as "a <kind of identifier> is stored", without its reference. Put the grouped overview on the single Answer line (groups separated by semicolons), then list the facts under Evidence.',
-].join('\n')
-
-export function buildComposeSystemPrompt(
-  allowComputedCitation: boolean,
-  hasKnownFacts = false,
-): string {
-  const base = allowComputedCitation
-    ? `${SYSTEM_PROMPT}\n\n${COMPUTED_TIMELINE_PROMPT_SUFFIX}`
-    : SYSTEM_PROMPT
-  return hasKnownFacts ? `${base}\n\n${KNOWN_FACTS_PROMPT_SUFFIX}` : base
+export function buildComposeSystemPrompt(allowComputedCitation: boolean): string {
+  if (!allowComputedCitation) return SYSTEM_PROMPT
+  return `${SYSTEM_PROMPT}\n\n${COMPUTED_TIMELINE_PROMPT_SUFFIX}`
 }
 
 function stripDisallowedComputedCitations(answer: string): string {
@@ -587,7 +486,6 @@ function searchHitToContextItem(
 ): RetrievalContextItem {
   return {
     id: hit.id,
-    kind: 'thought',
     normalizedText: hit.normalizedText,
     category: hit.category,
     author: hit.author,
@@ -706,7 +604,6 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     queryEmbedding,
     topK: effectiveTopK,
     noteTopK: TEXT_FILE_COMPOSE_TOP_K,
-    factTopK: scope === 'global' ? GLOBAL_FACT_TOP_K : DEFAULT_FACT_TOP_K,
     weights,
     temporalIntent: queryIntent,
     authorFilter: input.authorFilter,
@@ -821,16 +718,14 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     userId: input.userId,
     items: contextItems,
   })
-  // Notes and facts join the evidence after the thought-only steps above (temporal hydration,
-  // person focus, contradictions). Their citation id is the note id / the fact id.
+  // Notes join the evidence after the thought-only steps above (temporal hydration, person
+  // focus, contradictions). Their citation id is the note id.
   const noteItems = textFileHits.map(noteHitToContextItem)
-  const factItems = evidence.facts.map(factHitToContextItem)
-  const allContextItems = [...contextItems, ...noteItems, ...factItems]
+  const allContextItems = [...contextItems, ...noteItems]
   console.info('[composeAnswer] phase=searching done', {
     durationMs: Date.now() - phaseStart,
     retrievedCount: retrieved.length,
     textFileCount: textFileHits.length,
-    factCount: factItems.length,
     contextCount: allContextItems.length,
     conflictCount: conflicts.length,
     temporalSolverKind: solverResult.kind,
@@ -863,17 +758,12 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
     await input.onProgress?.('composing')
     answer = deterministicAnswer
   } else if (!hasComposableEvidence) {
-    console.info(
-      '[composeAnswer] phase=composing skipped — no retrieved thoughts, text files or facts',
-    )
+    console.info('[composeAnswer] phase=composing skipped — no retrieved thoughts or text files')
     await input.onProgress?.('composing')
     answer = insufficientMemoryAnswer(trimmedQuestion)
   } else {
     const messages: ChatMessage[] = [
-      {
-        role: 'system',
-        content: buildComposeSystemPrompt(allowComputedCitation, factItems.length > 0),
-      },
+      { role: 'system', content: buildComposeSystemPrompt(allowComputedCitation) },
       {
         role: 'user',
         content:
@@ -881,7 +771,6 @@ export async function composeAnswer(input: ComposeAnswerInput): Promise<Composed
           profileBlock +
           `Thoughts:\n${formatThoughtsForPrompt(contextItems, now)}` +
           formatTextFilesForPrompt(textFileHits) +
-          formatFactsForPrompt(factItems) +
           communityThemeBlock +
           computedTimelineBlock +
           formatConflictsForPrompt(conflicts) +

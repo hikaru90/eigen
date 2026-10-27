@@ -33,17 +33,6 @@ export type FactStatus = (typeof FACT_STATUSES)[number]
 export const FACT_SUBJECT_KINDS = ['user', 'person'] as const
 export type FactSubjectKind = (typeof FACT_SUBJECT_KINDS)[number]
 
-/**
- * Who a fact is about, in words: "the user", or the person as the capture named them. A person
- * fact without a label is never presented as the user's.
- */
-export function factSubjectLabel(subject: {
-  subjectKind: FactSubjectKind
-  subjectLabel: string | null
-}): string {
-  return subject.subjectKind === 'user' ? 'the user' : (subject.subjectLabel ?? 'a person')
-}
-
 /** What a secure value is (the label says which one, e.g. "licence plate"). */
 export const SECURE_VALUE_KINDS = [
   'email',

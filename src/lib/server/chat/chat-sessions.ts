@@ -1,7 +1,6 @@
 import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
 import { chatMessage, chatSession } from '$lib/server/db/brain.schema'
-import { resolveSecureReferences } from '$lib/server/facts/secure-values'
 
 /** Ask's session list: newest first, untitled sessions named after their first question. */
 export async function listChatSessions(userId: string) {
@@ -36,12 +35,8 @@ export async function listChatSessions(userId: string) {
 
 export type ChatSessionListRow = Awaited<ReturnType<typeof listChatSessions>>[number]
 
-/**
- * One session and its messages in order, or null when it does not exist (for this tenant), as the
- * user sees it: the assistant's stored answers show a secure value where they hold its reference
- * (an identifier the user asked for). The rows keep the token, and the next turn's model reads it.
- */
-export async function loadChatSession(sessionId: string, userId: string) {
+/** One session and its messages in order, or null when it does not exist (for this tenant). */
+export async function loadChatSession(sessionId: string) {
   const db = getDb()
   const [session] = await db
     .select({ id: chatSession.id, title: chatSession.title })
@@ -65,17 +60,6 @@ export async function loadChatSession(sessionId: string, userId: string) {
   // metadata is a jsonb object column; drizzle types it as unknown.
   return {
     session,
-    messages: await Promise.all(
-      messages.map(async (m) => {
-        const metadata = m.metadata as Record<string, unknown> | null
-        // a final answer is an assistant row without a step variant (tool calls, thinking, errors)
-        const isAnswer = m.role === 'assistant' && !metadata?.variant
-        return {
-          ...m,
-          metadata,
-          content: isAnswer ? await resolveSecureReferences(userId, m.content) : m.content,
-        }
-      }),
-    ),
+    messages: messages.map((m) => ({ ...m, metadata: m.metadata as Record<string, unknown> | null })),
   }
 }

@@ -100,26 +100,6 @@ describe('runAskTurn', () => {
     expect(result.toolCalls).toEqual([])
   })
 
-  it('returns and stores the answer exactly as the agent wrote it: a secure reference stays a token (the harness and the next turn read this form)', async () => {
-    const token = '[secure:11111111-1111-4111-8111-111111111111]'
-    agentChatMock.mockResolvedValue({
-      response: `Answer: Your licence plate is ${token}.\nEvidence:\n- plate [f1]\nUnknown:\n- none`,
-      messages: [],
-    })
-    const { db, writes } = fakeDb([])
-
-    const result = await runAskTurn({
-      db,
-      userId: 'u1',
-      sessionId: 's1',
-      message: "what's my licence plate?",
-    })
-
-    expect(result.answer).toBe(`Your licence plate is ${token}.`)
-    const stored = writes.filter((w) => w.table === chatMessage && w.values?.role === 'assistant')
-    expect(stored.map((w) => w.values?.content)).toEqual([`Your licence plate is ${token}.`])
-  })
-
   it('reports the tool calls the agent made, in order, with failures marked', async () => {
     agentChatMock.mockImplementation(async (input: { onEvent: (e: unknown) => void }) => {
       input.onEvent({

@@ -151,31 +151,6 @@ describe('agentChat', () => {
     expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
   })
 
-  it('hands a reference token through untouched: the loop never substitutes a secure value, in the response or in the messages it returns', async () => {
-    const token = '[secure:11111111-1111-4111-8111-111111111111]'
-    const composed = `Answer: Your licence plate is ${token}.\nEvidence:\n- plate [id=f1]\nUnknown:\n- none`
-    answerQuestionMock.mockResolvedValue({
-      answer: composed,
-      citations: ['f1'],
-      retrieved: [],
-      context: [],
-      conflicts: [],
-    })
-    llmChatCompletionMock.mockResolvedValueOnce(
-      llmJson({ tool: 'answer_question', arguments: { question: "what's my licence plate?" } }),
-    )
-
-    const result = await agentChat({
-      userId: 'u1',
-      messages: [{ role: 'user', content: "what's my licence plate?" }],
-    })
-
-    expect(result.response).toBe(composed)
-    expect(JSON.stringify(result.messages)).toContain(token)
-    // the answer is returned without another model turn, so nothing here is ever shown to the model again
-    expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
-  })
-
   it('mandates answer_question for memory questions in the system prompt', async () => {
     answerQuestionMock.mockResolvedValue({
       answer: 'Answer: Not in memory.\nEvidence:\nUnknown:\n- workplace',

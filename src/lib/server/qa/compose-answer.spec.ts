@@ -8,12 +8,10 @@ import {
   extractProfileDetailsBlock,
   extractQuestionSubjectName,
   extractRetrievalHints,
-  factHitToContextItem,
   findInvalidCitationIds,
   findInvalidProfileCitationIds,
   formatComposedAnswerForUser,
   formatCommunityThemesForPrompt,
-  formatFactsForPrompt,
   formatGroundingProfileForCompose,
   formatThoughtsForPrompt,
   formatTextFilesForPrompt,
@@ -41,9 +39,6 @@ const {
   dbWhereMock,
   loadTemporalContextMock,
   expandPersonalizationQueriesMock,
-  searchUserFactsMock,
-  substituteSecureReferencesMock,
-  resolveSecureReferencesMock,
 } = vi.hoisted(() => ({
   searchThoughtsMock: vi.fn(),
   searchTextFilesMock: vi.fn(),
@@ -60,20 +55,6 @@ const {
   dbWhereMock: vi.fn(),
   loadTemporalContextMock: vi.fn(),
   expandPersonalizationQueriesMock: vi.fn(),
-  searchUserFactsMock: vi.fn(),
-  substituteSecureReferencesMock: vi.fn(),
-  resolveSecureReferencesMock: vi.fn(),
-}))
-
-vi.mock('$lib/server/facts/search-user-facts', () => ({
-  searchUserFacts: searchUserFactsMock,
-}))
-
-// composeAnswer never decrypts an identifier: the answer keeps the reference token, the server
-// substitutes at the response boundary. These mocks exist to prove it is never called here.
-vi.mock('$lib/server/facts/secure-values', () => ({
-  substituteSecureReferences: substituteSecureReferencesMock,
-  resolveSecureReferences: resolveSecureReferencesMock,
 }))
 
 vi.mock('$lib/server/retrieval/service', () => ({
@@ -206,7 +187,6 @@ describe('extractQuestionSubjectName', () => {
 describe('prioritizePersonNamedThoughts', () => {
   const base = (id: string, text: string, score: number): RetrievalContextItem => ({
     id,
-    kind: 'thought',
     normalizedText: text,
     category: 'observation',
     score,
@@ -410,120 +390,6 @@ function noteHit(patch: Record<string, unknown> = {}) {
   }
 }
 
-const SECURE_ID = '11111111-1111-4111-8111-111111111111'
-const PLATE_VALUE = 'B-XY 4711'
-
-/** A `searchUserFacts` hit (user_fact row, decrypted statement). */
-function factHit(patch: Record<string, unknown> = {}) {
-  return {
-    id: 'f_pool',
-    subjectKind: 'user',
-    subjectLabel: null,
-    subjectEntityId: null,
-    statement: 'The user swims at the local pool',
-    kind: 'activity',
-    inferred: false,
-    confidence: 0.9,
-    status: 'active',
-    supersededBy: null,
-    asOf: new Date('2026-03-02T09:00:00.000Z'),
-    secureValueId: null,
-    sourceThoughtIds: [],
-    sourceTextFileIds: [],
-    score: 0.61,
-    vectorScore: 0.61,
-    ...patch,
-  }
-}
-
-const miaFact = () =>
-  factHit({
-    id: 'f_mia',
-    subjectKind: 'person',
-    subjectLabel: 'Mia (friend)',
-    statement: 'Mia (friend) barely drinks water',
-    kind: 'health',
-    inferred: true,
-    asOf: new Date('2026-03-05T09:00:00.000Z'),
-    score: 0.55,
-  })
-
-const plateFact = () =>
-  factHit({
-    id: 'f_plate',
-    statement: `The user's licence plate is [secure:${SECURE_ID}]`,
-    kind: 'circumstance',
-    secureValueId: SECURE_ID,
-    score: 0.7,
-  })
-
-describe('factHitToContextItem', () => {
-  it('a fact about the user: kind fact, its text names the subject, dated by its as-of time', () => {
-    const item = factHitToContextItem(factHit() as never)
-    expect(item).toMatchObject({
-      id: 'f_pool',
-      kind: 'fact',
-      category: 'fact',
-      normalizedText: 'Fact about the user: The user swims at the local pool',
-      author: 'user',
-      authorLabel: null,
-      score: 0.61,
-      vectorScore: 0.61,
-      graphScore: 0,
-      createdAt: new Date('2026-03-02T09:00:00.000Z'),
-      isStale: false,
-      temporalStatus: 'none',
-      temporalEvents: [],
-      fact: { subject: 'the user', subjectKind: 'user', factKind: 'activity', inferred: false },
-    })
-  })
-
-  it('a fact about another person names that person, not the user', () => {
-    const item = factHitToContextItem(miaFact() as never)
-    expect(item.normalizedText).toBe('Fact about Mia (friend): Mia (friend) barely drinks water')
-    expect(item.fact).toEqual({
-      subject: 'Mia (friend)',
-      subjectKind: 'person',
-      factKind: 'health',
-      inferred: true,
-    })
-  })
-
-  it('an identifier fact keeps its reference token and carries no value or embedding', () => {
-    const item = factHitToContextItem(plateFact() as never)
-    expect(item.normalizedText).toBe(
-      `Fact about the user: The user's licence plate is [secure:${SECURE_ID}]`,
-    )
-    expect(JSON.stringify(item)).not.toContain(PLATE_VALUE)
-    expect(JSON.stringify(item).toLowerCase()).not.toContain('embedding')
-  })
-})
-
-describe('formatFactsForPrompt', () => {
-  it('returns an empty string when there are no facts', () => {
-    expect(formatFactsForPrompt([])).toBe('')
-  })
-
-  it('lists each fact with its citable id, subject, statement, kind, as-of date and inferred marker', () => {
-    const block = formatFactsForPrompt(
-      [factHit(), miaFact()].map((h) => factHitToContextItem(h as never)),
-    )
-    expect(block).toContain('Known facts')
-    expect(block).toContain(
-      '[id=f_pool] Fact about the user: The user swims at the local pool (activity, as of 2026-03-02)',
-    )
-    expect(block).toContain(
-      '[id=f_mia] Fact about Mia (friend): Mia (friend) barely drinks water (health, as of 2026-03-05, inferred)',
-    )
-  })
-
-  it('shows an identifier fact by its reference token only', () => {
-    const block = formatFactsForPrompt([factHitToContextItem(plateFact() as never)])
-    expect(block).toContain(`[secure:${SECURE_ID}]`)
-    expect(block).not.toContain(PLATE_VALUE)
-  })
-})
-
 describe('formatTextFilesForPrompt', () => {
   it('returns empty string when no files', () => {
     expect(formatTextFilesForPrompt([])).toBe('')
@@ -567,7 +433,6 @@ describe('composeAnswer', () => {
     fetchRelevantCommunitySummariesMock.mockResolvedValue([])
     searchThoughtsMock.mockResolvedValue(sampleRetrieval)
     searchTextFilesMock.mockResolvedValue([])
-    searchUserFactsMock.mockResolvedValue([])
     createThoughtEmbeddingMock.mockResolvedValue(new Array(1536).fill(0.1))
     createThoughtEmbeddingsMock.mockImplementation(async (_userId: string, texts: string[]) =>
       texts.map(() => new Array(1536).fill(0.1)),
@@ -866,201 +731,6 @@ describe('composeAnswer', () => {
       )
       expect(searchThoughtsMock).not.toHaveBeenCalled()
       expect(searchTextFilesMock).not.toHaveBeenCalled()
-    })
-  })
-
-  describe('user facts (docs/planning/user-facts-layer.md, F2)', () => {
-    const advice = 'What should I eat before my morning run?'
-    const subQueries = ['foods the user avoids', 'health conditions affecting energy']
-    const userMessage = () =>
-      llmChatCompletionMock.mock.calls[0][0].messages.find(
-        (m: { role: string }) => m.role === 'user',
-      ).content as string
-    const systemMessage = () =>
-      llmChatCompletionMock.mock.calls[0][0].messages.find(
-        (m: { role: string }) => m.role === 'system',
-      ).content as string
-
-    it('an advice question searches the facts for the question and every sub-query and puts them in the context and the prompt', async () => {
-      classifyQueryIntentMock.mockResolvedValue({ ...localIntent, personalization: true })
-      expandPersonalizationQueriesMock.mockResolvedValue(subQueries)
-      searchUserFactsMock.mockResolvedValue([factHit()])
-      llmChatCompletionMock.mockResolvedValue(
-        chatResponse(
-          'Answer: A light meal after swimming.\nEvidence:\n- Swims at the local pool [id=f_pool]\nUnknown:\n- none',
-        ),
-      )
-
-      const result = await composeAnswer({ userId: 'u1', question: advice })
-
-      expect(searchUserFactsMock).toHaveBeenCalledTimes(3)
-      expect(
-        searchUserFactsMock.mock.calls.map(([, arg]) => (arg as { query: string }).query),
-      ).toEqual([advice, ...subQueries])
-      const factItem = result.context.find((c) => c.id === 'f_pool')
-      expect(factItem).toMatchObject({
-        kind: 'fact',
-        normalizedText: 'Fact about the user: The user swims at the local pool',
-      })
-      expect(userMessage()).toContain('Known facts')
-      expect(userMessage()).toContain('[id=f_pool]')
-      expect(result.citations).toEqual(['f_pool'])
-      expect(result.retrieved.map((r) => r.id)).toEqual(['f_pool'])
-    })
-
-    it('fact items come after thoughts and notes; thoughts keep their kind', async () => {
-      searchTextFilesMock.mockResolvedValue([noteHit()])
-      searchUserFactsMock.mockResolvedValue([factHit(), miaFact()])
-      const result = await composeAnswer({ userId: 'u1', question: 'coastal activities?' })
-      expect(result.context.map((c) => `${c.kind}:${c.id}`)).toEqual([
-        'thought:t_001',
-        'thought:t_002',
-        'note:f1',
-        'fact:f_pool',
-        'fact:f_mia',
-      ])
-    })
-
-    it("a fact about another person is rendered with its subject and is not the user's", async () => {
-      searchUserFactsMock.mockResolvedValue([miaFact()])
-      await composeAnswer({ userId: 'u1', question: 'how much water should I drink?' })
-      expect(userMessage()).toContain(
-        '[id=f_mia] Fact about Mia (friend): Mia (friend) barely drinks water (health, as of 2026-03-05, inferred)',
-      )
-      expect(userMessage()).not.toContain('Fact about the user: Mia')
-    })
-
-    it('an identifier fact shows only its reference token in the prompt, the context and the logs', async () => {
-      const info = vi.spyOn(console, 'info').mockImplementation(() => {})
-      const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-      searchUserFactsMock.mockResolvedValue([plateFact()])
-
-      const result = await composeAnswer({ userId: 'u1', question: "what's my licence plate?" })
-
-      const token = `[secure:${SECURE_ID}]`
-      expect(userMessage()).toContain(token)
-      expect(result.context.find((c) => c.id === 'f_plate')!.normalizedText).toContain(token)
-      for (const payload of [
-        llmChatCompletionMock.mock.calls,
-        result,
-        info.mock.calls,
-        log.mock.calls,
-      ]) {
-        expect(JSON.stringify(payload)).not.toContain(PLATE_VALUE)
-      }
-      // the value is never even looked up here: substitution is the response boundary's job
-      expect(substituteSecureReferencesMock).not.toHaveBeenCalled()
-      expect(resolveSecureReferencesMock).not.toHaveBeenCalled()
-      info.mockRestore()
-      log.mockRestore()
-    })
-
-    it('"what\'s my licence plate?" is answered with the reference token, substituted only after composeAnswer', async () => {
-      searchUserFactsMock.mockResolvedValue([plateFact()])
-      llmChatCompletionMock.mockResolvedValue(
-        chatResponse(
-          `Answer: Your licence plate is [secure:${SECURE_ID}].\nEvidence:\n- Licence plate on file [id=f_plate]\nUnknown:\n- none`,
-        ),
-      )
-      const result = await composeAnswer({ userId: 'u1', question: "what's my licence plate?" })
-      expect(result.answer).toContain(`[secure:${SECURE_ID}]`)
-      expect(result.answer).not.toContain(PLATE_VALUE)
-      expect(result.citations).toEqual(['f_plate'])
-    })
-
-    it('facts alone are composable evidence', async () => {
-      searchThoughtsMock.mockResolvedValue([])
-      searchUserFactsMock.mockResolvedValue([factHit()])
-      llmChatCompletionMock.mockResolvedValue(
-        chatResponse('Answer: Swimming.\nEvidence:\n- Pool [id=f_pool]\nUnknown:\n- none'),
-      )
-      const result = await composeAnswer({ userId: 'u1', question: 'what sport do I do?' })
-      expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
-      expect(result.citations).toEqual(['f_pool'])
-    })
-
-    it('citing a fact id the answer was not given still throws', async () => {
-      searchUserFactsMock.mockResolvedValue([factHit()])
-      llmChatCompletionMock.mockResolvedValue(
-        chatResponse('Answer: x.\nEvidence:\n- y [id=f_unknown]\nUnknown:\n- none'),
-      )
-      await expect(composeAnswer({ userId: 'u1', question: 'q' })).rejects.toThrow(/f_unknown/)
-    })
-
-    it('facts have their own budget: 8 for a local question, 24 for a corpus-wide one; thought topK is untouched', async () => {
-      await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
-      expect(searchUserFactsMock.mock.calls[0]![1].topK).toBe(8)
-      expect(searchThoughtsMock.mock.calls[0]![0].topK).toBe(8)
-
-      searchUserFactsMock.mockClear()
-      searchThoughtsMock.mockClear()
-      classifyQueryIntentMock.mockResolvedValue({ ...localIntent, scope: 'global' })
-      await composeAnswer({ userId: 'u1', question: 'what do you know about me?' })
-      expect(searchUserFactsMock.mock.calls[0]![1].topK).toBe(24)
-      expect(searchThoughtsMock.mock.calls[0]![0].topK).toBe(16)
-
-      searchUserFactsMock.mockClear()
-      classifyQueryIntentMock.mockResolvedValue(localIntent)
-      await composeAnswer({ userId: 'u1', question: 'carbonara recipe', topK: 3 })
-      expect(searchUserFactsMock.mock.calls[0]![1].topK).toBe(8)
-    })
-
-    it('"what do you know about me?" gives the model every retrieved fact and the grouping rule, and cites them', async () => {
-      classifyQueryIntentMock.mockResolvedValue({ ...localIntent, scope: 'global' })
-      searchUserFactsMock.mockResolvedValue([factHit(), miaFact(), plateFact()])
-      llmChatCompletionMock.mockResolvedValue(
-        chatResponse(
-          'Answer: Activities: swims at the local pool [id=f_pool]; Circumstances: a licence plate is stored [id=f_plate]; Mia (friend): barely drinks water [id=f_mia].\nEvidence:\n- Swims [id=f_pool]\n- Plate on file [id=f_plate]\n- Mia [id=f_mia]\nUnknown:\n- none',
-        ),
-      )
-
-      const result = await composeAnswer({ userId: 'u1', question: 'what do you know about me?' })
-
-      for (const id of ['f_pool', 'f_mia', 'f_plate']) expect(userMessage()).toContain(`[id=${id}]`)
-      expect(systemMessage()).toContain('what do you know about me')
-      expect(systemMessage()).toContain('group them by theme')
-      expect([...result.citations].sort()).toEqual(['f_mia', 'f_plate', 'f_pool'])
-      expect(result.answer).not.toContain('[secure:')
-    })
-
-    it('a floor override reaches the fact search (harness users only)', async () => {
-      const harnessUser = 'public-bench-personamem-v2-capture-gpt-4o-mini-p1'
-      await withEvalRelevanceFloor(0.1, () =>
-        composeAnswer({ userId: harnessUser, question: 'carbonara recipe' }),
-      )
-      expect(searchUserFactsMock).toHaveBeenCalledWith(
-        harnessUser,
-        expect.objectContaining({ minScore: 0.1 }),
-      )
-    })
-
-    it('without facts nothing changes: no section in the prompt, the base system prompt, one LLM call', async () => {
-      await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
-      expect(userMessage()).not.toContain('Known facts')
-      expect(systemMessage()).toBe(buildComposeSystemPrompt(false))
-      expect(llmChatCompletionMock).toHaveBeenCalledTimes(1)
-    })
-
-    it('with facts the system prompt is the base prompt plus the known-facts rules', async () => {
-      searchUserFactsMock.mockResolvedValue([factHit()])
-      await composeAnswer({ userId: 'u1', question: 'carbonara recipe' })
-      expect(systemMessage()).toBe(buildComposeSystemPrompt(false, true))
-      expect(systemMessage().startsWith(buildComposeSystemPrompt(false))).toBe(true)
-    })
-
-    it('a failing fact search fails the answer (no silent answer without facts)', async () => {
-      searchUserFactsMock.mockRejectedValue(new Error('fact search failed'))
-      await expect(composeAnswer({ userId: 'u1', question: 'q' })).rejects.toThrow(
-        'fact search failed',
-      )
-      expect(llmChatCompletionMock).not.toHaveBeenCalled()
-    })
-
-    it('never puts embedding values in the prompt or the returned context', async () => {
-      searchUserFactsMock.mockResolvedValue([factHit({ embedding: [0.1, 0.2] })])
-      const result = await composeAnswer({ userId: 'u1', question: 'q' })
-      expect(userMessage().toLowerCase()).not.toContain('embedding')
-      expect(JSON.stringify(result).toLowerCase()).not.toContain('embedding')
     })
   })
 
@@ -1718,49 +1388,5 @@ describe('compose system prompt — retrieved forget instructions (S2b)', () => 
     expect(prompt.indexOf(rule)).toBeGreaterThan(prompt.indexOf('Hard rules:'))
     expect(prompt.indexOf(rule)).toBeLessThan(prompt.indexOf('Grounding profile rules'))
     expect(buildComposeSystemPrompt(true)).toContain(rule)
-  })
-})
-
-describe('compose system prompt — known facts (F2)', () => {
-  const prompt = buildComposeSystemPrompt(false, true)
-  const factsRules = prompt.slice(buildComposeSystemPrompt(false).length)
-
-  it('is appended only when facts were retrieved, after the base prompt and the computed-timeline suffix', () => {
-    expect(buildComposeSystemPrompt(false)).not.toContain('Known facts')
-    expect(buildComposeSystemPrompt(true)).not.toContain('Known facts')
-    const both = buildComposeSystemPrompt(true, true)
-    expect(both.startsWith(buildComposeSystemPrompt(true))).toBe(true)
-    expect(both.indexOf('Known facts rules')).toBeGreaterThan(
-      both.indexOf('Computed timeline rules'),
-    )
-  })
-
-  it("rule (a): facts about other people are not the user's", () => {
-    expect(factsRules).toMatch(/Facts about other people are not the user's/)
-    expect(factsRules).toMatch(/never attribute a fact about another person[^.]*to the user/i)
-  })
-
-  it('rule (b): no personal identifier in an answer unless asked; when asked, the reference token, never a guessed value', () => {
-    expect(factsRules).toMatch(
-      /Never write a reference or any identifier into the Answer or Evidence unless the user explicitly asked/,
-    )
-    expect(factsRules).toMatch(/\[secure:<id>\]/)
-    expect(factsRules).toMatch(/Never guess or invent an identifier value/)
-  })
-
-  it('rule (c): "what do you know about me?" is answered from the facts, grouped by theme and person, with citations', () => {
-    expect(factsRules).toMatch(/what do you know about me/i)
-    expect(factsRules).toMatch(/group them by theme/)
-    expect(factsRules).toMatch(/cite every fact/i)
-    expect(factsRules).toMatch(/single Answer line/)
-  })
-
-  it('facts are citable evidence and an inferred fact is not presented as certain', () => {
-    expect(factsRules).toMatch(/cite a fact with \[id=<fact id>\]/i)
-    expect(factsRules).toMatch(/inferred/)
-  })
-
-  it('does not add a second line about forgetting to the base contract', () => {
-    expect(factsRules.split('\n').filter((l) => /\bforget\b/i.test(l))).toEqual([])
   })
 })

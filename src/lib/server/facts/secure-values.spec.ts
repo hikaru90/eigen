@@ -11,11 +11,7 @@ vi.mock('$lib/server/crypto/tenant-encryption', () => ({
 
 import { createRecordingDb } from '$lib/test/recording-db'
 import { secureReferenceToken } from './fact-vocabulary'
-import {
-  resolveSecureReferences,
-  SECURE_VALUE_GONE_TEXT,
-  substituteSecureReferences,
-} from './secure-values'
+import { substituteSecureReferences } from './secure-values'
 
 const ID1 = '11111111-1111-4111-8111-111111111111'
 const ID2 = '22222222-2222-4222-8222-222222222222'
@@ -72,41 +68,5 @@ describe('substituteSecureReferences (server-side, after generation)', () => {
     m.state.db = createRecordingDb([[{ id: ID1, valueEncrypted: 'cipher:X' }]]).db
     const out = await substituteSecureReferences('u1', `[secure:${ID1.toUpperCase()}]`)
     expect(out.text).toBe('X')
-  })
-})
-
-describe('resolveSecureReferences (the user-facing form of a stored answer)', () => {
-  it('replaces each token with its value', async () => {
-    m.state.db = createRecordingDb([[{ id: ID1, valueEncrypted: 'cipher:B-XY 4711' }]]).db
-    expect(await resolveSecureReferences('u1', `Plate: ${secureReferenceToken(ID1)}`)).toBe(
-      'Plate: B-XY 4711',
-    )
-  })
-
-  it('a token whose value is gone (forgotten) becomes a neutral "[no longer stored]", never the token or a guess', async () => {
-    m.state.db = createRecordingDb([[{ id: ID1, valueEncrypted: 'cipher:B-XY 4711' }]]).db
-    const out = await resolveSecureReferences(
-      'u1',
-      `${secureReferenceToken(ID1)} / ${secureReferenceToken(ID2)}`,
-    )
-    expect(SECURE_VALUE_GONE_TEXT).toBe('[no longer stored]')
-    expect(out).toBe('B-XY 4711 / [no longer stored]')
-    expect(out).not.toContain('secure:')
-  })
-
-  it('a text without tokens is returned untouched and costs no query', async () => {
-    const rec = createRecordingDb()
-    m.state.db = rec.db
-    expect(await resolveSecureReferences('u1', 'Nothing to resolve.')).toBe('Nothing to resolve.')
-    expect(rec.events).toEqual([])
-  })
-
-  it('a value that itself looks like a token is not resolved a second time', async () => {
-    m.state.db = createRecordingDb([
-      [{ id: ID1, valueEncrypted: `cipher:${secureReferenceToken(ID2)}` }],
-    ]).db
-    expect(await resolveSecureReferences('u1', secureReferenceToken(ID1))).toBe(
-      secureReferenceToken(ID2),
-    )
   })
 })

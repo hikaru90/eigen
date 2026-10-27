@@ -12,10 +12,6 @@
  * Operator decisions baked into the prompt (Q1–Q4): only personally relevant facts about people,
  * also from reference material; inferred facts allowed (confidence >= 0.7 is enforced by code);
  * identifier values are returned separately and never written into a statement.
- *
- * One exception to "one call": a reply that names a person or a stored fact it was never offered
- * is asked again once, with its own reply and a short correction. Every other contract error, and a
- * second wrong reply, throws into the caller's retry ladder.
  */
 
 import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
@@ -31,7 +27,6 @@ import {
   type FactSubjectKind,
 } from './fact-vocabulary'
 import {
-  FactExtractionRefError,
   parseFactExtraction,
   type FactExtractionRefs,
   type ParsedFactExtraction,
@@ -150,70 +145,22 @@ export function buildFactExtractionMessages(input: ExtractUserFactsInput): {
   }
 }
 
-/** "E1" · "E1 to E4": the refs the model was shown, without listing them all. */
-function describeRefs(prefix: 'E' | 'F', count: number): string {
-  return count === 1 ? `${prefix}1` : `${prefix}1 to ${prefix}${count}`
-}
-
-/**
- * The short message that follows a reply naming a ref it was never offered. It says which key was
- * wrong and which refs exist; it does not repeat the ref the model used.
- */
-export function buildRefCorrection(
-  error: FactExtractionRefError,
-  refs: FactExtractionRefs,
-): string {
-  const { index, list, field } = error.detail
-  const where = `fact #${index + 1}`
-  const closing = 'Reply with the corrected JSON object only.'
-  if (list === 'known people') {
-    const offered = refs.entities.size
-    if (offered === 0) {
-      return `Error: ${where}: no Known people were offered, so the subject's "entity" must be null. ${closing}`
-    }
-    return `Error: ${where}: the subject's "entity" is not one of the Known people refs (${describeRefs('E', offered)}). Use one of those refs, or null for a person who is not listed. ${closing}`
-  }
-  const offered = refs.facts.size
-  if (offered === 0) {
-    return `Error: ${where}: no stored facts were offered, so "${field}" cannot be used; give the fact as a plain "add". ${closing}`
-  }
-  return `Error: ${where}: "${field}" is not one of the stored fact refs (${describeRefs('F', offered)}). Use only those refs; a fact that matches none of them is a plain "add". ${closing}`
-}
-
 export async function extractUserFacts(
   input: ExtractUserFactsInput,
 ): Promise<ParsedFactExtraction> {
   const { messages, refs } = buildFactExtractionMessages(input)
-  const ask = (asked: ChatMessage[]) =>
-    llmChatCompletion({
-      userId: input.userId,
-      messages: asked,
-      temperature: 0,
-      responseFormat: 'json_object',
-      logContext: 'user_fact_extraction',
-    })
-  const parse = (raw: unknown) =>
-    evictOnReject(raw, () => {
-      const content = extractChatContent(raw).trim()
-      if (!content) {
-        throw new Error('user fact extraction: empty LLM response')
-      }
-      return parseFactExtraction(content, refs)
-    })
-
-  const raw = await ask(messages)
-  try {
-    return parse(raw)
-  } catch (error) {
-    // A ref the model was never offered is a slip it can fix: ask exactly once more, with its own
-    // reply and a short correction (the rejected reply is already evicted from the eval cache).
-    // Any other problem, or a second wrong reply, fails as before into the ingest retry ladder.
-    if (!(error instanceof FactExtractionRefError)) throw error
-    const retry = await ask([
-      ...messages,
-      { role: 'assistant', content: extractChatContent(raw).trim() },
-      { role: 'user', content: buildRefCorrection(error, refs) },
-    ])
-    return parse(retry)
-  }
+  const raw = await llmChatCompletion({
+    userId: input.userId,
+    messages,
+    temperature: 0,
+    responseFormat: 'json_object',
+    logContext: 'user_fact_extraction',
+  })
+  return evictOnReject(raw, () => {
+    const content = extractChatContent(raw).trim()
+    if (!content) {
+      throw new Error('user fact extraction: empty LLM response')
+    }
+    return parseFactExtraction(content, refs)
+  })
 }

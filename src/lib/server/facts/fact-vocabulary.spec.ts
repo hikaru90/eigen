@@ -7,7 +7,6 @@ import {
   SECURE_VALUE_PLACEHOLDER,
   bindSecureReference,
   countSecurePlaceholders,
-  factSubjectLabel,
   secureReferencePattern,
   secureReferenceToken,
   statementForIndex,
@@ -60,18 +59,5 @@ describe('secure reference tokens', () => {
     expect(
       countSecurePlaceholders(`${SECURE_VALUE_PLACEHOLDER} and ${SECURE_VALUE_PLACEHOLDER}`),
     ).toBe(2)
-  })
-})
-
-describe('factSubjectLabel', () => {
-  it('names the user as "the user" and another person by the label the capture gave', () => {
-    expect(factSubjectLabel({ subjectKind: 'user', subjectLabel: null })).toBe('the user')
-    expect(factSubjectLabel({ subjectKind: 'person', subjectLabel: 'Mia (friend)' })).toBe(
-      'Mia (friend)',
-    )
-  })
-
-  it('never mislabels a person without a label as the user', () => {
-    expect(factSubjectLabel({ subjectKind: 'person', subjectLabel: null })).toBe('a person')
   })
 })

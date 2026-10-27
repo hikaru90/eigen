@@ -27,15 +27,10 @@ export async function chooseFromComposed(input: {
   })
 }
 
-/**
- * The context items as written to answers.jsonl: id, kind, text, score, createdAt - never a
- * vector. A fact is its sentence ("Fact about <subject>: <statement>"); an identifier fact holds
- * only its reference token, so no secure value can reach the run's files.
- */
+/** The context items as written to answers.jsonl: id, text, score, createdAt - never a vector. */
 export function storedContextItems(composed: Pick<ComposedAnswer, 'context'>): RetrievedItem[] {
   return composed.context.map((item) => ({
     id: item.id,
-    kind: item.kind,
     normalizedText: item.normalizedText,
     score: item.score,
     createdAt: item.createdAt.toISOString(),

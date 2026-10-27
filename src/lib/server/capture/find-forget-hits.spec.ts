@@ -54,11 +54,10 @@ function note(id: string, createdAt: string, score: number) {
   }
 }
 
-function evidence(retrieved: unknown[], noteHits: unknown[], facts: unknown[] = []) {
+function evidence(retrieved: unknown[], noteHits: unknown[]) {
   return {
     retrieved,
     noteHits,
-    facts,
     extras: { communityThemes: [], temporalSeeds: [] },
     belowFloor: { thoughts: null, notePassages: null },
     relevanceFloor: 0.22,
@@ -96,8 +95,6 @@ describe('findForgetHits', () => {
         queryEmbedding: [1],
         topK: FORGET_TOP_K_PER_PHRASE,
         noteTopK: FORGET_TOP_K_PER_PHRASE,
-        factTopK: FORGET_TOP_K_PER_PHRASE,
-        factsAsOfBefore: CUTOFF,
         weights: CONTEXT_WEIGHTS.default,
       },
       {
@@ -106,8 +103,6 @@ describe('findForgetHits', () => {
         queryEmbedding: [2],
         topK: FORGET_TOP_K_PER_PHRASE,
         noteTopK: FORGET_TOP_K_PER_PHRASE,
-        factTopK: FORGET_TOP_K_PER_PHRASE,
-        factsAsOfBefore: CUTOFF,
         weights: CONTEXT_WEIGHTS.default,
       },
     ])
@@ -205,48 +200,31 @@ describe('findForgetHits', () => {
       ...over,
     })
 
-    it('reads facts from the shared retrieval (one search path, no second fact search), only facts known BEFORE the forget capture, same wide pool', async () => {
+    it('searches the facts for every phrase with its embedding, only facts known BEFORE the forget capture, same wide pool', async () => {
       m.retrieveMock.mockResolvedValue(evidence([], []))
 
       await findForgetHits({ userId: 'u1', request: 'r', createdBefore: CUTOFF })
 
-      expect(m.searchFactsMock).not.toHaveBeenCalled()
-      expect(m.retrieveMock).toHaveBeenCalledTimes(2)
-      for (const [arg] of m.retrieveMock.mock.calls) {
-        expect(arg).toMatchObject({
-          factTopK: FORGET_TOP_K_PER_PHRASE,
-          factsAsOfBefore: CUTOFF,
-        })
-      }
-    })
-
-    it('a fact the retrieval returned once is exactly one hit (no double hits)', async () => {
-      m.retrieveMock.mockResolvedValueOnce(
-        evidence([], [], [fact('f1', '2026-05-01T00:00:00Z', 0.9)]),
-      )
-      m.retrieveMock.mockResolvedValueOnce(evidence([], [], []))
-      const { hits } = await findForgetHits({ userId: 'u1', request: 'r', createdBefore: CUTOFF })
-      expect(hits.filter((h) => h.kind === 'fact')).toHaveLength(1)
+      expect(m.searchFactsMock).toHaveBeenCalledTimes(2)
+      expect(m.searchFactsMock.mock.calls).toEqual([
+        ['u1', { query: 'surfing', queryEmbedding: [1], topK: FORGET_TOP_K_PER_PHRASE, asOfBefore: CUTOFF }],
+        ['u1', { query: 'waves and boards', queryEmbedding: [2], topK: FORGET_TOP_K_PER_PHRASE, asOfBefore: CUTOFF }],
+      ])
     })
 
     it('a fact is a hit: id, statement in display form, who it is about, kind, as-of and score', async () => {
-      m.retrieveMock.mockResolvedValueOnce(
-        evidence(
-          [],
-          [],
-          [
-            fact('f1', '2026-05-01T00:00:00Z', 0.9),
-            fact('f2', '2026-05-02T00:00:00Z', 0.6, {
-              subjectKind: 'person',
-              subjectLabel: 'Mia (friend)',
-              kind: 'health',
-              inferred: true,
-              statement: 'Mia (friend) keeps getting headaches',
-            }),
-          ],
-        ),
-      )
-      m.retrieveMock.mockResolvedValueOnce(evidence([], []))
+      m.retrieveMock.mockResolvedValue(evidence([], []))
+      m.searchFactsMock.mockResolvedValueOnce([
+        fact('f1', '2026-05-01T00:00:00Z', 0.9),
+        fact('f2', '2026-05-02T00:00:00Z', 0.6, {
+          subjectKind: 'person',
+          subjectLabel: 'Mia (friend)',
+          kind: 'health',
+          inferred: true,
+          statement: 'Mia (friend) keeps getting headaches',
+        }),
+      ])
+      m.searchFactsMock.mockResolvedValueOnce([])
 
       const { hits } = await findForgetHits({ userId: 'u1', request: 'r', createdBefore: CUTOFF })
 
@@ -275,10 +253,10 @@ describe('findForgetHits', () => {
     })
 
     it('merges phrases by best score per fact and sorts facts among thoughts and notes by score', async () => {
-      m.retrieveMock.mockResolvedValueOnce(
-        evidence([thought('t1', '2026-06-01T00:00:00Z', 0.7)], [], [fact('f1', '2026-05-01T00:00:00Z', 0.4)]),
-      )
-      m.retrieveMock.mockResolvedValueOnce(evidence([], [], [fact('f1', '2026-05-01T00:00:00Z', 0.8)]))
+      m.retrieveMock.mockResolvedValueOnce(evidence([thought('t1', '2026-06-01T00:00:00Z', 0.7)], []))
+      m.retrieveMock.mockResolvedValueOnce(evidence([], []))
+      m.searchFactsMock.mockResolvedValueOnce([fact('f1', '2026-05-01T00:00:00Z', 0.4)])
+      m.searchFactsMock.mockResolvedValueOnce([fact('f1', '2026-05-01T00:00:00Z', 0.8)])
 
       const { hits } = await findForgetHits({ userId: 'u1', request: 'r', createdBefore: CUTOFF })
 
@@ -286,19 +264,13 @@ describe('findForgetHits', () => {
     })
 
     it('an identifier fact is judged by its placeholder: neither the value nor the reference id is in the hit', async () => {
-      m.retrieveMock.mockResolvedValueOnce(
-        evidence(
-          [],
-          [],
-          [
-            fact('f1', '2026-05-01T00:00:00Z', 0.9, {
-              statement: "The user's licence plate is [secure:22222222-2222-4222-8222-222222222222]",
-              secureValueId: '22222222-2222-4222-8222-222222222222',
-            }),
-          ],
-        ),
-      )
-      m.retrieveMock.mockResolvedValueOnce(evidence([], []))
+      m.retrieveMock.mockResolvedValue(evidence([], []))
+      m.searchFactsMock.mockResolvedValueOnce([
+        fact('f1', '2026-05-01T00:00:00Z', 0.9, {
+          statement: "The user's licence plate is [secure:22222222-2222-4222-8222-222222222222]",
+          secureValueId: '22222222-2222-4222-8222-222222222222',
+        }),
+      ])
       const { hits } = await findForgetHits({ userId: 'u1', request: 'r', createdBefore: CUTOFF })
       expect(hits[0]).toMatchObject({ text: "The user's licence plate is [secure value]" })
       expect(JSON.stringify(hits)).not.toContain('22222222')

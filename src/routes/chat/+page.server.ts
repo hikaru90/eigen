@@ -19,7 +19,7 @@ export const load: PageServerLoad = async (event) => {
     checkCaptureAllowed(userId),
     getWalletSnapshot(userId),
     listChatSessions(userId),
-    sessionId ? loadChatSession(sessionId, userId) : Promise.resolve(null),
+    sessionId ? loadChatSession(sessionId) : Promise.resolve(null),
     loadAskSuggestions(userId),
   ])
   if (sessionId && !active) throw redirect(303, '/chat')

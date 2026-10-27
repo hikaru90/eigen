@@ -17,15 +17,6 @@ const SCAN_DIRS = ['src', 'evals', 'scripts']
 const READS_THE_VALUE = new Set(['src/lib/server/facts/secure-values.ts'])
 const WRITES_THE_VALUE = new Set(['src/lib/server/facts/user-fact-store.ts'])
 
-/**
- * Where a value may leave the server: the user-facing response of an Ask turn and the display read
- * of a stored session. Both run after generation; neither feeds a prompt, a log or an activity row.
- */
-const SUBSTITUTES_FOR_THE_USER = new Set([
-  'src/lib/server/chat/handle-agent-chat-post.ts',
-  'src/lib/server/chat/chat-sessions.ts',
-])
-
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     if (entry.name === 'node_modules' || entry.name.startsWith('.')) return []
@@ -72,30 +63,6 @@ describe('secure value boundary', () => {
     expect(offenders).toEqual([])
   })
 
-  it('only the response boundaries (Ask turn response, stored-session display) substitute values', () => {
-    const offenders = files
-      .filter(({ path }) => path !== 'src/lib/server/facts/secure-values.ts')
-      .filter(({ path }) => !SUBSTITUTES_FOR_THE_USER.has(path))
-      .filter(({ text }) => /\b(?:resolveSecureReferences|substituteSecureReferences)\b/.test(text))
-      .map(({ path }) => path)
-    expect(offenders).toEqual([])
-  })
-
-  it('the model-facing layers (compose, agent loop, harness) never import the substitution module', () => {
-    const modelFacing = files.filter(
-      ({ path }) =>
-        path.startsWith('src/lib/server/qa/') ||
-        path.startsWith('src/lib/server/llm/') ||
-        path.startsWith('src/lib/server/mcp/') ||
-        path.startsWith('evals/'),
-    )
-    expect(modelFacing.length).toBeGreaterThan(20)
-    const offenders = modelFacing
-      .filter(({ text }) => /facts\/secure-values/.test(text))
-      .map(({ path }) => path)
-    expect(offenders).toEqual([])
-  })
-
   it('keeps the allowlists honest (every entry still does what it is allowed to)', () => {
     for (const path of READS_THE_VALUE) {
       expect(files.find((f) => f.path === path)?.text).toMatch(
@@ -106,9 +73,6 @@ describe('secure value boundary', () => {
       expect(files.find((f) => f.path === path)?.text).toMatch(
         /encryptTenantValue\(\{[^}]*?table:\s*'user_secure_value'/s,
       )
-    }
-    for (const path of SUBSTITUTES_FOR_THE_USER) {
-      expect(files.find((f) => f.path === path)?.text).toMatch(/\bresolveSecureReferences\b/)
     }
   })
 

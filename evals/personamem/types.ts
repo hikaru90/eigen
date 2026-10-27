@@ -66,20 +66,9 @@ export const historySchema = z.object({
 })
 export type ChatHistory = z.infer<typeof historySchema>
 
-/**
- * What a retrieved item is: a stored thought, a note's matched passages, or a fact derived from the
- * user's captures (`Fact about <subject>: <statement>`; an identifier fact holds only its
- * `[secure:<id>]` reference, never the value).
- */
-export const RETRIEVED_ITEM_KINDS = ['thought', 'note', 'fact'] as const
-export const retrievedItemKindSchema = z.enum(RETRIEVED_ITEM_KINDS)
-export type RetrievedItemKind = z.infer<typeof retrievedItemKindSchema>
-
 export const retrievedItemSchema = z
   .object({
     id: z.string(),
-    /** Absent only in rows written before facts existed (those are thoughts or notes). */
-    kind: retrievedItemKindSchema.optional(),
     normalizedText: z.string(),
     score: z.number(),
     createdAt: z.iso.datetime(),

@@ -98,7 +98,7 @@ describe('chat page server load', () => {
       ],
     })
     const result = await load(event('?session=s1'))
-    expect(loadChatSessionMock).toHaveBeenCalledWith('s1', 'u1')
+    expect(loadChatSessionMock).toHaveBeenCalledWith('s1')
     expect(result.activeSessionId).toBe('s1')
     expect(result.messages.map((m) => m.content)).toEqual(['When do I plant?', 'In May.'])
   })
