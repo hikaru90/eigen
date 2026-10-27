@@ -1,7 +1,7 @@
 # Capture feedback: did Eigen store this right?
 
 Status: **draft for the operator (2026-10-27)**. C0 (criteria and `npm run jev:check`), C1
-(record, audit, score; no UI), C2 (the vote) and C3 (MCP tools) are built; C4 and C5 are not. It builds on `main` *after* the
+(record, audit, score; no UI), C2 (the vote), C3 (MCP tools) and C4 (operator page) are built; C5 is not. It builds on `main` *after* the
 capture work moved to branch `benchmark-work`, so it starts once that cut has landed. Risk:
 **high**: it reads every capture after enrichment and writes through the edit path. Planner: Opus.
 Builders: Sonnet subagents, tests first, one phase at a time.
@@ -374,7 +374,21 @@ in the user's own tenant.
     status note, the `mcp` mapping and the exposure; the agent test-drive
     (`capture-review-test-drive.spec.ts`: a real MCP client and server over an in-memory transport,
     fakes for the stores, the job queue and Jev, no network).
-- **C4 — operator page.**
+- **C4 — operator page. Built.**
+  - `/admin/capture-quality` (behind the admin layout's `requireAdmin`; `?harness=1` includes harness
+    accounts, like spend and queue). Counts only: totals (status, weak/sure against the threshold,
+    votes by place with MCP = `voted_on` NULL, votes on unscored reviews, thumbs down without a
+    reason), the score-band calibration table, per part kind the weakest count and the bands, and
+    the reason kinds. The page derives the thumbs-down rates and always shows n.
+  - Server: `capture-review/admin-quality.ts` (`loadCaptureQuality`) reads all tenants with
+    `createAdminSql` and aggregate SQL only: no text, names or ids are selected. Kind lists are bound
+    from the TS constants. The result is parsed with a strict zod schema, so an unknown status, part
+    kind or reason kind throws.
+  - **float4 note:** `score` is a `real`, the part probabilities in `parts` are float8. The score
+    is compared with real-cast bounds (`${0.7}::real`), or a stored 0.7 would count as below 0.7.
+    "Weakest" is computed from the jsonb probabilities only, never against `score`.
+  - Tests: an integration spec on delta counts (exact 0.7, ties, several names, unscored kinds,
+    harness exclusion, a privacy check on the JSON), a page-load spec, a rate-helper spec.
 - **C5 — verification:**
   - Run ~10 made-up captures in a test account, each built to contain one known mistake (wrong
     date, missing name, changed wording, bad split) plus clean ones, and check the scores and the
