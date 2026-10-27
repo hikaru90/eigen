@@ -1,7 +1,10 @@
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   selectQueue: [] as unknown[][],
+  /** The `where` argument of every select, in call order: thought, surfaces, project links, events. */
+  wheres: [] as unknown[],
   select: vi.fn(),
   decryptTenantValue: vi.fn(),
   getUserPreferredTimezone: vi.fn(),
@@ -10,7 +13,11 @@ const mocks = vi.hoisted(() => ({
 /** A drizzle-style chain: every builder step returns itself, awaiting it yields the queued rows. */
 function chain(rows: unknown[]) {
   const self: Record<string, unknown> = {}
-  for (const step of ['from', 'where', 'orderBy', 'limit']) self[step] = () => self
+  for (const step of ['from', 'innerJoin', 'orderBy', 'limit']) self[step] = () => self
+  self.where = (condition: unknown) => {
+    mocks.wheres.push(condition)
+    return self
+  }
   self.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
     Promise.resolve(rows).then(resolve, reject)
   return self
@@ -48,14 +55,23 @@ const eventRow = {
   parseMetadata: {},
 }
 
-/** The three queries in the order the loader runs them: thought, names, events. */
-function queue(thought: unknown[], names: unknown[] = [], events: unknown[] = []) {
-  mocks.selectQueue.splice(0, mocks.selectQueue.length, thought, names, events)
+/**
+ * The queries in the order the loader runs them: thought, mention surfaces, project links, events.
+ * `projects` are the labels of the project entities the thought is linked to.
+ */
+function queue(
+  thought: unknown[],
+  names: unknown[] = [],
+  events: unknown[] = [],
+  projects: unknown[] = [],
+) {
+  mocks.selectQueue.splice(0, mocks.selectQueue.length, thought, names, projects, events)
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.selectQueue.length = 0
+  mocks.wheres.length = 0
   mocks.select.mockImplementation(() => chain(mocks.selectQueue.shift() ?? []))
   mocks.getUserPreferredTimezone.mockResolvedValue('Europe/Berlin')
   mocks.decryptTenantValue.mockImplementation(async ({ ciphertext }: { ciphertext: string }) =>
@@ -159,6 +175,90 @@ describe('loadCaptureAuditInput', () => {
     it('has no names when nothing was found, and skips blank surfaces', async () => {
       queue([thoughtRow], [{ surface: '   ' }])
       expect((await loadCaptureAuditInput({ userId: 'u1', thoughtId: 't1' }))?.names).toEqual([])
+    })
+
+    describe('project names', () => {
+      // A project mention leaves no entity_resolution_log row; the project the capture is linked to
+      // is persisted as a thought_entity link to a project entity.
+      it('adds the canonical label of a project the thought is linked to, after the logged surfaces', async () => {
+        queue([thoughtRow], [{ surface: 'Priya' }], [], [{ label: 'Eigen' }])
+
+        const input = await loadCaptureAuditInput({ userId: 'u1', thoughtId: 't1' })
+
+        expect(input?.names).toEqual([
+          { ref: 'n1', surface: 'Priya' },
+          { ref: 'n2', surface: 'Eigen' },
+        ])
+      })
+
+      it('names a project even when the capture logged no surface at all', async () => {
+        queue([thoughtRow], [], [], [{ label: 'Eigen' }])
+        expect((await loadCaptureAuditInput({ userId: 'u1', thoughtId: 't1' }))?.names).toEqual([
+          { ref: 'n1', surface: 'Eigen' },
+        ])
+      })
+
+      it('does not repeat a project label that is also a logged surface (same trimmed string)', async () => {
+        queue(
+          [thoughtRow],
+          [{ surface: 'Eigen' }, { surface: 'Priya' }],
+          [],
+          [{ label: ' Eigen ' }],
+        )
+
+        const input = await loadCaptureAuditInput({ userId: 'u1', thoughtId: 't1' })
+
+        expect(input?.names).toEqual([
+          { ref: 'n1', surface: 'Eigen' },
+          { ref: 'n2', surface: 'Priya' },
+        ])
+      })
+
+      it('does not repeat a project label linked twice, and keeps the order the links were made in', async () => {
+        queue(
+          [thoughtRow],
+          [{ surface: 'Anna' }],
+          [],
+          [{ label: 'Eigen' }, { label: 'Launch' }, { label: 'Eigen' }, { label: '  ' }],
+        )
+
+        const input = await loadCaptureAuditInput({ userId: 'u1', thoughtId: 't1' })
+
+        expect(input?.names).toEqual([
+          { ref: 'n1', surface: 'Anna' },
+          { ref: 'n2', surface: 'Eigen' },
+          { ref: 'n3', surface: 'Launch' },
+        ])
+      })
+
+      it("treats a different spelling as a different name: whether it is the same is Jev's question", async () => {
+        queue([thoughtRow], [{ surface: 'eigen' }], [], [{ label: 'Eigen' }])
+        const input = await loadCaptureAuditInput({ userId: 'u1', thoughtId: 't1' })
+        expect(input?.names.map((n) => n.surface)).toEqual(['eigen', 'Eigen'])
+      })
+
+      it("looks only at this thought's links to project entities, of any link source", async () => {
+        queue([thoughtRow], [], [], [{ label: 'Eigen' }])
+        await loadCaptureAuditInput({ userId: 'u1', thoughtId: 't1' })
+
+        // 3rd select = project links (thought, surfaces, project links, events)
+        const dialect = new PgDialect()
+        const projectWhere = mocks.wheres[2] as Parameters<PgDialect['sqlToQuery']>[0]
+        const { sql: text, params } = dialect.sqlToQuery(projectWhere)
+        expect(text).toMatch(/"thought_entity"\."user_id" = \$\d/)
+        expect(text).toMatch(/"thought_entity"\."thought_id" = \$\d/)
+        expect(text).toMatch(/"canonical_entity"\."entity_type" = \$\d/)
+        expect(text).toMatch(/"canonical_entity"\."project_status" is not null/)
+        expect(params).toEqual(['u1', 't1', 'project'])
+        // no filter on the link source: a mention, the enrich LLM's decision or the user's pick all count
+        expect(text).not.toMatch(/"source"/)
+      })
+
+      it('feeds the audit questions a name question for the project', async () => {
+        queue([thoughtRow], [], [], [{ label: 'Eigen' }])
+        const input = await loadCaptureAuditInput({ userId: 'u1', thoughtId: 't1' })
+        expect(Object.keys(buildCaptureAuditRequest(input!).questions)).toContain('name:n1')
+      })
     })
   })
 
