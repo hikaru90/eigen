@@ -5,6 +5,7 @@ export const OVERNIGHT_CONSOLIDATION_JOB = 'overnight_consolidation' as const
 export const ONBOARDING_GROUNDING_PUSH_JOB = 'onboarding_grounding_push' as const
 export { WEBHOOK_DELIVERY_JOB }
 export { ERPNEXT_INVOICE_PUSH_JOB } from '$lib/server/billing/erpnext-invoice-push'
+export { CAPTURE_REVIEW_AUDIT_JOB } from '$lib/server/capture-review/job'
 export const OVERNIGHT_CONSOLIDATION_TASK = SLEEP_CONSOLIDATION_TASK_ID
 
 export const DEFAULT_OVERNIGHT_HOUR = 2

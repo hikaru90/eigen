@@ -21,6 +21,7 @@ const {
   resolveEnforceKindsMock,
   runDecisionModelMock,
   logActivityCallMock,
+  enqueueUserJobMock,
 } = vi.hoisted(() => ({
   getDbMock: vi.fn(),
   createThoughtEmbeddingMock: vi.fn(),
@@ -42,6 +43,7 @@ const {
   resolveEnforceKindsMock: vi.fn(),
   runDecisionModelMock: vi.fn(),
   logActivityCallMock: vi.fn(),
+  enqueueUserJobMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/db', () => ({ getDb: getDbMock }))
@@ -65,7 +67,8 @@ vi.mock('$lib/server/capture/service', () => ({
 }))
 // The retry wrapper has its own dedicated spec (retry.spec.ts); pass through here so
 // this spec exercises enrich-queued-thought's own branches deterministically.
-vi.mock('$lib/server/ingest/retry', () => ({
+vi.mock('$lib/server/ingest/retry', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/server/ingest/retry')>()),
   runIngestWithRetries: runIngestWithRetriesMock,
 }))
 vi.mock('$lib/server/memory/entity-graph-enrichment-context', () => ({
@@ -90,6 +93,8 @@ vi.mock('$lib/server/agents/project-context', () => ({
 vi.mock('$lib/server/activity/log-call', () => ({
   logActivityCall: logActivityCallMock,
 }))
+// The capture review is real here (parts builder + upsert against the DB stub); only the job queue is faked.
+vi.mock('$lib/server/job-queue/enqueue', () => ({ enqueueUserJob: enqueueUserJobMock }))
 // decision-plane stays REAL — only its OpenRouter client is mocked, so these
 // tests exercise the actual enforcement/settle contract.
 vi.mock('$lib/server/llm/decision-client', async (importOriginal) => {
@@ -102,6 +107,8 @@ vi.mock('$lib/server/llm/decision-client', async (importOriginal) => {
   }
 })
 
+import { captureReview } from '$lib/server/db/schema'
+import { runEnforcedPerItemDecisions } from '$lib/server/llm/decision-plane'
 import { enrichQueuedThought, processCaptureEnrichQueue } from './enrich-queued-thought'
 
 /** Chainable select-step: supports `.limit()` and bare `await` (drizzle-style thenable). */
@@ -129,8 +136,22 @@ function makeDb(selectQueue: unknown[][]) {
   const updateSet = vi.fn(() => ({ where: updateWhere }))
   const update = vi.fn(() => ({ set: updateSet }))
   const insertValues = vi.fn(async () => undefined)
-  const insert = vi.fn(() => ({ values: insertValues }))
-  return { select, update, updateSet, updateWhere, insert, insertValues }
+  // capture_review is upserted (insert ... on conflict); every other table is a plain insert.
+  const reviewConflict = vi.fn(async (_config: unknown) => undefined)
+  const reviewValues = vi.fn((_values: unknown) => ({ onConflictDoUpdate: reviewConflict }))
+  const insert = vi.fn((table: unknown) =>
+    table === captureReview ? { values: reviewValues } : { values: insertValues },
+  )
+  return {
+    select,
+    update,
+    updateSet,
+    updateWhere,
+    insert,
+    insertValues,
+    reviewValues,
+    reviewConflict,
+  }
 }
 
 const baseRow = {
@@ -215,6 +236,7 @@ describe('enrichQueuedThought', () => {
     resolveEnforceKindsMock.mockReturnValue(new Set())
     resolveShadowConfigMock.mockReturnValue(null)
     logActivityCallMock.mockResolvedValue(undefined)
+    enqueueUserJobMock.mockResolvedValue({ enqueued: true, jobId: 'job-1' })
   })
 
   function decisionResponse(answers: Record<string, { choice: string; probabilities: Record<string, number> }>) {
@@ -1093,6 +1115,317 @@ describe('enrichQueuedThought', () => {
       expect.objectContaining({ userId: 'u1', thoughtId: 't1', message: 'boom' }),
     )
     errorSpy.mockRestore()
+  })
+
+  describe('capture review at the end of enrichment', () => {
+    const personEntityKind = {
+      id: 'ek-p',
+      key: 'person',
+      name: 'Person',
+      definition: 'A human being',
+      active: true,
+      kindType: 'entity_type',
+      neverStale: false,
+    }
+
+    /** One answer per question id, keyed exactly like the real calls (`entity_type:m1`, ...). */
+    const JEV_ANSWERS: Record<string, { choice: string; probabilities: Record<string, number> }> = {
+      content_role: { choice: 'thought_only', probabilities: { thought_only: 0.8, split: 0.2 } },
+      category: { choice: 'idea', probabilities: { idea: 0.6, task: 0.4 } },
+      'entity_type:m1': { choice: 'person', probabilities: { person: 0.82 } },
+      'temporal_kind:t1': { choice: 'deadline', probabilities: { deadline: 0.74, reminder: 0.26 } },
+      open_loop: { choice: 'actionable', probabilities: { actionable: 0.5, closed: 0.5 } },
+      salience_band: { choice: 'high', probabilities: { high: 0.45, low: 0.55 } },
+    }
+
+    function fakeJev() {
+      runDecisionModelMock.mockImplementation(
+        async (_config: unknown, request: { questions: Record<string, unknown> }) =>
+          decisionResponse(
+            Object.fromEntries(Object.keys(request.questions).map((id) => [id, JEV_ANSWERS[id]])),
+          ),
+      )
+    }
+
+    function enforceEverything() {
+      resolveEnforceKindsMock.mockReturnValue(
+        new Set([
+          'category',
+          'content_role',
+          'entity_type',
+          'temporal_kind',
+          'open_loop',
+          'salience_band',
+        ]),
+      )
+      resolveShadowConfigMock.mockReturnValue({ apiKey: 'k', model: 'm' })
+      fakeJev()
+      loadEnrichmentContextMock.mockResolvedValue({
+        ...baseContext,
+        ontology: { ...baseContext.ontology, entityKinds: [personEntityKind] },
+      })
+      loadEntityGraphEnrichmentContextMock.mockResolvedValue({
+        communityExcerpts: [],
+        graphEntities: [],
+      })
+      extractEnrichThoughtBundleMock.mockResolvedValue({
+        ...baseBundle,
+        entityGraph: {
+          mentions: [{ surface: 'Anna', entityType: 'person', confidence: 0.8 }],
+          triples: [],
+        },
+      })
+      // Temporal kinds are decided inside enrichThought (a different file): the recorder must follow.
+      enrichThoughtMock.mockImplementation(async () => {
+        await runEnforcedPerItemDecisions({
+          userId: 'u1',
+          surface: 'enrich_queued',
+          kind: 'temporal_kind',
+          state: 'raw input',
+          criteria: { deadline: 'A date by which something must be done.', reminder: 'A note.' },
+          items: [{ ref: 't1', instructions: 'Which kind is "Friday"?', llmChoice: 'reminder' }],
+        })
+      })
+    }
+
+    it('records a pending_audit review with the enforced Jev decisions and queues one audit job', async () => {
+      enforceEverything()
+      const db = standardDbQueue()
+      getDbMock.mockReturnValue(db)
+
+      await enrichQueuedThought('u1', 't1')
+
+      expect(db.reviewValues).toHaveBeenCalledTimes(1)
+      expect(db.reviewValues).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'u1',
+          thoughtId: 't1',
+          score: null,
+          status: 'pending_audit',
+          auditError: null,
+          // content_role (early), entity_type (before settle), category (settle), temporal_kind
+          // (inside enrichThought). open_loop and salience_band are decided too but not reviewed.
+          parts: [
+            {
+              part: 'content_role',
+              ref: 'content_role',
+              engine: 'jev_decision',
+              label: 'thought_only',
+              probability: 0.8,
+            },
+            {
+              part: 'entity_type',
+              ref: 'm1',
+              engine: 'jev_decision',
+              label: 'person',
+              probability: 0.82,
+            },
+            {
+              part: 'category',
+              ref: 'category',
+              engine: 'jev_decision',
+              label: 'idea',
+              probability: 0.6,
+            },
+            {
+              part: 'temporal_kind',
+              ref: 't1',
+              engine: 'jev_decision',
+              label: 'deadline',
+              probability: 0.74,
+            },
+          ],
+        }),
+      )
+
+      expect(enqueueUserJobMock).toHaveBeenCalledTimes(1)
+      expect(enqueueUserJobMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'u1',
+          jobType: 'capture_review_audit',
+          payload: { thoughtId: 't1' },
+          maxAttempts: 4,
+        }),
+      )
+    })
+
+    it('holds no user text in the review it writes', async () => {
+      enforceEverything()
+      const db = standardDbQueue()
+      getDbMock.mockReturnValue(db)
+
+      await enrichQueuedThought('u1', 't1')
+
+      const written = JSON.stringify([
+        db.reviewValues.mock.calls,
+        db.reviewConflict.mock.calls.map((call) => (call[0] as { set: unknown }).set),
+      ])
+      expect(written).not.toContain('Anna')
+      expect(written).not.toContain('raw input')
+      expect(written).not.toContain('Friday')
+    })
+
+    it('writes the review after the queue row is complete and the enriched notification went out', async () => {
+      enforceEverything()
+      const db = standardDbQueue()
+      getDbMock.mockReturnValue(db)
+
+      await enrichQueuedThought('u1', 't1')
+
+      const reviewOrder = db.reviewValues.mock.invocationCallOrder[0]
+      expect(markEnrichQueueCompleteMock.mock.invocationCallOrder[0]).toBeLessThan(reviewOrder)
+      expect(notifyThoughtEnrichedMock.mock.invocationCallOrder[0]).toBeLessThan(reviewOrder)
+    })
+
+    it('records a review with no parts when Jev decided nothing (the audit still scores it)', async () => {
+      const db = standardDbQueue()
+      getDbMock.mockReturnValue(db)
+
+      await enrichQueuedThought('u1', 't1')
+
+      expect(db.reviewValues).toHaveBeenCalledWith(
+        expect.objectContaining({ parts: [], status: 'pending_audit' }),
+      )
+      expect(enqueueUserJobMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('upserts on the thought and leaves the vote columns alone', async () => {
+      enforceEverything()
+      const db = standardDbQueue()
+      getDbMock.mockReturnValue(db)
+
+      await enrichQueuedThought('u1', 't1')
+
+      const config = db.reviewConflict.mock.calls[0][0] as {
+        target: { name: string }
+        set: Record<string, unknown>
+      }
+      expect(config.target.name).toBe('thought_id')
+      expect(Object.keys(config.set).sort()).toEqual([
+        'auditError',
+        'parts',
+        'score',
+        'status',
+        'updatedAt',
+      ])
+      expect(config.set).toMatchObject({ score: null, status: 'pending_audit', auditError: null })
+    })
+
+    it('re-enrichment upserts the same thought again with fresh parts (no second row, no accumulation)', async () => {
+      enforceEverything()
+      const first = standardDbQueue()
+      getDbMock.mockReturnValue(first)
+      await enrichQueuedThought('u1', 't1')
+
+      JEV_ANSWERS.category = { choice: 'task', probabilities: { task: 0.9, idea: 0.1 } }
+      const second = standardDbQueue()
+      getDbMock.mockReturnValue(second)
+      try {
+        await enrichQueuedThought('u1', 't1')
+      } finally {
+        JEV_ANSWERS.category = { choice: 'idea', probabilities: { idea: 0.6, task: 0.4 } }
+      }
+
+      const firstParts = (first.reviewConflict.mock.calls[0][0] as { set: { parts: unknown[] } })
+        .set.parts
+      const secondParts = (second.reviewConflict.mock.calls[0][0] as { set: { parts: unknown[] } })
+        .set.parts
+      expect(secondParts).toHaveLength(firstParts.length)
+      expect(secondParts).toContainEqual(
+        expect.objectContaining({ part: 'category', label: 'task', probability: 0.9 }),
+      )
+      expect(secondParts).not.toContainEqual(
+        expect.objectContaining({ part: 'category', label: 'idea' }),
+      )
+      expect(enqueueUserJobMock).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps only the decisions of the attempt that succeeded when the ladder retried', async () => {
+      enforceEverything()
+      // First attempt: content_role is decided (0.8), then the bundle call fails. Second attempt succeeds.
+      extractEnrichThoughtBundleMock.mockRejectedValueOnce(new Error('bundle timeout'))
+      runIngestWithRetriesMock.mockImplementation(async (op: () => Promise<unknown>) => {
+        try {
+          return await op()
+        } catch {
+          return op()
+        }
+      })
+      // The retry needs the row lookups again.
+      const db = makeDb([
+        [baseRow],
+        [baseRow],
+        [{ metadata: {}, metadataEncrypted: null }],
+        [{ n: 5 }],
+        [{ enrichedAt: new Date('2026-06-01T00:05:00.000Z') }],
+        [
+          {
+            normalizedText: 'raw input',
+            category: 'idea',
+            enrichedAt: new Date('2026-06-01T00:05:00.000Z'),
+          },
+        ],
+      ])
+      getDbMock.mockReturnValue(db)
+
+      await enrichQueuedThought('u1', 't1')
+
+      expect(db.reviewValues).toHaveBeenCalledTimes(1)
+      const parts = (db.reviewValues.mock.calls[0][0] as { parts: Array<{ part: string }> }).parts
+      expect(parts.map((p) => p.part)).toEqual([
+        'content_role',
+        'entity_type',
+        'category',
+        'temporal_kind',
+      ])
+      expect(enqueueUserJobMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('writes no review and queues no audit when the enrichment itself fails', async () => {
+      const db = makeDb([[baseRow]])
+      getDbMock.mockReturnValue(db)
+      applyCaptureContentSplitIfNeededMock.mockRejectedValue(new Error('split failed'))
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow('split failed')
+
+      expect(db.reviewValues).not.toHaveBeenCalled()
+      expect(enqueueUserJobMock).not.toHaveBeenCalled()
+      errorSpy.mockRestore()
+    })
+
+    it('fails loudly when the review cannot be written: the review step has its own retry ladder, the queue row is marked failed', async () => {
+      const db = standardDbQueue()
+      db.reviewConflict.mockRejectedValue(new Error('relation "capture_review" does not exist'))
+      getDbMock.mockReturnValue(db)
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow(/capture_review/)
+
+      // The enrichment result is already persisted and the row was completed first ...
+      expect(enrichThoughtMock).toHaveBeenCalled()
+      expect(markEnrichQueueCompleteMock).toHaveBeenCalledWith('t1')
+      // ... the review step has its own ladder (the ingest policy), then the failure is surfaced.
+      expect(runIngestWithRetriesMock).toHaveBeenCalledTimes(2)
+      expect(markEnrichQueueFailedMock).toHaveBeenCalledWith(
+        't1',
+        expect.stringContaining('capture_review'),
+      )
+      expect(enqueueUserJobMock).not.toHaveBeenCalled()
+      errorSpy.mockRestore()
+    })
+
+    it('fails loudly when the audit job cannot be enqueued', async () => {
+      const db = standardDbQueue()
+      getDbMock.mockReturnValue(db)
+      enqueueUserJobMock.mockRejectedValue(new Error('job queue unavailable'))
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      await expect(enrichQueuedThought('u1', 't1')).rejects.toThrow('job queue unavailable')
+
+      expect(markEnrichQueueFailedMock).toHaveBeenCalledWith('t1', 'job queue unavailable')
+      errorSpy.mockRestore()
+    })
   })
 })
 

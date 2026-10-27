@@ -30,8 +30,11 @@ export type DecisionShadowConfig = {
  * Bounded decision kinds the decision plane compares (spec §3). Widened with
  * resolution_choice, delete_target, message_intent, open_loop, and
  * salience_band for the resolution / delete-gate / chat-turn surfaces, and
- * with capture_worthy and proposal_reply (16 total) for Ask proposing
- * thoughts (docs/planning/feature-ask-proposes-thoughts.md, surface chat_turn).
+ * with capture_worthy and proposal_reply for Ask proposing thoughts
+ * (docs/planning/feature-ask-proposes-thoughts.md, surface chat_turn).
+ * `capture_audit` (17 kinds in all) is Jev-only (the capture review's check of
+ * what the chat model wrote, docs/planning/capture-feedback.md §4): it has no
+ * chat-judge counterpart, so it is NOT an enforceable kind.
  */
 export type DecisionKind =
   | 'category'
@@ -50,6 +53,7 @@ export type DecisionKind =
   | 'salience_band'
   | 'capture_worthy'
   | 'proposal_reply'
+  | 'capture_audit'
 
 /**
  * Kinds with an implemented promotion path (spec §6 P). entity_type,

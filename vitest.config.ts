@@ -17,6 +17,7 @@ export default mergeConfig(
         'evals/public-bench/**/*.{test,spec}.{js,ts}',
         'evals/personamem/**/*.{test,spec}.{js,ts}',
         'evals/jev-check/**/*.{test,spec}.{js,ts}',
+        'evals/capture-review/**/*.{test,spec}.{js,ts}',
         'evals/longmemeval/**/*.{test,spec}.{js,ts}',
         'scripts/**/*.{test,spec}.{js,ts}',
       ],

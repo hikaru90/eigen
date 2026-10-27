@@ -58,6 +58,7 @@
     "measure:ingest": "vite-node --config evals/vite.config.ts scripts/measure-ingest-timing.ts",
     "measure:jev": "vite-node --config evals/vite.config.ts scripts/measure-jev-benchmark.ts",
     "jev:check": "vite-node --config evals/vite.config.ts evals/jev-check/run.ts",
+    "capture-review:smoke": "vite-node --config evals/vite.config.ts evals/capture-review/run.ts",
     "posthog:upload-sourcemaps": "node --env-file-if-exists=.env scripts/upload-posthog-sourcemaps.mjs"
   },
   "devDependencies": {

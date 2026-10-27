@@ -490,6 +490,16 @@ CREATE POLICY decision_shadow_log_isolation ON decision_shadow_log
   USING (user_id = current_setting('app.current_user_id', true))
   WITH CHECK (user_id = current_setting('app.current_user_id', true));
 
+-- Capture review (0083_capture_review): per-capture confidence record. The owner's vote and
+-- encrypted reason live on the same row, so this tenant policy is the only access path.
+ALTER TABLE capture_review ENABLE ROW LEVEL SECURITY;
+ALTER TABLE capture_review FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS capture_review_isolation ON capture_review;
+CREATE POLICY capture_review_isolation ON capture_review
+  FOR ALL
+  USING (user_id = current_setting('app.current_user_id', true))
+  WITH CHECK (user_id = current_setting('app.current_user_id', true));
+
 -- Multiplayer board (0076_board_ideas_votes): the first deliberate cross-tenant read.
 -- board_idea: readable by any signed-in session (hidden=false, not rejected); written only by its author
 -- while Requested; protected columns via board_admin_update() (role checked server-side).
