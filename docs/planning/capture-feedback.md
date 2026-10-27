@@ -1,6 +1,7 @@
 # Capture feedback: did Eigen store this right?
 
-Status: **draft for the operator (2026-10-27)**. Nothing is built. It builds on `main` *after* the
+Status: **draft for the operator (2026-10-27)**. C0 (criteria and `npm run jev:check`) and C1
+(record, audit, score; no UI) are built; C2 to C5 are not. It builds on `main` *after* the
 capture work moved to branch `benchmark-work`, so it starts once that cut has landed. Risk:
 **high**: it reads every capture after enrichment and writes through the edit path. Planner: Opus.
 Builders: Sonnet subagents, tests first, one phase at a time.
@@ -79,7 +80,9 @@ calibrated. Internal parts the user never sees (retrieval cues, ask-question) ar
 - RLS by `user_id`, like `thought`.
 - `parts` holds no user text. Each part is `{ part, ref, engine: 'jev_decision' | 'jev_audit',
   label, probability }`.
-  - `ref` points at ids (entity id, temporal event id, child thought id).
+  - `ref` is a Jev decision item ref (`m1`, `t2`; the kind name for a whole-capture decision) or an
+    audit question id (`name:n1`, `date:d1`, `wording`, `missing_names`, `piece:p1`,
+    `pieces_cover`). Built this way in C1 (not entity or event ids) so a part cannot point at text.
   - `label` is a closed value: an ontology key, `right`/`wrong`, `none_missing`/`something_missing`.
 - Migration note: the parked branch also uses 0083–0085. If it ever comes back, its migrations
   get renumbered. The migrator is hash-based, so the local DB is unaffected.
@@ -191,7 +194,37 @@ in the user's own tenant.
   - Fixtures for `capture_audit` and `capture_reason`, labelled by the planner. The criteria are
     settled here before anything is wired. Cost about 1¢.
 - **C1 — record, audit, score (no UI):** migration, review builder in enrichment, audit job,
-  score.
+  score. **Built (2026-10-27).** Code in `src/lib/server/capture-review/`; where it hooks in is in
+  [`docs/repo-map/ingestion.md`](../repo-map/ingestion.md). Decisions made while building it:
+  - **Recorder.** `recordDecision` lives inside the decision plane (early `content_role`, settled
+    `category`, each per-item and bounded answer), so no caller records by hand. Each enrichment
+    attempt has its own recorder; a failed attempt's decisions are dropped. Only `REVIEW_DECISION_KINDS`
+    (category, content_role, entity_type, temporal_kind) reach the review.
+  - **Review write.** After `markEnrichQueueComplete` and the enriched notification, with its own
+    ingest retry ladder (3 retries of only the review write and the enqueue, never a re-enrich).
+    If it still fails the error goes into the existing catch: the queue row is marked `failed` with
+    the message and a user-initiated retry re-enriches and records the review.
+  - **Audit job.** `capture_review_audit`, `maxAttempts = 1 + INGEST_MAX_RETRIES` = 4 (first try plus
+    3 retries; the queue's own default of 3 tries would be one retry short of the ingest policy). No
+    dedupe key: each enrichment queues its own audit, the job ignores a review that is no longer
+    `pending_audit`, and its final write only applies while the review still carries the parts it
+    started from. A final failure sets `audit_failed` with `audit_error` drawn from a closed set of
+    sentences (failing step plus attempt count), never from an error message.
+  - **Names** come from `entity_resolution_log.mention_surface` (rewritten on every enrichment, so it
+    mirrors the latest extraction). Known gap: mentions typed `project` leave no log row, so a
+    project name in the capture is not in the list and can raise `something_missing`. C5 shows
+    whether that matters.
+  - **Pieces** come from the parent's `metadata.splitInto` (the multi-task fan-out marker, written
+    before the children exist); a child (`metadata.splitFrom`) gets none.
+  - **Dates.** `day` is the start day of `active_period` in the event's own time zone. `detail`
+    holds the clock time (only for `exact` precision, not all-day), `as the deadline`, the
+    repeat (`every Tuesday`) and `until {day}` (only when the text gave an end: the app's own
+    one-day or one-hour padding is not described). Recurrence rules: DAILY, WEEKLY, MONTHLY, YEARLY
+    with INTERVAL, COUNT, UNTIL, BYDAY and the single month-day forms; anything else fails the audit.
+  - **Time zone** is `getUserPreferredTimezone`, the same call enrichment makes for temporal
+    extraction (it falls back to `TEMPORAL_ANCHOR_TZ`, then Europe/Berlin, as enrichment does).
+  - **Audit logging.** New decision kind `capture_audit` and surface `capture_review`. The ticker only
+    drains production tenants, so audits of harness tenants wait until a user drain is run.
 - **C2 — the vote:** the shared 👍/👎 component in `capture-kept.svelte` and
   `mesh/thought-inline-editor.svelte`, the vote endpoint, reason → edit, reason label.
 - **C3 — MCP tools.**
