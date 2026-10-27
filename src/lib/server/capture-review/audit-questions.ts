@@ -73,7 +73,7 @@ export const AUDIT_CRITERIA_DATE: Readonly<Record<'right' | 'wrong', string>> = 
   right:
     'Yes: the capture\'s own time words for this event ("Friday", "tomorrow", "Mittwoch", "today", "before 6pm", "every Tuesday") point to this time. A vague time in the capture ("next week", "end of November", "in spring") is right when the stored time falls within it.',
   wrong:
-    "No: the capture's time words point to a different day or time, the capture gives no time for this event, or the event is not in the capture.",
+    "No: the capture's time words point to a different day or time, the capture gives no time for this event, the event is not in the capture, or the capture says it repeats and the stored time does not repeat (or the other way round).",
 }
 
 /**

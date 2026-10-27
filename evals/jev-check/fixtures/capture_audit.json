@@ -362,6 +362,20 @@
         "pieces": []
       },
       "expected": { "name:n1": "right", "missing_names": "none_missing", "missing_dates": "something_missing" }
+    },
+    {
+      "id": "a24-repeat-stored-once",
+      "note": "Repeat stored as a single date.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Yoga every Tuesday at 7pm at Studio Nord",
+        "storedText": "Yoga every Tuesday at 7pm at Studio Nord",
+        "names": [{ "ref": "n1", "surface": "Studio Nord" }],
+        "dates": [{ "ref": "d1", "event": "Yoga at Studio Nord", "day": "2026-10-27", "detail": "at 19:00" }],
+        "pieces": []
+      },
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "wrong", "missing_dates": "none_missing" }
     }
   ]
 }

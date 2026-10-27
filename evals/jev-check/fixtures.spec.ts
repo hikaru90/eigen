@@ -82,6 +82,7 @@ describe('the real fixture files', () => {
       ['a17-far-deadline-right', '2026-11-30', 'as the deadline'],
       ['a18-wrong-repeat-day', null, 'every Thursday at 19:00'],
       ['a19-next-monday', '2026-11-02', null],
+      ['a24-repeat-stored-once', '2026-10-27', 'at 19:00'],
     ])('%s stores day %s and detail %s', (id, day, detail) => {
       const dates = byId(id).input.dates
       expect(dates).toHaveLength(1)
@@ -138,6 +139,36 @@ describe('the real fixture files', () => {
         'date:d1': 'right',
         missing_dates: 'none_missing',
       })
+    })
+
+    it('a24: a repeat stored as a single date is wrong, and nothing else is off', () => {
+      expect(byId('a24-repeat-stored-once')).toMatchObject({
+        note: 'Repeat stored as a single date.',
+        input: {
+          capturedAt: '2026-10-27T10:00:00+01:00',
+          timezone: 'Europe/Berlin',
+          rawText: 'Yoga every Tuesday at 7pm at Studio Nord',
+          storedText: 'Yoga every Tuesday at 7pm at Studio Nord',
+          names: [{ ref: 'n1', surface: 'Studio Nord' }],
+          dates: [
+            { ref: 'd1', event: 'Yoga at Studio Nord', day: '2026-10-27', detail: 'at 19:00' },
+          ],
+          pieces: [],
+        },
+        expected: {
+          'name:n1': 'right',
+          missing_names: 'none_missing',
+          'date:d1': 'wrong',
+          missing_dates: 'none_missing',
+        },
+      })
+    })
+
+    it('a24 asks the date question about the capture day itself at 19:00', () => {
+      const request = prepareCases(files).find((c) => c.id === 'a24-repeat-stored-once')?.request
+      expect(request?.questions['date:d1'].instructions).toBe(
+        'Eigen stored "Yoga at Studio Nord" for the capture day itself at 19:00. Does the capture put this event at that time?',
+      )
     })
 
     it('every case expects missing_dates: something_missing only where the capture gives a time nobody stored', () => {
