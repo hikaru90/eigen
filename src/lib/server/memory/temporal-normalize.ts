@@ -1,3 +1,8 @@
+import {
+  assertRecurrenceRuleReadable,
+  RECURRENCE_FREQUENCIES,
+  RECURRENCE_RULE_PARTS,
+} from '$lib/server/capture-review/recurrence'
 import type {
   TemporalEnergyLevel,
   TemporalEventKind,
@@ -33,13 +38,15 @@ export type ExtractedTemporalMention = {
   relativeSpec?: TemporalRelativeSpec
 }
 
-const ALLOWED_ENERGY = new Set<TemporalEnergyLevel>(['light', 'medium', 'deep'])
-const ALLOWED_QUADRANTS = new Set<TemporalPriorityQuadrant>([
+const ENERGY_LEVELS = ['light', 'medium', 'deep'] as const satisfies readonly TemporalEnergyLevel[]
+const PRIORITY_QUADRANTS = [
   'urgent_important',
   'not_urgent_important',
   'urgent_not_important',
   'neither',
-])
+] as const satisfies readonly TemporalPriorityQuadrant[]
+const ALLOWED_ENERGY: ReadonlySet<string> = new Set(ENERGY_LEVELS)
+const ALLOWED_QUADRANTS: ReadonlySet<string> = new Set(PRIORITY_QUADRANTS)
 
 /**
  * The meaning of every `kind` a temporal element may carry. Keyed by the schema enum
@@ -67,24 +74,101 @@ export const TEMPORAL_PRECISION_MEANINGS = {
 const ALLOWED_KINDS: ReadonlySet<string> = new Set(Object.keys(TEMPORAL_KIND_MEANINGS))
 const ALLOWED_PRECISIONS: ReadonlySet<string> = new Set(Object.keys(TEMPORAL_PRECISION_MEANINGS))
 
-/** `deadline|appointment|…` — for the JSON templates in the prompts and for error messages. */
-export const TEMPORAL_KIND_KEYS = [...ALLOWED_KINDS].join('|')
-/** `exact|day|week|month|fuzzy`. */
-export const TEMPORAL_PRECISION_KEYS = [...ALLOWED_PRECISIONS].join('|')
+/** `deadline|appointment|…`, for error messages. */
+const TEMPORAL_KIND_KEYS = [...ALLOWED_KINDS].join('|')
+/** `exact|day|week|month|fuzzy`, for error messages. */
+const TEMPORAL_PRECISION_KEYS = [...ALLOWED_PRECISIONS].join('|')
+
+type FieldNeed = 'required' | 'optional' | 'when_repeating'
+
+const quoted = (values: readonly string[]) => values.map((v) => `"${v}"`).join(', ')
+
+/**
+ * Every field of a temporal element, whether the reply must give it, and what it holds. Keyed by
+ * the parsed type (`satisfies`), so a field added to or removed from `ExtractedTemporalMention`
+ * fails to compile until the contract is updated. The parser enforces `required` (and the
+ * RRULE of `when_repeating`); both LLM prompts list the fields from here and nowhere else.
+ */
+export const TEMPORAL_ELEMENT_FIELDS = {
+  surface: {
+    need: 'required',
+    description: 'the verbatim phrase from the text that gives the time',
+  },
+  kind: { need: 'required', description: 'what the mention is: see the kinds below' },
+  startAt: {
+    need: 'required',
+    description: 'ISO-8601 start (best estimate; overridden when relativeSpec is set)',
+  },
+  endAt: {
+    need: 'optional',
+    description: 'ISO-8601 end; omit for a point in time or an open-ended deadline',
+  },
+  timePrecision: {
+    need: 'required',
+    description: 'how exactly the time is given: see the precisions below',
+  },
+  timezone: { need: 'required', description: 'IANA timezone' },
+  isAllDay: {
+    need: 'optional',
+    description: 'boolean, true when no clock time is given; give it on every element',
+  },
+  recurrenceRule: {
+    need: 'when_repeating',
+    description:
+      'an iCal RRULE: "every Tuesday at 7pm" → FREQ=WEEKLY;BYDAY=TU with startAt the first occurrence at that time; "every day" → FREQ=DAILY; "every month on the 1st" → FREQ=MONTHLY;BYMONTHDAY=1.',
+  },
+  durationMinutes: { need: 'optional', description: 'positive integer estimate' },
+  energyLevel: { need: 'optional', description: `one of ${quoted(ENERGY_LEVELS)}` },
+  priorityQuadrant: { need: 'optional', description: `one of ${quoted(PRIORITY_QUADRANTS)}` },
+  contextTags: { need: 'optional', description: 'string array, e.g. ["@home","@computer"]' },
+  parentSurface: {
+    need: 'optional',
+    description:
+      'verbatim phrase of the parent mention when this is a subtask of another mention in the same text',
+  },
+  confidence: {
+    need: 'optional',
+    description: 'number 0-1, how sure you are the text says this; give it on every element',
+  },
+  semanticSummary: {
+    need: 'required',
+    description:
+      'what happens or is due — the event itself in the user\'s words ("Call Mom about the birthday dinner", "Yoga at Studio Nord"), never just the time (not "Friday", not "the week starting 2 November").',
+  },
+  relativeSpec: {
+    need: 'optional',
+    description:
+      'object for phrases relative to the capture time; code computes the final date from the capture time',
+  },
+} as const satisfies Record<
+  keyof ExtractedTemporalMention,
+  { need: FieldNeed; description: string }
+>
+
+const FIELD_NEED_LABEL: Record<FieldNeed, string> = {
+  required: 'required',
+  optional: 'optional',
+  when_repeating: 'required when the capture says the event repeats, omitted otherwise',
+}
 
 /**
  * The temporal element contract, as prompt text. ONE copy: the enrich bundle prompt and the
- * standalone temporal extraction prompt both embed it, so the two cannot drift apart, and it is
- * generated from the same catalogs `parseTemporalMentions` validates against. A reply that
- * breaks it makes the parse throw (the ingest retry ladder asks again); nothing is dropped.
+ * standalone temporal extraction prompt both embed it and list element fields nowhere else, so
+ * the two cannot drift apart. It is generated from the same catalogs `parseTemporalMentions`
+ * validates against. A reply that breaks it makes the parse throw (the ingest retry ladder asks
+ * again); nothing is dropped.
  */
 export const TEMPORAL_ELEMENT_CONTRACT = [
-  'Temporal element contract. Every element needs these required fields: surface, kind, startAt, timePrecision, timezone (plus isAllDay, confidence and semanticSummary).',
+  'Temporal element contract. Each element is a JSON object with these fields:',
+  ...Object.entries(TEMPORAL_ELEMENT_FIELDS).map(
+    ([name, field]) => `- ${name} (${FIELD_NEED_LABEL[field.need]}): ${field.description}`,
+  ),
   'kind must be exactly one of:',
   ...Object.entries(TEMPORAL_KIND_MEANINGS).map(([key, meaning]) => `- ${key}: ${meaning}`),
   'timePrecision must be exactly one of:',
   ...Object.entries(TEMPORAL_PRECISION_MEANINGS).map(([key, meaning]) => `- ${key}: ${meaning}`),
   'Any other kind or timePrecision (for example "hour" or "minute") makes the whole reply invalid and it is asked again — a clock time is still timePrecision "exact".',
+  `A missing required field, an empty semanticSummary, or a recurrenceRule outside the supported ones makes the whole reply invalid too and it is asked again. Supported recurrenceRule: FREQ=${RECURRENCE_FREQUENCIES.join('|')} with ${RECURRENCE_RULE_PARTS.join(', ')}; nothing else (no HOURLY, no BYSETPOS, no WKST).`,
 ].join('\n')
 
 /** Build a Postgres `tsrange` literal from normalized bounds. */
@@ -167,6 +251,32 @@ function requireOneOf<T extends string>(
 }
 
 /**
+ * `recurrenceRule` is optional: absent, null or blank means the event does not repeat. A rule that
+ * is there must be one the capture review can read (the C1 RRULE formatter's parser); anything
+ * else throws, because a stored rule the audit cannot read would fail the audit for good.
+ */
+function parseRecurrenceRule(entry: Record<string, unknown>, at: string): string | undefined {
+  const value = entry.recurrenceRule
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string') {
+    throw new Error(
+      `${at}.recurrenceRule must be an iCal RRULE string, received ${describeReceived(value)}`,
+    )
+  }
+  const rule = value.trim()
+  if (rule === '') return undefined
+  try {
+    assertRecurrenceRuleReadable(rule)
+  } catch (err) {
+    throw new Error(
+      `${at}.recurrenceRule must be a supported iCal RRULE, received ${describeReceived(value)}: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    )
+  }
+  return rule
+}
+
+/**
  * Parse the temporal elements of an LLM reply. An element that breaks the contract
  * (TEMPORAL_ELEMENT_CONTRACT) makes the whole parse THROW with the element index, the field and
  * the received value — never a dropped element, never a defaulted field: a dropped mention is a
@@ -203,35 +313,29 @@ export function parseTemporalMentions(content: string): ExtractedTemporalMention
       TEMPORAL_PRECISION_KEYS,
     )
     const timezone = requireString(entry, 'timezone', at)
+    const semanticSummary = requireString(entry, 'semanticSummary', at)
+    const recurrenceRule = parseRecurrenceRule(entry, at)
 
     const endAtRaw = entry.endAt
     const endAt = typeof endAtRaw === 'string' && endAtRaw.trim() ? endAtRaw.trim() : undefined
     const isAllDay = entry.isAllDay === true
-    const recurrenceRuleRaw = entry.recurrenceRule
-    const recurrenceRule =
-      typeof recurrenceRuleRaw === 'string' && recurrenceRuleRaw.trim()
-        ? recurrenceRuleRaw.trim()
-        : undefined
     const confidenceRaw = entry.confidence
     const confidence =
       typeof confidenceRaw === 'number' && !Number.isNaN(confidenceRaw)
         ? Math.min(1, Math.max(0, confidenceRaw))
         : 0
-    const semanticSummary =
-      typeof entry.semanticSummary === 'string' ? entry.semanticSummary.trim() : surface
     const relativeSpec = parseRelativeSpec(entry.relativeSpec)
     const durationRaw = entry.durationMinutes
     const durationMinutes =
       typeof durationRaw === 'number' && durationRaw > 0 ? Math.round(durationRaw) : undefined
     const energyRaw = entry.energyLevel
     const energyLevel =
-      typeof energyRaw === 'string' && ALLOWED_ENERGY.has(energyRaw as TemporalEnergyLevel)
+      typeof energyRaw === 'string' && ALLOWED_ENERGY.has(energyRaw)
         ? (energyRaw as TemporalEnergyLevel)
         : undefined
     const quadrantRaw = entry.priorityQuadrant
     const priorityQuadrant =
-      typeof quadrantRaw === 'string' &&
-      ALLOWED_QUADRANTS.has(quadrantRaw as TemporalPriorityQuadrant)
+      typeof quadrantRaw === 'string' && ALLOWED_QUADRANTS.has(quadrantRaw)
         ? (quadrantRaw as TemporalPriorityQuadrant)
         : undefined
     const contextTagsRaw = entry.contextTags
@@ -256,7 +360,7 @@ export function parseTemporalMentions(content: string): ExtractedTemporalMention
       isAllDay,
       ...(recurrenceRule ? { recurrenceRule } : {}),
       confidence,
-      semanticSummary: semanticSummary || surface,
+      semanticSummary,
       ...(relativeSpec ? { relativeSpec } : {}),
       ...(durationMinutes != null ? { durationMinutes } : {}),
       ...(energyLevel ? { energyLevel } : {}),

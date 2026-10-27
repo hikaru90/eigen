@@ -6,6 +6,7 @@ import {
   parseTemporalMentions,
   resolveTemporalBounds,
   TEMPORAL_ELEMENT_CONTRACT,
+  TEMPORAL_ELEMENT_FIELDS,
   TEMPORAL_KIND_MEANINGS,
   TEMPORAL_PRECISION_MEANINGS,
 } from './temporal-normalize'
@@ -93,7 +94,7 @@ describe('parseTemporalMentions', () => {
     expect(message).not.toMatch(/Friday|Dentist/)
   })
 
-  it.each(['surface', 'startAt', 'timePrecision', 'timezone', 'kind'])(
+  it.each(['surface', 'startAt', 'timePrecision', 'timezone', 'kind', 'semanticSummary'])(
     'throws when %s is missing, naming the field',
     (field) => {
       expect(() => parseTemporalMentions(reply({ [field]: undefined }))).toThrow(
@@ -102,7 +103,7 @@ describe('parseTemporalMentions', () => {
     },
   )
 
-  it.each(['surface', 'startAt', 'timePrecision', 'timezone'])(
+  it.each(['surface', 'startAt', 'timePrecision', 'timezone', 'semanticSummary'])(
     'throws when %s is blank or not a string, with the received value',
     (field) => {
       expect(() => parseTemporalMentions(reply({ [field]: '   ' }))).toThrow(
@@ -116,6 +117,83 @@ describe('parseTemporalMentions', () => {
       )
     },
   )
+
+  describe('semanticSummary is the event, required, with no fallback to the surface', () => {
+    it('is kept as the model wrote it (trimmed)', () => {
+      expect(
+        parseTemporalMentions(
+          reply({ semanticSummary: '  Call Mom about the birthday dinner ' }),
+        )[0]?.semanticSummary,
+      ).toBe('Call Mom about the birthday dinner')
+    })
+
+    it('a blank summary throws instead of becoming the surface', () => {
+      expect(() => parseTemporalMentions(reply({ semanticSummary: '   ' }))).toThrow(
+        /\[0\]\.semanticSummary.*" {3}"/,
+      )
+    })
+
+    it('a missing summary throws, naming the field', () => {
+      expect(() => parseTemporalMentions(reply({ semanticSummary: undefined }))).toThrow(
+        /\[0\]\.semanticSummary.*missing/,
+      )
+    })
+  })
+
+  describe('recurrenceRule', () => {
+    const yoga = { surface: 'every Tuesday at 7pm', semanticSummary: 'Yoga at Studio Nord' }
+
+    it('keeps a rule the audit can read, trimmed', () => {
+      expect(
+        parseTemporalMentions(reply({ ...yoga, recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU' }))[0]
+          ?.recurrenceRule,
+      ).toBe('FREQ=WEEKLY;BYDAY=TU')
+      expect(
+        parseTemporalMentions(reply({ ...yoga, recurrenceRule: ' FREQ=DAILY ' }))[0]
+          ?.recurrenceRule,
+      ).toBe('FREQ=DAILY')
+      expect(
+        parseTemporalMentions(reply({ ...yoga, recurrenceRule: 'FREQ=MONTHLY;BYMONTHDAY=1' }))[0]
+          ?.recurrenceRule,
+      ).toBe('FREQ=MONTHLY;BYMONTHDAY=1')
+    })
+
+    it.each([undefined, null, '', '   '])('is omitted when the reply gives %j', (value) => {
+      const out = parseTemporalMentions(reply({ ...yoga, recurrenceRule: value }))
+      expect(out[0]).not.toHaveProperty('recurrenceRule')
+    })
+
+    it.each([
+      ['a frequency the audit cannot express', 'FREQ=HOURLY'],
+      ['a part the audit cannot express', 'FREQ=MONTHLY;BYDAY=MO;BYSETPOS=1'],
+      ['several month days', 'FREQ=MONTHLY;BYMONTHDAY=1,15'],
+      ['COUNT together with UNTIL', 'FREQ=DAILY;COUNT=3;UNTIL=20261231'],
+      ['an impossible UNTIL', 'FREQ=DAILY;UNTIL=20261340'],
+      ['prose', 'every Tuesday'],
+      ['a rule without FREQ', 'BYDAY=TU'],
+    ])('throws on %s, naming the field and the received value', (_label, rule) => {
+      const content = reply({ ...yoga, recurrenceRule: rule })
+      expect(() => parseTemporalMentions(content)).toThrow(/\[0\]\.recurrenceRule/)
+      expect(() => parseTemporalMentions(content)).toThrow(JSON.stringify(rule))
+    })
+
+    it('throws on a rule that is not a string', () => {
+      expect(() => parseTemporalMentions(reply({ ...yoga, recurrenceRule: 7 }))).toThrow(
+        /\[0\]\.recurrenceRule.*received 7/,
+      )
+      expect(() =>
+        parseTemporalMentions(reply({ ...yoga, recurrenceRule: ['FREQ=DAILY'] })),
+      ).toThrow(/\[0\]\.recurrenceRule/)
+    })
+
+    it('names the element index of the bad rule', () => {
+      const content = JSON.stringify([
+        JSON.parse(reply())[0],
+        JSON.parse(reply({ ...yoga, recurrenceRule: 'FREQ=HOURLY' }))[0],
+      ])
+      expect(() => parseTemporalMentions(content)).toThrow(/\[1\]\.recurrenceRule/)
+    })
+  })
 
   it('throws on an element that is not an object', () => {
     expect(() => parseTemporalMentions('[null]')).toThrow(/\[0\] must be an object.*null/)
@@ -166,9 +244,69 @@ describe('temporal element contract (shared by the bundle and the standalone pro
   })
 
   it('names every required field', () => {
-    for (const field of ['surface', 'kind', 'startAt', 'timePrecision', 'timezone']) {
-      expect(TEMPORAL_ELEMENT_CONTRACT).toContain(field)
+    for (const field of [
+      'surface',
+      'kind',
+      'startAt',
+      'timePrecision',
+      'timezone',
+      'semanticSummary',
+    ]) {
+      expect(TEMPORAL_ELEMENT_CONTRACT).toContain(`- ${field} (required)`)
     }
+  })
+
+  it('describes every field the parser can return, and nothing else', () => {
+    // A fully populated element: the parser's output keys are the fields the contract must list.
+    const full = parseTemporalMentions(
+      JSON.stringify([
+        {
+          ...VALID,
+          endAt: '2026-10-30T10:00:00+01:00',
+          recurrenceRule: 'FREQ=WEEKLY',
+          durationMinutes: 30,
+          energyLevel: 'light',
+          priorityQuadrant: 'neither',
+          contextTags: ['@home'],
+          parentSurface: 'the trip',
+          relativeSpec: { dateAnchor: 'capture_time', relativeDaysPast: 1 },
+        },
+      ]),
+    )[0]
+    expect(Object.keys(TEMPORAL_ELEMENT_FIELDS).sort()).toEqual(Object.keys(full ?? {}).sort())
+    for (const field of Object.keys(TEMPORAL_ELEMENT_FIELDS)) {
+      expect(TEMPORAL_ELEMENT_CONTRACT).toContain(`- ${field} (`)
+    }
+  })
+
+  // Pinned word for word: the operator's wording after the live smoke showed the model writing the
+  // time instead of the event, and never repeating an event.
+  it('semanticSummary is the event, never just the time', () => {
+    expect(TEMPORAL_ELEMENT_FIELDS.semanticSummary).toEqual({
+      need: 'required',
+      description: `what happens or is due — the event itself in the user's words ("Call Mom about the birthday dinner", "Yoga at Studio Nord"), never just the time (not "Friday", not "the week starting 2 November").`,
+    })
+    expect(TEMPORAL_ELEMENT_CONTRACT).toContain(
+      `- semanticSummary (required): what happens or is due — the event itself in the user's words ("Call Mom about the birthday dinner", "Yoga at Studio Nord"), never just the time (not "Friday", not "the week starting 2 November").`,
+    )
+  })
+
+  it('recurrenceRule is required when the capture says the event repeats, omitted otherwise', () => {
+    expect(TEMPORAL_ELEMENT_FIELDS.recurrenceRule).toEqual({
+      need: 'when_repeating',
+      description:
+        'an iCal RRULE: "every Tuesday at 7pm" → FREQ=WEEKLY;BYDAY=TU with startAt the first occurrence at that time; "every day" → FREQ=DAILY; "every month on the 1st" → FREQ=MONTHLY;BYMONTHDAY=1.',
+    })
+    expect(TEMPORAL_ELEMENT_CONTRACT).toContain(
+      '- recurrenceRule (required when the capture says the event repeats, omitted otherwise): an iCal RRULE: "every Tuesday at 7pm" → FREQ=WEEKLY;BYDAY=TU with startAt the first occurrence at that time; "every day" → FREQ=DAILY; "every month on the 1st" → FREQ=MONTHLY;BYMONTHDAY=1.',
+    )
+  })
+
+  it('says which rules the audit can read, and that an unreadable one invalidates the reply', () => {
+    expect(TEMPORAL_ELEMENT_CONTRACT).toContain(
+      'FREQ=DAILY|WEEKLY|MONTHLY|YEARLY with INTERVAL, BYDAY, BYMONTHDAY, BYMONTH, COUNT, UNTIL',
+    )
+    expect(TEMPORAL_ELEMENT_CONTRACT).toMatch(/recurrenceRule.*invalid/s)
   })
 })
 
@@ -322,7 +460,8 @@ describe('parseTemporalMentions edge cases', () => {
 					"timezone":"Europe/Berlin",
 					"endAt":"   ",
 					"recurrenceRule":" FREQ=WEEKLY ",
-					"confidence":"not-a-number"
+					"confidence":"not-a-number",
+					"semanticSummary":"Standup"
 				}
 			]`,
     )
@@ -337,7 +476,7 @@ describe('parseTemporalMentions edge cases', () => {
         isAllDay: false,
         recurrenceRule: 'FREQ=WEEKLY',
         confidence: 0,
-        semanticSummary: 'standup',
+        semanticSummary: 'Standup',
       },
     ])
   })
@@ -354,11 +493,6 @@ describe('parseTemporalMentions edge cases', () => {
         `[{"surface":"standup","kind":"appointment","startAt":"2026-06-01T09:00:00.000Z","timePrecision":"exact"}]`,
       ),
     ).toThrow(/timezone/)
-  })
-
-  it('falls back semanticSummary to surface when summary is blank', () => {
-    const out = parseTemporalMentions(reply({ semanticSummary: '   ' }))
-    expect(out[0]?.semanticSummary).toBe('Friday at 9am')
   })
 })
 

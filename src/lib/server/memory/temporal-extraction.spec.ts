@@ -160,10 +160,73 @@ describe('extractTemporalMentions', () => {
 
     const prompt = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string
     expect(prompt).toContain(TEMPORAL_ELEMENT_CONTRACT)
+    expect(prompt).toContain('- exact: a clock time is given')
+    expect(prompt).toContain('- deadline: ')
+  })
+
+  it('the prompt lists the element fields only through the contract (semanticSummary and recurrenceRule included)', async () => {
+    llmChatCompletionMock.mockResolvedValue(llmContent('{"mentions":[]}'))
+
+    await extractTemporalMentions(input)
+
+    const prompt = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string
+    expect(prompt).toContain('- semanticSummary (required): what happens or is due')
     expect(prompt).toContain(
-      '"kind": "deadline|appointment|milestone|period|reminder|inferred_event"',
+      '- recurrenceRule (required when the capture says the event repeats, omitted otherwise): an iCal RRULE',
     )
-    expect(prompt).toContain('"timePrecision": "exact|day|week|month|fuzzy"')
+    // The old hand-written field template is gone: it said "optional iCal RRULE string or omit"
+    // and left semanticSummary as "short natural-language summary".
+    expect(prompt).not.toContain('optional iCal RRULE string or omit')
+    expect(prompt).not.toContain('short natural-language summary')
+    expect(prompt).not.toContain('"surface": "verbatim phrase from text"')
+  })
+
+  it('the prompt still explains the relativeSpec shapes, which only this prompt carries', async () => {
+    llmChatCompletionMock.mockResolvedValue(llmContent('{"mentions":[]}'))
+
+    await extractTemporalMentions(input)
+
+    const prompt = llmChatCompletionMock.mock.calls[0]?.[0]?.messages?.[0]?.content as string
+    expect(prompt).toContain('"relativeWeeksPast": N')
+    expect(prompt).toContain('"lastWeekdayBeforeCapture": "saturday"')
+    expect(prompt).toContain('"calendarDate": "YYYY-MM-DD"')
+  })
+
+  it('an element without a semanticSummary fails loud and is evicted', async () => {
+    const response = llmContent(
+      '{"mentions":[{"surface":"Friday","kind":"appointment","startAt":"2026-05-22T09:00:00.000Z","timePrecision":"exact","timezone":"UTC","isAllDay":false,"confidence":0.9}]}',
+    )
+    llmChatCompletionMock.mockResolvedValue(response)
+
+    await expect(extractTemporalMentions(input)).rejects.toThrow(/semanticSummary/)
+
+    expect(evictMock).toHaveBeenCalledWith(response)
+  })
+
+  it('an unsupported recurrenceRule fails loud and is evicted', async () => {
+    const response = llmContent(
+      '{"mentions":[{"surface":"every hour","kind":"reminder","startAt":"2026-05-22T09:00:00.000Z","timePrecision":"exact","timezone":"UTC","isAllDay":false,"recurrenceRule":"FREQ=HOURLY","confidence":0.9,"semanticSummary":"Drink water"}]}',
+    )
+    llmChatCompletionMock.mockResolvedValue(response)
+
+    await expect(extractTemporalMentions(input)).rejects.toThrow(/recurrenceRule.*FREQ=HOURLY/)
+
+    expect(evictMock).toHaveBeenCalledWith(response)
+  })
+
+  it('keeps a recurrenceRule the audit can read', async () => {
+    llmChatCompletionMock.mockResolvedValue(
+      llmContent(
+        '{"mentions":[{"surface":"every Tuesday at 7pm","kind":"appointment","startAt":"2026-10-27T19:00:00+01:00","timePrecision":"exact","timezone":"Europe/Berlin","isAllDay":false,"recurrenceRule":"FREQ=WEEKLY;BYDAY=TU","confidence":0.9,"semanticSummary":"Yoga at Studio Nord"}]}',
+      ),
+    )
+
+    const mentions = await extractTemporalMentions(input)
+
+    expect(mentions[0]).toMatchObject({
+      recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU',
+      semanticSummary: 'Yoga at Studio Nord',
+    })
   })
 
   it('prompt prefers acquisition milestone over pre-order for devices', async () => {

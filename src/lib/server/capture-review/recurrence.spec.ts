@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { describeRecurrence } from './recurrence'
+import {
+  assertRecurrenceRuleReadable,
+  describeRecurrence,
+  RECURRENCE_FREQUENCIES,
+  RECURRENCE_RULE_PARTS,
+} from './recurrence'
 
 // Tuesday 3 November 2026, 19:00 in Berlin (CET, UTC+1).
 const TUESDAY_EVENING = new Date('2026-11-03T18:00:00.000Z')
@@ -153,6 +158,13 @@ describe('describeRecurrence: fails loudly on anything it cannot express', () =>
     expect(() => describe_(rule)).toThrow(pattern)
   })
 
+  it.each(unsupported)(
+    'assertRecurrenceRuleReadable rejects %s, with the same reason',
+    (_label, rule, pattern) => {
+      expect(() => assertRecurrenceRuleReadable(rule)).toThrow(pattern)
+    },
+  )
+
   it('marks the error as a capture-review error and never repeats the whole rule', () => {
     try {
       describe_('FREQ=MONTHLY;BYDAY=MO;BYSETPOS=1')
@@ -165,5 +177,39 @@ describe('describeRecurrence: fails loudly on anything it cannot express', () =>
 
   it('rejects a time zone it does not know', () => {
     expect(() => describe_('FREQ=WEEKLY', TUESDAY_EVENING, 'Mars/Olympus')).toThrow(/time zone/)
+  })
+})
+
+describe('assertRecurrenceRuleReadable', () => {
+  it.each([
+    'FREQ=WEEKLY;BYDAY=TU',
+    'FREQ=DAILY',
+    'FREQ=MONTHLY;BYMONTHDAY=1',
+    'FREQ=MONTHLY;BYDAY=2TU;INTERVAL=3',
+    'FREQ=YEARLY;BYMONTH=3;BYMONTHDAY=14',
+    'FREQ=WEEKLY;COUNT=4',
+    'FREQ=WEEKLY;UNTIL=20261231',
+    'FREQ=WEEKLY;UNTIL=20261231T225959Z',
+    'RRULE:FREQ=WEEKLY',
+    ' freq=weekly ',
+  ])('accepts %s, a rule describeRecurrence can express', (rule) => {
+    expect(() => assertRecurrenceRuleReadable(rule)).not.toThrow()
+    expect(() => describe_(rule)).not.toThrow()
+  })
+
+  it('needs no start and no time zone', () => {
+    expect(() => assertRecurrenceRuleReadable('FREQ=WEEKLY')).not.toThrow()
+  })
+
+  it('names what the audit can read, so a prompt can say it', () => {
+    expect([...RECURRENCE_FREQUENCIES]).toEqual(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'])
+    expect([...RECURRENCE_RULE_PARTS]).toEqual([
+      'INTERVAL',
+      'BYDAY',
+      'BYMONTHDAY',
+      'BYMONTH',
+      'COUNT',
+      'UNTIL',
+    ])
   })
 })

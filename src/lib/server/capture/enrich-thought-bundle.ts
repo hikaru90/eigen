@@ -138,7 +138,6 @@ export function buildEnrichThoughtBundlePrompt(input: {
     '',
     `temporalMentions: array of temporal objects for dates/deadlines in the capture; use [] when none.`,
     `Capture anchor: ${capturedIso}, timezone ${timezone}. Set timezone to "${timezone}" unless text names another.`,
-    'Each temporal element: surface, kind, startAt (ISO-8601), timePrecision, timezone, isAllDay, confidence, semanticSummary; optional relativeSpec for relative phrases.',
     TEMPORAL_ELEMENT_CONTRACT,
     '',
     `mentions: 0–12 items; entityType must be one of: ${entityKeyUnion}.`,

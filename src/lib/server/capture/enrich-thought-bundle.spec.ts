@@ -204,6 +204,72 @@ describe('extractEnrichThoughtBundle', () => {
       )
     })
 
+    describe('semanticSummary and recurrenceRule', () => {
+      const yoga = {
+        surface: 'every Tuesday at 7pm',
+        kind: 'appointment',
+        startAt: '2026-10-27T19:00:00+01:00',
+        timePrecision: 'exact',
+        timezone: 'Europe/Berlin',
+        isAllDay: false,
+        recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU',
+        confidence: 0.9,
+        semanticSummary: 'Yoga at Studio Nord',
+      }
+      const yogaInput = () =>
+        bundleInput(
+          makeContext({
+            normalizedText: 'Yoga every Tuesday at 7pm at Studio Nord',
+            rawText: 'Yoga every Tuesday at 7pm at Studio Nord',
+          }),
+        )
+
+      it('parses a repeating event with its RRULE', async () => {
+        llmChatCompletionMock.mockResolvedValue(makeBundleResponse({ temporalMentions: [yoga] }))
+        const result = await extractEnrichThoughtBundle(yogaInput())
+        expect(result.temporalMentions).toHaveLength(1)
+        expect(result.temporalMentions[0]).toMatchObject({
+          recurrenceRule: 'FREQ=WEEKLY;BYDAY=TU',
+          semanticSummary: 'Yoga at Studio Nord',
+          startAt: '2026-10-27T19:00:00+01:00',
+        })
+      })
+
+      it('rejects an RRULE the audit cannot express, naming field and value', async () => {
+        llmChatCompletionMock.mockResolvedValue(
+          makeBundleResponse({ temporalMentions: [{ ...yoga, recurrenceRule: 'FREQ=HOURLY' }] }),
+        )
+        await expect(extractEnrichThoughtBundle(yogaInput())).rejects.toThrow(
+          /\[0\]\.recurrenceRule.*"FREQ=HOURLY"/,
+        )
+      })
+
+      it('rejects a mention without a semanticSummary', async () => {
+        const { semanticSummary: _summary, ...withoutSummary } = yoga
+        llmChatCompletionMock.mockResolvedValue(
+          makeBundleResponse({ temporalMentions: [withoutSummary] }),
+        )
+        await expect(extractEnrichThoughtBundle(yogaInput())).rejects.toThrow(
+          /\[0\]\.semanticSummary.*missing/,
+        )
+      })
+
+      it('the ingest retry ladder asks again after an unsupported RRULE and ends with the good one', async () => {
+        llmChatCompletionMock
+          .mockResolvedValueOnce(
+            makeBundleResponse({
+              temporalMentions: [{ ...yoga, recurrenceRule: 'every Tuesday' }],
+            }),
+          )
+          .mockResolvedValueOnce(makeBundleResponse({ temporalMentions: [yoga] }))
+
+        const result = await runIngestWithRetries(() => extractEnrichThoughtBundle(yogaInput()))
+
+        expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
+        expect(result.temporalMentions[0]?.recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=TU')
+      })
+    })
+
     it('rejects a mention without a timezone instead of defaulting to UTC', async () => {
       const { timezone: _timezone, ...withoutTimezone } = dentist
       llmChatCompletionMock.mockResolvedValue(
@@ -399,6 +465,12 @@ describe('enrichThoughtBundleInternals.buildEnrichThoughtBundlePrompt', () => {
       ontologyEntityKinds: [{ key: 'technology', name: 'Technology', definition: 'Software tool' }],
     })
     expect(prompt).toContain(TEMPORAL_ELEMENT_CONTRACT)
+    // The element fields come from the contract only: the old one-line field list is gone.
+    expect(prompt).not.toContain('Each temporal element: surface, kind')
+    expect(prompt).toContain('- semanticSummary (required): what happens or is due')
+    expect(prompt).toContain(
+      '- recurrenceRule (required when the capture says the event repeats, omitted otherwise): an iCal RRULE',
+    )
     for (const value of ['exact', 'day', 'week', 'month', 'fuzzy']) {
       expect(prompt).toContain(`${value}: `)
     }

@@ -102,7 +102,8 @@ in the user's own tenant.
   - Each found name: does the capture really mention this name? `right | wrong`
   - Missing names: does the capture name a person, place, organisation or project that is not in
     this list? `none_missing | something_missing`
-  - Each date or time: does the capture say this event is at this time? `right | wrong`
+  - Each date or time: does the capture say this event is at this time? `right | wrong`. A repeat
+    stored as a single date (or a single date stored as a repeat) is `wrong`.
   - Missing dates, always asked: does the capture give a day, time, deadline or repetition that
     Eigen did not store? Words that fix no time ("soon", "more often") do not count. A time that was
     stored wrongly is not missing: the date question judges it. Worded two ways, because Jev read a
@@ -246,6 +247,14 @@ in the user's own tenant.
     `something_missing` and pulls the score down. The first wording (a list of events with their
     computed time phrases) gave 10 false `something_missing` on the live check, because Jev read a
     wrongly stored time as missing.
+  - **Repeats and summaries at capture.** The live smoke showed two more extraction errors of the
+    same class as the clock-time bug: a repeat ("Yoga every Tuesday at 7pm") stored as one event with
+    no rule (the bundle prompt never mentioned `recurrenceRule`), and a `semanticSummary` that was
+    just the time ("Friday"), which becomes the audit's event label. The shared temporal element
+    contract now lists every field, requires `semanticSummary` (the event, never just the time) and
+    a `recurrenceRule` when the capture says the event repeats; the parser rejects a rule the
+    formatter cannot read. The date criteria's `wrong` names the repeat mismatch, which Jev had
+    passed at 0.95 (fixture `a24-repeat-stored-once`).
   - **Score** counts only what the user sees (`SCORED_PARTS`, §5), changed after the first live
     smoke: the score was the minimum over all parts, and hidden parts (name types, kinds of time)
     dominated it.

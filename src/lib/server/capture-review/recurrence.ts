@@ -65,6 +65,13 @@ const SUPPORTED_PARTS = new Set([
 const FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY'] as const
 type Frequency = (typeof FREQUENCIES)[number]
 
+/**
+ * What a stored rule may use, for the extraction prompts: they name these so the model stays
+ * inside the subset the audit (and the week view) can read.
+ */
+export const RECURRENCE_FREQUENCIES = FREQUENCIES
+export const RECURRENCE_RULE_PARTS = [...SUPPORTED_PARTS].filter((part) => part !== 'FREQ')
+
 type ByDay = { ordinal: number | null; code: WeekdayCode }
 
 type Parsed = {
@@ -218,6 +225,16 @@ function untilDay(value: string, timeZone: string): CalendarDay {
   const instant = new Date(Date.UTC(day.year, day.month - 1, day.day, hour, minute, second))
   const local = zonedParts(instant, timeZone)
   return { year: local.year, month: local.month, day: local.day }
+}
+
+/**
+ * Throws, with the same reason `describeRecurrence` would give, unless `rule` is one it can
+ * express. It needs no start and no time zone, so extraction can reject a rule the audit could
+ * never read before it is stored (an unreadable stored rule would fail the audit for good).
+ */
+export function assertRecurrenceRuleReadable(rule: string): void {
+  const parsed = parse(rule)
+  if (parsed.until !== null) untilDay(parsed.until, 'UTC')
 }
 
 /**

@@ -6,8 +6,6 @@ import {
   applyCaptureAnchoredMentions,
   parseTemporalMentions,
   TEMPORAL_ELEMENT_CONTRACT,
-  TEMPORAL_KIND_KEYS,
-  TEMPORAL_PRECISION_KEYS,
   type ExtractedTemporalMention,
 } from '$lib/server/memory/temporal-normalize'
 
@@ -47,32 +45,15 @@ export async function extractTemporalMentions(input: {
 
 Additional guidelines:
 The capture happened at ${capturedIso} in timezone ${anchorTz}. Always set "timezone" to "${anchorTz}" unless the text explicitly names a different place/timezone.
-Return ONLY a JSON object of the form {"mentions": [ ... ]}. Each element of "mentions":
-{
-  "surface": "verbatim phrase from text",
-  "kind": "${TEMPORAL_KIND_KEYS}",
-  "startAt": "ISO-8601 UTC (best estimate; overridden when relativeSpec is set)",
-  "endAt": "ISO-8601 UTC or omit",
-  "timePrecision": "${TEMPORAL_PRECISION_KEYS}",
-  "timezone": "IANA timezone",
-  "isAllDay": boolean,
-  "recurrenceRule": "optional iCal RRULE string or omit",
-  "durationMinutes": optional positive integer estimate,
-  "energyLevel": optional "light"|"medium"|"deep",
-  "priorityQuadrant": optional "urgent_important"|"not_urgent_important"|"urgent_not_important"|"neither",
-  "contextTags": optional string array e.g. ["@home","@computer"],
-  "parentSurface": optional verbatim phrase if this is a subtask of another mention in the same text,
-  "confidence": 0-1,
-  "semanticSummary": "short natural-language summary",
-  "relativeSpec": optional object for relative phrases — code computes the final date from capture time ${capturedIso}:
-    { "dateAnchor": "capture_time", "relativeMonthsPast": N } for "N months ago"
-    { "dateAnchor": "capture_time", "relativeWeeksPast": N } for "N weeks ago"
-    { "dateAnchor": "capture_time", "relativeDaysPast": N } for "N days ago"
-    { "dateAnchor": "capture_time", "lastWeekdayBeforeCapture": "saturday" } for "last Saturday"
-    { "dateAnchor": "explicit", "calendarDate": "YYYY-MM-DD" } for explicit dates (March 15th → year from context)
-    { "dateAnchor": "explicit", "calendarMonth": 2, "calendarMonthPart": "mid" } for "mid-February"
-}
+Return ONLY a JSON object of the form {"mentions": [ ... ]}.
 ${TEMPORAL_ELEMENT_CONTRACT}
+relativeSpec shapes — code computes the final date from capture time ${capturedIso}:
+  { "dateAnchor": "capture_time", "relativeMonthsPast": N } for "N months ago"
+  { "dateAnchor": "capture_time", "relativeWeeksPast": N } for "N weeks ago"
+  { "dateAnchor": "capture_time", "relativeDaysPast": N } for "N days ago"
+  { "dateAnchor": "capture_time", "lastWeekdayBeforeCapture": "saturday" } for "last Saturday"
+  { "dateAnchor": "explicit", "calendarDate": "YYYY-MM-DD" } for explicit dates (March 15th → year from context)
+  { "dateAnchor": "explicit", "calendarMonth": 2, "calendarMonthPart": "mid" } for "mid-February"
 Always set relativeSpec when the phrase is relative to capture time. Use calendarDate for explicit calendar dates in the text.
 For devices, products, or purchases: emit the possession/acquisition milestone (arrived, received, got, purchased) as kind "milestone" with that date. Do not emit a separate pre-order milestone when an arrival or purchase date is also stated — use only the acquisition date.
 For book/media completion: "finished X two weeks ago" or "finished X last weekend" → kind "milestone" with relativeSpec anchored to capture time (relativeWeeksPast or lastWeekdayBeforeCapture).
