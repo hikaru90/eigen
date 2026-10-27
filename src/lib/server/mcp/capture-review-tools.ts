@@ -47,6 +47,7 @@ export async function runRateCaptureTool(context: McpToolContext, args: unknown)
     verdict: result.verdict,
     reason_kind: result.reasonKind,
     edit_applied: result.editApplied,
+    changed: result.changed,
     edit_error: result.editError,
     ...(result.thought ? { thought: result.thought } : {}),
   })

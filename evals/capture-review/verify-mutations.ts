@@ -94,18 +94,19 @@ export class PieceMutationError extends Error {
   }
 }
 
-const MIN_WORDS_TO_CUT = 3
+const MIN_WORDS_TO_CUT = 4
 
 /**
- * The first half of a piece's words (rounded up): a fragment that stops mid-sentence. A mechanical
- * cut for building the injected mistake; it does not judge anything about the text.
+ * The piece without its last word ("return the drill to Ben" becomes "return the drill to"): a
+ * fragment that stops mid-sentence, not a shorter complete thought. A mechanical cut for building
+ * the injected mistake; it does not judge anything about the text.
  */
 export function fragmentOfPiece(text: string): string {
   const words = text.trim().split(/\s+/)
   if (words.length < MIN_WORDS_TO_CUT) {
     throw new PieceMutationError(`a piece needs at least ${MIN_WORDS_TO_CUT} words to be cut`)
   }
-  return words.slice(0, Math.ceil(words.length / 2)).join(' ')
+  return words.slice(0, -1).join(' ')
 }
 
 /** `pieces` with piece number `piece` (1-based) cut to a fragment. */

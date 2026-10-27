@@ -3,6 +3,7 @@ import {
   capturePrimaryPromptBlock,
   groundingSupplementaryPromptBlock,
 } from '$lib/server/capture/enrichment-prompt-sections'
+import { ownerCorrectionBlock } from '$lib/server/capture/owner-correction'
 import type { GroundingProfileForEnrichment } from '$lib/server/grounding/types'
 import { evictOnReject } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion, type ChatMessage } from '$lib/server/llm/llm-client'
@@ -273,6 +274,8 @@ export async function extractEntityGraphBundle(input: {
   knownEntities?: KnownEntityHint[]
   groundingProfile?: GroundingProfileForEnrichment
   enrichmentContext?: EntityGraphEnrichmentContext
+  /** The owner's correction of the last reading: prompt context only, never stored or logged. */
+  ownerCorrection?: string
 }): Promise<{ mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }> {
   if (input.ontologyEntityKinds.length === 0) {
     throw new Error('extractEntityGraphBundle requires at least one ontology entity kind')
@@ -315,6 +318,7 @@ export async function extractEntityGraphBundle(input: {
     communityBlock,
     graphEntitiesBlock,
     legacyKnownBlock,
+    input.ownerCorrection === undefined ? '' : ownerCorrectionBlock(input.ownerCorrection),
     'Extract notable named entities and noun phrases worth tracking as graph nodes.',
     ...ENTITY_EXTRACTION_QUALITY_GUIDANCE,
     ...ENTITY_EXTRACTION_OMIT_RULES,

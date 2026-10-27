@@ -23,6 +23,7 @@ const stored = {
   verdict: 'down',
   reasonKind: 'wrong_name',
   editApplied: true,
+  changed: true,
   editError: null,
   thought: { id: 't1', normalizedText: 'Call Greta', category: 'task' },
 }
@@ -55,7 +56,7 @@ describe('postCaptureVote', () => {
 
   it('leaves the reason out of a thumbs-up and of an empty thumbs-down', async () => {
     fetchMock.mockResolvedValue(
-      reply({ verdict: 'up', reasonKind: null, editApplied: false, editError: null, thought: null }),
+      reply({ verdict: 'up', reasonKind: null, editApplied: false, changed: false, editError: null, thought: null }),
     )
     await postCaptureVote({ thoughtId: 't1', verdict: 'up', place: 'capture' })
     expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)).toEqual({

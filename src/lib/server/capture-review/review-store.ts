@@ -64,6 +64,20 @@ export async function upsertPendingCaptureReview(input: {
     })
 }
 
+/**
+ * Puts an existing review back to `pending_audit` with its parts kept, so a new audit scores the
+ * thought as it is stored now (its split pieces changed). Returns false when there is no review.
+ */
+export async function resetCaptureReviewToPending(thoughtId: string): Promise<boolean> {
+  requireId(thoughtId, 'thoughtId')
+  const rows = await getDb()
+    .update(captureReview)
+    .set({ score: null, status: 'pending_audit', auditError: null, updatedAt: new Date() })
+    .where(eq(captureReview.thoughtId, thoughtId))
+    .returning({ id: captureReview.id })
+  return rows.length > 0
+}
+
 export type CaptureReviewForAudit = { status: CaptureReviewStatus; parts: CaptureReviewPart[] }
 
 /** The review the audit job works from, or null when the thought has none. */

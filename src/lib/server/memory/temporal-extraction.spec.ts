@@ -265,4 +265,24 @@ describe('extractTemporalMentions', () => {
     expect(prompt).toContain('booking/reservation date')
     expect(prompt).toContain('started X since DATE')
   })
+
+  it('adds the owner correction to the prompt as context, and leaves it out otherwise', async () => {
+    llmChatCompletionMock.mockResolvedValue(llmContent('{"mentions":[]}'))
+    const base = {
+      userId: 'u1',
+      normalizedText: 'Dentist on Friday',
+      capturedAt: new Date('2026-10-27T09:00:00.000Z'),
+      timezone: 'Europe/Berlin',
+    }
+
+    await extractTemporalMentions(base)
+    await extractTemporalMentions({ ...base, ownerCorrection: 'wrong day, I said Friday' })
+
+    const system = (call: number) =>
+      (llmChatCompletionMock.mock.calls[call][0].messages[0] as { content: string }).content
+    expect(system(0)).not.toContain('The owner said')
+    expect(system(1)).toContain(
+      'The owner said the last reading of this thought was wrong: "wrong day, I said Friday". Read the thought again with that in mind.',
+    )
+  })
 })

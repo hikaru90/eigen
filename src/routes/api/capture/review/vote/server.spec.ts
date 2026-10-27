@@ -29,6 +29,7 @@ const stored = {
   verdict: 'down',
   reasonKind: 'wrong_name',
   editApplied: true,
+  changed: true,
   editError: null,
   thought: { id: ID, normalizedText: 'Call my sister Greta', category: 'task' },
 }
@@ -96,6 +97,7 @@ describe('POST /api/capture/review/vote', () => {
       verdict: 'up',
       reasonKind: null,
       editApplied: false,
+      changed: false,
       editError: null,
       thought: null,
     })
@@ -111,6 +113,7 @@ describe('POST /api/capture/review/vote', () => {
       verdict: 'up',
       reasonKind: null,
       editApplied: false,
+      changed: false,
       editError: null,
       thought: null,
     })
@@ -121,6 +124,7 @@ describe('POST /api/capture/review/vote', () => {
       verdict: 'down',
       reasonKind: 'wrong_date',
       editApplied: false,
+      changed: false,
       editError: 'enrichment gateway timed out',
       thought: null,
     })
@@ -128,6 +132,7 @@ describe('POST /api/capture/review/vote', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({
       editApplied: false,
+      changed: false,
       editError: 'enrichment gateway timed out',
       reasonKind: 'wrong_date',
     })

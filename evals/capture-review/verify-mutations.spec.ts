@@ -71,9 +71,11 @@ describe('describeMutation', () => {
 })
 
 describe('piece mutations', () => {
-  it('cuts a piece to its first half, rounded up', () => {
-    expect(fragmentOfPiece('return the drill to Ben')).toBe('return the drill')
-    expect(fragmentOfPiece('call the vet about the vaccination')).toBe('call the vet')
+  it('cuts a piece off before its last word, so it ends mid-sentence', () => {
+    expect(fragmentOfPiece('return the drill to Ben')).toBe('return the drill to')
+    expect(fragmentOfPiece("call the vet about Momo's vaccination")).toBe(
+      "call the vet about Momo's",
+    )
   })
 
   it('refuses a piece too short to be cut', () => {
@@ -84,7 +86,7 @@ describe('piece mutations', () => {
     const pieces = ['buy stamps now', 'return the drill to Ben', 'call the vet today']
     expect(withFragmentPiece(pieces, 2)).toEqual([
       'buy stamps now',
-      'return the drill',
+      'return the drill to',
       'call the vet today',
     ])
     expect(() => withFragmentPiece(pieces, 4)).toThrow(PieceMutationError)

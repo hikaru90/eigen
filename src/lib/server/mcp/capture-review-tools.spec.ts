@@ -43,6 +43,7 @@ beforeEach(() => {
     verdict: 'up',
     reasonKind: null,
     editApplied: false,
+    changed: false,
     editError: null,
     thought: null,
   })
@@ -153,6 +154,7 @@ describe('rate_capture: arguments are checked before any DB or Jev work (exact m
       verdict: 'down',
       reasonKind: 'other',
       editApplied: true,
+      changed: true,
       editError: null,
       thought: EDITED_THOUGHT,
     })
@@ -171,7 +173,13 @@ describe('rate_capture: the vote', () => {
       place: 'mcp',
       reason: undefined,
     })
-    expect(out).toEqual({ verdict: 'up', reason_kind: null, edit_applied: false, edit_error: null })
+    expect(out).toEqual({
+      verdict: 'up',
+      reason_kind: null,
+      edit_applied: false,
+      changed: false,
+      edit_error: null,
+    })
   })
 
   it.each([undefined, '', '   ', '\n'])(
@@ -181,6 +189,7 @@ describe('rate_capture: the vote', () => {
         verdict: 'down',
         reasonKind: null,
         editApplied: false,
+        changed: false,
         editError: null,
         thought: null,
       })
@@ -192,6 +201,7 @@ describe('rate_capture: the vote', () => {
         verdict: 'down',
         reason_kind: null,
         edit_applied: false,
+        changed: false,
         edit_error: null,
       })
     },
@@ -202,6 +212,7 @@ describe('rate_capture: the vote', () => {
       verdict: 'down',
       reasonKind: 'wrong_name',
       editApplied: true,
+      changed: true,
       editError: null,
       thought: EDITED_THOUGHT,
     })
@@ -221,6 +232,7 @@ describe('rate_capture: the vote', () => {
       verdict: 'down',
       reason_kind: 'wrong_name',
       edit_applied: true,
+      changed: true,
       edit_error: null,
       thought: EDITED_THOUGHT,
     })
@@ -231,6 +243,7 @@ describe('rate_capture: the vote', () => {
       verdict: 'down',
       reasonKind: 'wrong_name',
       editApplied: false,
+      changed: false,
       editError: 'the edit model did not answer',
       thought: null,
     })
@@ -243,6 +256,7 @@ describe('rate_capture: the vote', () => {
       verdict: 'down',
       reason_kind: 'wrong_name',
       edit_applied: false,
+      changed: false,
       edit_error: 'the edit model did not answer',
     })
     expect(Object.keys(out)).not.toContain('thought')
@@ -271,6 +285,7 @@ describe('rate_capture: the vote', () => {
       verdict: 'down',
       reasonKind: 'wrong_name',
       editApplied: true,
+      changed: true,
       editError: null,
       thought: { ...EDITED_THOUGHT, embedding: Array.from({ length: 1536 }, () => 0.2) },
     })

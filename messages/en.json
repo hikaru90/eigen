@@ -436,6 +436,7 @@
   "capture_vote_down": "Stored wrong",
   "capture_vote_reason_placeholder": "What was wrong?",
   "capture_vote_send": "Send",
+  "capture_vote_unchanged": "Saved your vote. Nothing changed in what was stored.",
   "better_tabs_requested": "Requested",
   "better_tabs_in_progress": "In progress",
   "better_tabs_shipped": "Shipped",

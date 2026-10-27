@@ -8,7 +8,11 @@
  * - 👎 with no text: the verdict, nothing else. No edit, no label.
  * - 👎 with a reason: Jev labels the kind of mistake (closed set, the only thing ever aggregated),
  *   the reason is applied as an edit through the existing natural-language edit, and verdict,
- *   encrypted reason, label and the edit time are stored. If the label cannot be made (the ingest
+ *   encrypted reason, label and the edit time are stored (a `split_wrong` reason skips the edit and
+ *   redoes the split). When the edit changed nothing (the text
+ *   already said the right thing) and the label is about stored data, the thought is read again with
+ *   the owner's correction (`recheck.ts`). `edit_applied_at` is set only when a snapshot of the
+ *   stored data after the edit / re-check differs from the one before it (`changed`). If the label cannot be made (the ingest
  *   ladder: the first try and exactly 3 retries) NOTHING is stored and the call throws, so the UI
  *   keeps the text and the owner can send again. If only the edit fails, the vote is stored anyway
  *   and the edit error is returned to the caller, never swallowed.
@@ -35,6 +39,8 @@ import {
   CAPTURE_REASON_KINDS,
   type CaptureReasonKind,
 } from './reason-question'
+import { recheckStoredData, snapshotStoredData } from './recheck'
+import { isRecheckReasonKind } from './recheck-kinds'
 import { buildStoredSummary } from './stored-summary'
 import { CaptureVoteError } from './vote-error'
 import { validateCaptureVote, type CaptureVotePlace } from './vote-input'
@@ -61,9 +67,14 @@ export type VoteOnCaptureResult = {
   verdict: CaptureReviewVerdict
   /** The closed label of the mistake; null without a reason. */
   reasonKind: CaptureReasonKind | null
-  /** True when the reason was applied as an edit. */
+  /**
+   * True when the reason changed what is stored (the edit or the re-check): `edit_applied_at` is
+   * set exactly then. A reason that changed nothing is stored as a vote and nothing more.
+   */
   editApplied: boolean
-  /** Why the edit failed, when a reason was given and the edit did not go through. */
+  /** The same fact under the name the UI and agents use: something in the stored data changed. */
+  changed: boolean
+  /** Why the edit or the re-check failed, when a reason was given and it did not go through. */
   editError: string | null
   /** The thought as the edit left it, when an edit ran. */
   thought: CaptureSubmitResult | null
@@ -150,8 +161,7 @@ async function ensureCaptureReview(userId: string, thoughtId: string): Promise<v
 }
 
 type EditOutcome =
-  | { applied: true; thought: CaptureSubmitResult }
-  | { applied: false; error: string }
+  { applied: true; thought: CaptureSubmitResult } | { applied: false; error: string }
 
 /** Applies the reason through the existing natural-language edit. A failure is reported, not thrown. */
 async function applyReasonAsEdit(
@@ -194,7 +204,14 @@ export async function voteOnCapture(input: VoteOnCaptureInput): Promise<VoteOnCa
       reasonKind: null,
     })
     console.info('[capture-review] vote stored', { userId, thoughtId, verdict, place })
-    return { verdict, reasonKind: null, editApplied: false, editError: null, thought: null }
+    return {
+      verdict,
+      reasonKind: null,
+      editApplied: false,
+      changed: false,
+      editError: null,
+      thought: null,
+    }
   }
 
   // 👎 with a reason. What Eigen stored NOW is read before the edit changes it.
@@ -217,7 +234,37 @@ export async function voteOnCapture(input: VoteOnCaptureInput): Promise<VoteOnCa
   })
   await ensureCaptureReview(userId, thoughtId)
 
-  const edit = await applyReasonAsEdit(userId, thoughtId, reason)
+  const snapshotBefore = await snapshotStoredData({ userId, thoughtId })
+  // A reason about the SPLIT is not an edit of this thought's words (the vote may be on one child
+  // of the split, and rewriting that child would only corrupt it): the split is redone instead.
+  const edit: EditOutcome | null =
+    reasonKind === 'split_wrong' ? null : await applyReasonAsEdit(userId, thoughtId, reason)
+
+  let editError: string | null = edit === null || edit.applied ? null : edit.error
+  let snapshotAfter = snapshotBefore
+  if (edit === null || edit.applied) {
+    snapshotAfter = edit === null ? snapshotBefore : await snapshotStoredData({ userId, thoughtId })
+    // The edit changed neither text nor status nor any stored data, and the reason is about stored
+    // data: read the thought again with the owner's correction.
+    if (snapshotAfter === snapshotBefore && isRecheckReasonKind(reasonKind)) {
+      try {
+        await recheckStoredData({ userId, thoughtId, reasonKind, correction: reason })
+        snapshotAfter = await snapshotStoredData({ userId, thoughtId })
+      } catch (err) {
+        console.error('[capture-review] re-check failed', {
+          userId,
+          thoughtId,
+          reasonKind,
+          errorName: err instanceof Error ? err.name : typeof err,
+        })
+        editError = `Eigen could not read the capture again with your correction: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      }
+    }
+  }
+  const changed = editError === null && snapshotAfter !== snapshotBefore
+
   await saveCaptureVote({
     userId,
     thoughtId,
@@ -225,7 +272,7 @@ export async function voteOnCapture(input: VoteOnCaptureInput): Promise<VoteOnCa
     place,
     reasonEncrypted,
     reasonKind,
-    editAppliedAt: edit.applied ? new Date() : null,
+    editAppliedAt: changed ? new Date() : null,
   })
   console.info('[capture-review] vote stored', {
     userId,
@@ -233,13 +280,14 @@ export async function voteOnCapture(input: VoteOnCaptureInput): Promise<VoteOnCa
     verdict,
     place,
     reasonKind,
-    editApplied: edit.applied,
+    changed,
   })
   return {
     verdict,
     reasonKind,
-    editApplied: edit.applied,
-    editError: edit.applied ? null : edit.error,
-    thought: edit.applied ? edit.thought : null,
+    editApplied: changed,
+    changed,
+    editError,
+    thought: changed && edit?.applied ? edit.thought : null,
   }
 }

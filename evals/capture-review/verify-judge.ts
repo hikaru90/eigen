@@ -181,7 +181,8 @@ export type ExpectedQualityDeltas = {
   reviews: number
   votes: Record<'capture' | 'mesh' | 'mcp', { up: number; down: number }>
   downWithoutReason: number
-  wrongDate: number
+  /** Votes per reason kind (only the kinds named are checked). */
+  reasonKinds: Record<string, number>
 }
 
 const signed = (n: number): string => (n >= 0 ? `+${n}` : `${n}`)
@@ -205,26 +206,48 @@ export function qualityDeltaChecks(
       ])
     }
   }
-  rows.push(
-    [
-      'downWithoutReason',
-      before.totals.downWithoutReason,
-      after.totals.downWithoutReason,
-      expected.downWithoutReason,
-    ],
-    [
-      'reasonKinds.wrong_date',
-      before.reasonKinds.wrong_date,
-      after.reasonKinds.wrong_date,
-      expected.wrongDate,
-    ],
-  )
+  rows.push([
+    'downWithoutReason',
+    before.totals.downWithoutReason,
+    after.totals.downWithoutReason,
+    expected.downWithoutReason,
+  ])
+  const kindCount = (q: CaptureQuality, kind: string): number =>
+    (q.reasonKinds as Record<string, number>)[kind] ?? Number.NaN
+  for (const [kind, want] of Object.entries(expected.reasonKinds)) {
+    rows.push([`reasonKinds.${kind}`, kindCount(before, kind), kindCount(after, kind), want])
+  }
   return rows.map(([name, b, a, want]) => ({
     name,
     ok: a - b === want,
     expected: signed(want),
     actual: signed(a - b),
   }))
+}
+
+/**
+ * What the operator counts must show after the votes: the final stored vote of each voted thought
+ * (a re-vote replaced the earlier one). A vote cast over MCP has no place (`votedOn` null).
+ */
+export function expectedQualityDeltas(
+  reviews: number,
+  finals: Array<Pick<StoredVote, 'verdict' | 'votedOn' | 'reasonKind' | 'reasonStored'>>,
+): ExpectedQualityDeltas {
+  const votes: ExpectedQualityDeltas['votes'] = {
+    capture: { up: 0, down: 0 },
+    mesh: { up: 0, down: 0 },
+    mcp: { up: 0, down: 0 },
+  }
+  const reasonKinds: Record<string, number> = {}
+  let downWithoutReason = 0
+  for (const vote of finals) {
+    if (vote.verdict === null) continue
+    votes[vote.votedOn ?? 'mcp'][vote.verdict] += 1
+    if (vote.verdict === 'down' && !vote.reasonStored) downWithoutReason += 1
+    if (vote.reasonKind !== null)
+      reasonKinds[vote.reasonKind] = (reasonKinds[vote.reasonKind] ?? 0) + 1
+  }
+  return { reviews, votes, downWithoutReason, reasonKinds }
 }
 
 export type StoredVote = {
@@ -240,7 +263,8 @@ export type StoredVote = {
 export type ExpectedVote = {
   verdict: 'up' | 'down'
   votedOn: 'capture' | 'mesh' | null
-  reasonKind: string | null
+  /** The exact label; null for none; undefined for "Jev's label, whichever it is, but a label". */
+  reasonKind: string | null | undefined
   reasonStored: boolean
   edit: boolean
 }
@@ -251,13 +275,23 @@ export function voteRowChecks(expected: ExpectedVote, row: StoredVote): Check[] 
   const rows: Array<[string, unknown, unknown]> = [
     ['verdict', expected.verdict, row.verdict],
     ['voted_on', expected.votedOn, row.votedOn],
-    ['reason_kind', expected.reasonKind, row.reasonKind],
+    [
+      'reason_kind',
+      expected.reasonKind === undefined
+        ? row.reasonKind === null
+          ? 'a label'
+          : row.reasonKind
+        : expected.reasonKind,
+      row.reasonKind,
+    ],
     ['reason', expected.reasonStored ? 'stored' : 'none', row.reasonStored ? 'stored' : 'none'],
     ['edit_applied_at', expected.edit ? 'set' : 'none', row.editAppliedAt ? 'set' : 'none'],
   ]
   return rows.map(([name, want, got]) => ({
     name,
-    ok: show(want) === show(got),
+    ok:
+      show(want) === show(got) &&
+      !(expected.reasonKind === undefined && name === 'reason_kind' && row.reasonKind === null),
     expected: show(want),
     actual: show(got),
   }))

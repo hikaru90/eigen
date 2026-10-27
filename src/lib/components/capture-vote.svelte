@@ -49,6 +49,8 @@
   let reason = $state('')
   let busy = $state(false)
   let error = $state<string | null>(null)
+  /** A reason was sent and nothing in the stored data changed: said in place, not an error. */
+  let unchanged = $state(false)
 
   const pressedUp = $derived(current === 'up' && !open)
   const pressedDown = $derived(open || current === 'down')
@@ -67,6 +69,7 @@
     if (busy) return
     busy = true
     error = null
+    unchanged = false
     try {
       await postCaptureVote({ thoughtId, verdict: 'up', place })
       stored = 'up'
@@ -90,6 +93,7 @@
     if (busy) return
     busy = true
     error = null
+    unchanged = false
     try {
       const text = reason.trim()
       const answer = await postCaptureVote({
@@ -106,7 +110,11 @@
       }
       reason = ''
       setOpen(false)
-      if (answer.editApplied && answer.thought) onedited?.(answer.thought)
+      if (answer.changed) {
+        if (answer.thought) onedited?.(answer.thought)
+      } else if (text !== '') {
+        unchanged = true
+      }
     } catch (e) {
       error = messageOf(e)
     } finally {
@@ -179,6 +187,14 @@
         onclick={() => void sendDown()}>{m.capture_vote_send()}</Button
       >
     </div>
+  {/if}
+  {#if unchanged}
+    <p
+      class="order-last m-0 basis-full font-mesh text-sm text-ink-3"
+      data-testid="capture-vote-unchanged"
+    >
+      {m.capture_vote_unchanged()}
+    </p>
   {/if}
   {#if error}
     <p

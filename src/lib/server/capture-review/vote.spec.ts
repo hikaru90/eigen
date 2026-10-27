@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   runCaptureReasonLabel: vi.fn(),
   editStoredThought: vi.fn(),
   encryptTenantValue: vi.fn(),
+  snapshotStoredData: vi.fn(),
+  recheckStoredData: vi.fn(),
 }))
 
 vi.mock('./vote-store', () => ({
@@ -23,6 +25,10 @@ vi.mock('$lib/server/job-queue/enqueue', () => ({ enqueueUserJob: mocks.enqueueU
 vi.mock('./audit-input', () => ({ loadCaptureAuditInput: mocks.loadCaptureAuditInput }))
 vi.mock('$lib/server/llm/decision-plane', () => ({
   runCaptureReasonLabel: mocks.runCaptureReasonLabel,
+}))
+vi.mock('./recheck', () => ({
+  snapshotStoredData: mocks.snapshotStoredData,
+  recheckStoredData: mocks.recheckStoredData,
 }))
 vi.mock('$lib/server/capture/service', () => ({ editStoredThought: mocks.editStoredThought }))
 vi.mock('$lib/server/crypto/tenant-encryption', () => ({
@@ -51,7 +57,11 @@ const AUDIT: CaptureAuditInput = {
 const SUMMARY =
   'Saved as Task · about Anna · Call Anna: the Friday after the capture day (3 days later) at 09:00, once (not repeating)'
 
-const EDITED_THOUGHT = { id: ID, normalizedText: 'Call my sister Greta on Friday', category: 'task' }
+const EDITED_THOUGHT = {
+  id: ID,
+  normalizedText: 'Call my sister Greta on Friday',
+  category: 'task',
+}
 
 type Vote = Parameters<typeof voteOnCapture>[0]
 
@@ -80,6 +90,10 @@ beforeEach(() => {
   mocks.loadCaptureAuditInput.mockResolvedValue(AUDIT)
   mocks.runCaptureReasonLabel.mockResolvedValue({ kind: 'wrong_name', probability: 0.91 })
   mocks.editStoredThought.mockResolvedValue({ ok: true, thought: EDITED_THOUGHT, editSummary: 's' })
+  // by default every snapshot differs from the one before it: the edit changed something
+  let snapshots = 0
+  mocks.snapshotStoredData.mockImplementation(async () => `snapshot-${++snapshots}`)
+  mocks.recheckStoredData.mockResolvedValue(undefined)
   mocks.encryptTenantValue.mockImplementation(
     async (input: { plaintext: string }) => `enc(${input.plaintext.length})`,
   )
@@ -97,6 +111,7 @@ describe('voteOnCapture: thumbs-up', () => {
       verdict: 'up',
       reasonKind: null,
       editApplied: false,
+      changed: false,
       editError: null,
       thought: null,
     })
@@ -149,6 +164,7 @@ describe('voteOnCapture: thumbs-down without a reason', () => {
         verdict: 'down',
         reasonKind: null,
         editApplied: false,
+        changed: false,
         editError: null,
         thought: null,
       })
@@ -176,6 +192,7 @@ describe('voteOnCapture: thumbs-down with a reason', () => {
       verdict: 'down',
       reasonKind: 'wrong_name',
       editApplied: true,
+      changed: true,
       editError: null,
       thought: EDITED_THOUGHT,
     })
@@ -199,7 +216,8 @@ describe('voteOnCapture: thumbs-down with a reason', () => {
     expect(mocks.editStoredThought).toHaveBeenCalledWith('u1', ID, REASON)
 
     // label strictly before edit; summary read before the label
-    const order = (fn: { mock: { invocationCallOrder: number[] } }) => fn.mock.invocationCallOrder[0]
+    const order = (fn: { mock: { invocationCallOrder: number[] } }) =>
+      fn.mock.invocationCallOrder[0]
     expect(order(mocks.loadCaptureAuditInput)).toBeLessThan(order(mocks.runCaptureReasonLabel))
     expect(order(mocks.runCaptureReasonLabel)).toBeLessThan(order(mocks.editStoredThought))
     expect(order(mocks.editStoredThought)).toBeLessThan(order(mocks.saveCaptureVote))
@@ -308,6 +326,7 @@ describe('voteOnCapture: thumbs-down with a reason', () => {
         verdict: 'down',
         reasonKind: 'wrong_name',
         editApplied: false,
+        changed: false,
         editError: 'enrichment gateway timed out',
         thought: null,
       })
@@ -366,7 +385,9 @@ describe('voteOnCapture: the review row', () => {
     mocks.createPendingCaptureReviewIfMissing.mockResolvedValue('review-9')
     await vote()
     const at = (fn: { mock: { invocationCallOrder: number[] } }) => fn.mock.invocationCallOrder[0]
-    expect(at(mocks.runCaptureReasonLabel)).toBeLessThan(at(mocks.createPendingCaptureReviewIfMissing))
+    expect(at(mocks.runCaptureReasonLabel)).toBeLessThan(
+      at(mocks.createPendingCaptureReviewIfMissing),
+    )
     expect(at(mocks.createPendingCaptureReviewIfMissing)).toBeLessThan(at(mocks.editStoredThought))
   })
 
@@ -376,16 +397,19 @@ describe('voteOnCapture: the review row', () => {
       'reports a duplicate',
       () => mocks.enqueueUserJob.mockResolvedValue({ enqueued: false, reason: 'duplicate' }),
     ],
-  ])('removes the review it just created, stores nothing and edits nothing when the audit enqueue %s', async (_name, arrange) => {
-    mocks.createPendingCaptureReviewIfMissing.mockResolvedValue('review-9')
-    arrange()
+  ])(
+    'removes the review it just created, stores nothing and edits nothing when the audit enqueue %s',
+    async (_name, arrange) => {
+      mocks.createPendingCaptureReviewIfMissing.mockResolvedValue('review-9')
+      arrange()
 
-    await expect(vote()).rejects.toThrow(/capture_review_audit job was not enqueued|queue down/)
+      await expect(vote()).rejects.toThrow(/capture_review_audit job was not enqueued|queue down/)
 
-    expect(mocks.deleteCaptureReview).toHaveBeenCalledWith({ userId: 'u1', reviewId: 'review-9' })
-    expect(mocks.editStoredThought).not.toHaveBeenCalled()
-    expect(mocks.saveCaptureVote).not.toHaveBeenCalled()
-  })
+      expect(mocks.deleteCaptureReview).toHaveBeenCalledWith({ userId: 'u1', reviewId: 'review-9' })
+      expect(mocks.editStoredThought).not.toHaveBeenCalled()
+      expect(mocks.saveCaptureVote).not.toHaveBeenCalled()
+    },
+  )
 
   it('still reports the enqueue failure when removing the review fails too', async () => {
     mocks.createPendingCaptureReviewIfMissing.mockResolvedValue('review-9')
@@ -454,13 +478,17 @@ describe('voteOnCapture: refusals', () => {
 
   it('rejects a bad verdict, place or id before any lookup', async () => {
     await expect(vote({ verdict: 'maybe' as never })).rejects.toThrow('verdict must be up or down')
-    await expect(vote({ place: 'yarn' as never })).rejects.toThrow('place must be capture, mesh or mcp')
+    await expect(vote({ place: 'yarn' as never })).rejects.toThrow(
+      'place must be capture, mesh or mcp',
+    )
     await expect(vote({ thoughtId: 'nope' })).rejects.toThrow('thoughtId must be a uuid')
     expect(mocks.loadVoteTarget).not.toHaveBeenCalled()
   })
 
   it('rejects a reason with a thumbs-up', async () => {
-    await expect(vote({ verdict: 'up' })).rejects.toThrow('reason is only allowed with verdict down')
+    await expect(vote({ verdict: 'up' })).rejects.toThrow(
+      'reason is only allowed with verdict down',
+    )
     expect(mocks.saveCaptureVote).not.toHaveBeenCalled()
   })
 })
@@ -495,5 +523,161 @@ describe('voteOnCapture: logs', () => {
     expect(logged).toContain(ID)
     expect(logged).toContain('down')
     expect(logged).toContain('wrong_name')
+  })
+})
+
+describe('voteOnCapture: the re-check after an edit that changed nothing', () => {
+  const same = () => mocks.snapshotStoredData.mockImplementation(async () => 'same')
+  /** before, after the edit, after the re-check */
+  const seq = (...values: string[]) => {
+    let i = 0
+    mocks.snapshotStoredData.mockImplementation(
+      async () => values[Math.min(i++, values.length - 1)],
+    )
+  }
+
+  it('reads the thought again with the correction when the text is unchanged and the label is wrong_date, and sets edit_applied_at when the stored data now differs', async () => {
+    mocks.runCaptureReasonLabel.mockResolvedValue({ kind: 'wrong_date', probability: 0.9 })
+    seq('before', 'before', 'fixed')
+
+    const result = await vote({ reason: 'wrong day, I said Friday' })
+
+    expect(mocks.recheckStoredData).toHaveBeenCalledTimes(1)
+    expect(mocks.recheckStoredData).toHaveBeenCalledWith({
+      userId: 'u1',
+      thoughtId: ID,
+      reasonKind: 'wrong_date',
+      correction: 'wrong day, I said Friday',
+    })
+    expect(result).toMatchObject({ editApplied: true, changed: true, editError: null })
+    expect((savedVote().editAppliedAt as Date).getTime()).toBeGreaterThan(0)
+    // snapshot, edit, snapshot, re-check, snapshot
+    const order = (fn: { mock: { invocationCallOrder: number[] } }) =>
+      fn.mock.invocationCallOrder[0]
+    expect(order(mocks.editStoredThought)).toBeLessThan(order(mocks.recheckStoredData))
+    expect(mocks.snapshotStoredData).toHaveBeenCalledTimes(3)
+  })
+
+  it('leaves edit_applied_at null and says changed false when the re-check changes nothing', async () => {
+    mocks.runCaptureReasonLabel.mockResolvedValue({ kind: 'wrong_date', probability: 0.9 })
+    same()
+
+    const result = await vote()
+
+    expect(mocks.recheckStoredData).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({
+      verdict: 'down',
+      reasonKind: 'wrong_date',
+      editApplied: false,
+      changed: false,
+      editError: null,
+      thought: null,
+    })
+    expect(savedVote()).toMatchObject({
+      verdict: 'down',
+      reasonKind: 'wrong_date',
+      editAppliedAt: null,
+    })
+  })
+
+  it('does not re-check when the edit itself changed the stored data', async () => {
+    mocks.runCaptureReasonLabel.mockResolvedValue({ kind: 'wrong_date', probability: 0.9 })
+    seq('before', 'after the edit')
+
+    const result = await vote()
+
+    expect(mocks.recheckStoredData).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ editApplied: true, changed: true })
+    expect(mocks.snapshotStoredData).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['wording_changed', 'not_worth_keeping', 'other'] as const)(
+    'does not re-check a %s reason with unchanged text: edit only',
+    async (kind) => {
+      mocks.runCaptureReasonLabel.mockResolvedValue({ kind, probability: 0.9 })
+      same()
+
+      const result = await vote()
+
+      expect(mocks.recheckStoredData).not.toHaveBeenCalled()
+      expect(result).toMatchObject({ editApplied: false, changed: false })
+      expect(savedVote()).toMatchObject({ editAppliedAt: null })
+    },
+  )
+
+  it.each([
+    'wrong_date',
+    'wrong_name',
+    'wrong_link',
+    'split_wrong',
+    'something_missing',
+    'wrong_category',
+  ] as const)('re-checks a %s reason with unchanged text', async (kind) => {
+    mocks.runCaptureReasonLabel.mockResolvedValue({ kind, probability: 0.9 })
+    same()
+    await vote()
+    expect(mocks.recheckStoredData).toHaveBeenCalledWith(
+      expect.objectContaining({ reasonKind: kind }),
+    )
+  })
+
+  it('redoes the split for a split_wrong reason without applying the reason as an edit of the thought', async () => {
+    mocks.runCaptureReasonLabel.mockResolvedValue({ kind: 'split_wrong', probability: 0.9 })
+    seq('before', 'after the redo')
+
+    const result = await vote({ reason: 'it should be one to-do, not three' })
+
+    expect(mocks.editStoredThought).not.toHaveBeenCalled()
+    expect(mocks.recheckStoredData).toHaveBeenCalledWith({
+      userId: 'u1',
+      thoughtId: ID,
+      reasonKind: 'split_wrong',
+      correction: 'it should be one to-do, not three',
+    })
+    expect(result).toMatchObject({ editApplied: true, changed: true, thought: null })
+    expect(savedVote()).toMatchObject({ reasonKind: 'split_wrong' })
+    expect((savedVote().editAppliedAt as Date).getTime()).toBeGreaterThan(0)
+  })
+
+  it('does not re-check when the edit failed', async () => {
+    mocks.runCaptureReasonLabel.mockResolvedValue({ kind: 'wrong_date', probability: 0.9 })
+    mocks.editStoredThought.mockRejectedValue(new Error('edit down'))
+    const result = await vote()
+    expect(mocks.recheckStoredData).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ changed: false, editError: 'edit down' })
+  })
+
+  it('stores the vote and returns the explicit error when the re-check fails, with edit_applied_at null', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    mocks.runCaptureReasonLabel.mockResolvedValue({ kind: 'wrong_date', probability: 0.9 })
+    mocks.recheckStoredData.mockRejectedValue(new Error('enrichment failed after 4 tries'))
+    same()
+
+    const result = await vote()
+
+    expect(result.changed).toBe(false)
+    expect(result.editApplied).toBe(false)
+    expect(result.editError).toContain('enrichment failed after 4 tries')
+    expect(result.thought).toBeNull()
+    expect(savedVote()).toMatchObject({
+      verdict: 'down',
+      reasonKind: 'wrong_date',
+      reasonEncrypted: `enc(${REASON.length})`,
+      editAppliedAt: null,
+    })
+  })
+
+  it('never writes the correction into a log call, on the success or the failure path', async () => {
+    const spies = (['log', 'info', 'warn', 'error', 'debug'] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation(() => undefined),
+    )
+    mocks.runCaptureReasonLabel.mockResolvedValue({ kind: 'wrong_date', probability: 0.9 })
+    same()
+    await vote()
+    mocks.recheckStoredData.mockRejectedValueOnce(new Error('re-check blew up'))
+    await vote()
+
+    const logged = JSON.stringify(spies.flatMap((spy) => spy.mock.calls))
+    for (const secret of [REASON, 'Greta', 'sister']) expect(logged).not.toContain(secret)
   })
 })

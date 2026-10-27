@@ -62,6 +62,8 @@ export async function syncEntityGraphFromThought(input: {
   }
   /** Pre-fetched LLM extraction (batch ingest). Skips extractEntityGraphBundle when set. */
   precomputedEntityGraph?: { mentions: ExtractedEntityMention[]; triples: ExtractedEntityTriple[] }
+  /** The owner's correction of the last reading (prompt context only, never stored or logged). */
+  ownerCorrection?: string
 }): Promise<{
   mentionCount: number
   projectLikeEntities: Array<{ entityId: string; label: string }>
@@ -160,6 +162,7 @@ export async function syncEntityGraphFromThought(input: {
         ontologyEntityKinds,
         knownEntities: knownEntities.length > 0 ? knownEntities : undefined,
         enrichmentContext: entityEnrichmentContext,
+        ownerCorrection: input.ownerCorrection,
       })
 
   if (mentions.length === 0) {

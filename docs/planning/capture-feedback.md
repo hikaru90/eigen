@@ -434,6 +434,47 @@ in the user's own tenant.
     | bad_piece_en | piece 2 cut | 0.62 missing_dates | 0.44 | piece:p2 right 0.68 | FAIL (piece stayed right; pieces_cover went wrong 0.44) |
     | lost_piece_en | last piece dropped | 0.07 date:d1 | 0.00 | pieces_cover wrong 0.00 | PASS |
 
+  - **Follow-up: the 👎 reason re-checks the stored data (2026-10-28).** Run 3 showed a 👎 "wrong day,
+    I said Friday" labelled `wrong_date` and marked as applied while the stored date stayed one day
+    late: the edit LLM returned the same text, `editStoredThought` took its metadata-only branch and
+    nothing re-read dates, names or pieces. Now (`vote.ts`, `recheck.ts`):
+    - After the label, the reason goes through `editStoredThought` as before, except for
+      `split_wrong` (below). A snapshot of the stored data (`snapshotStoredData`: raw and stored text,
+      category, lifecycle status, names, the dates' day and clock detail, pieces, and the split
+      family with the children's status) is taken before and after.
+    - If the edit changed nothing and Jev's label is about stored data (`wrong_date`, `wrong_name`,
+      `wrong_link`, `split_wrong`, `something_missing`, `wrong_category`; `recheck-kinds.ts`), the
+      thought is read again with the owner's correction. `ownerCorrection` is an option of
+      `reenrichThought` / `enrichThought`; it enters the standalone entity extraction prompt
+      (`extractEntityGraphBundle`) and the temporal extraction prompt (`extractTemporalMentions`) as
+      "The owner said the last reading of this thought was wrong: "<reason>". Read the thought again
+      with that in mind." (`owner-correction.ts`). It is LLM context only: never stored, only its
+      length is logged. The queued-enrichment bundle prompt does not take it (the re-check does not use
+      the bundle). The re-check runs inside `withDecisionRecorder` and `recordCaptureReview` rebuilds
+      the review (capture-time category / content role carry over), which also closes the "score not
+      recomputed after a 👎 edit" gap for these kinds.
+    - `wrong_category` re-reads the thought too, but `reenrichThought` does not decide the category
+      again (that is done at capture by the decision plane), so it rarely changes anything.
+    - `split_wrong` does not apply the reason as an edit of the voted thought (the vote may be on one
+      child; rewriting it only corrupts it). `redoCaptureSplit` (`split-multi-task.ts`) redoes the
+      split of the parent (the voted thought, or the parent its `metadata.splitFrom` names): the split
+      judge gets the correction, and only after it answered are the untouched old children archived
+      through the lifecycle (never deleted), the parent's `splitInto` replaced (removed when the judge
+      now sees one thought) and the new children created like the first fan-out. Children are found by
+      the parent's own `created_at` (the fan-out gives them that time) plus `metadata.splitFrom`. A
+      child counts as edited, and is left alone, when it is not open, carries `metadata.lastEditRequest`
+      (stamped by every natural-language edit and lifecycle change) or its raw text is no longer one of
+      the parent's recorded pieces. The parent's review is queued for a new audit.
+    - `edit_applied_at` is set only when the snapshot differs; the result (endpoint, MCP
+      `rate_capture`) carries `changed`; the vote UI says "Saved your vote. Nothing changed in what was
+      stored." when a reason was sent and nothing changed. A re-check that fails after the ingest
+      ladder keeps the vote and returns the error (`editError`) with `edit_applied_at` null.
+    - Verify now asserts the wrong-date vote restores the captured day (it did), a reason that
+      changes nothing leaves `edit_applied_at` null, and a `split_wrong` vote archives the old children.
+      Second real run of the follow-up: wrong-date restored; split_wrong archived the three old
+      children (confirmed in the rows) and left the capture as one thought; the "changes nothing" vote
+      did not test that (the edit LLM rewrote "Am Samstag" to "Diesen Samstag", a real text change that
+      also made the capture split in two), so its reason was reworded and is untested.
   - **Findings for the planner (not fixed here):** every clean capture scored below the threshold
     before any injection (weakest: a name rated right at 0.64-0.67, a category at 0.47, a date at
     0.68), most mistake cases were already weak before their injection, a fragment piece

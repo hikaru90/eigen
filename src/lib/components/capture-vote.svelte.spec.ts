@@ -8,7 +8,14 @@ vi.mock('$lib/capture/capture-vote-client', () => client)
 
 const base = { thoughtId: 't1', initialVerdict: null, place: 'mesh' as const }
 
-const upStored = { verdict: 'up', reasonKind: null, editApplied: false, editError: null, thought: null }
+const upStored = {
+  verdict: 'up',
+  reasonKind: null,
+  editApplied: false,
+  changed: false,
+  editError: null,
+  thought: null,
+}
 const downStored = { ...upStored, verdict: 'down' }
 const editedThought = { id: 't1', normalizedText: 'Call my sister Greta', category: 'task' }
 
@@ -104,6 +111,7 @@ describe('capture-vote.svelte (👍 / 👎 on a stored thought, never a prompt)'
       verdict: 'down',
       reasonKind: 'wrong_name',
       editApplied: true,
+      changed: true,
       editError: null,
       thought: editedThought,
     })
@@ -124,11 +132,42 @@ describe('capture-vote.svelte (👍 / 👎 on a stored thought, never a prompt)'
     await expect.element(down()).toHaveAttribute('aria-pressed', 'true')
   })
 
+  it('says plainly that nothing changed when a reason was sent and the stored data is the same', async () => {
+    client.postCaptureVote.mockResolvedValue({
+      verdict: 'down',
+      reasonKind: 'wrong_date',
+      editApplied: false,
+      changed: false,
+      editError: null,
+      thought: null,
+    })
+    const onedited = vi.fn()
+    render(CaptureVote, { ...base, onedited })
+    await down().click()
+    await userEvent.type(field(), 'wrong day, I said Friday')
+    await send().click()
+    await expect
+      .element(page.getByTestId('capture-vote-unchanged'))
+      .toHaveTextContent('Saved your vote. Nothing changed in what was stored.')
+    expect(onedited).not.toHaveBeenCalled()
+    await expect.element(page.getByTestId('capture-vote-error')).not.toBeInTheDocument()
+  })
+
+  it('says nothing about "unchanged" for an empty thumbs-down, or when something changed', async () => {
+    client.postCaptureVote.mockResolvedValue(downStored)
+    render(CaptureVote, { ...base })
+    await down().click()
+    await send().click()
+    await vi.waitFor(() => expect(client.postCaptureVote).toHaveBeenCalledTimes(1))
+    await expect.element(page.getByTestId('capture-vote-unchanged')).not.toBeInTheDocument()
+  })
+
   it('an edit that failed says why, in place; the vote counts, the text stays, the host is not told', async () => {
     client.postCaptureVote.mockResolvedValue({
       verdict: 'down',
       reasonKind: 'wrong_date',
       editApplied: false,
+      changed: false,
       editError: 'enrichment gateway timed out',
       thought: null,
     })
@@ -145,7 +184,9 @@ describe('capture-vote.svelte (👍 / 👎 on a stored thought, never a prompt)'
 
   it('a refused vote (the label could not be made) says why, in place, and keeps the typed text', async () => {
     client.postCaptureVote.mockRejectedValue(
-      new Error('Eigen could not work out what kind of mistake you described after 4 tries, so nothing was saved. Send it again.'),
+      new Error(
+        'Eigen could not work out what kind of mistake you described after 4 tries, so nothing was saved. Send it again.',
+      ),
     )
     render(CaptureVote, { ...base })
     await down().click()
@@ -163,6 +204,7 @@ describe('capture-vote.svelte (👍 / 👎 on a stored thought, never a prompt)'
       verdict: 'down',
       reasonKind: 'wrong_name',
       editApplied: true,
+      changed: true,
       editError: null,
       thought: editedThought,
     })

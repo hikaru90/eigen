@@ -159,6 +159,7 @@ describe('thought-inline-editor.svelte (change a thought where you read it)', ()
         verdict: 'up',
         reasonKind: null,
         editApplied: false,
+        changed: false,
         editError: null,
         thought: null,
       })
@@ -176,6 +177,7 @@ describe('thought-inline-editor.svelte (change a thought where you read it)', ()
         verdict: 'down',
         reasonKind: 'wrong_category',
         editApplied: true,
+        changed: true,
         editError: null,
         thought: { id: 't1', category: 'task', normalizedText: 'Call the studio on Monday about pricing' },
       })
@@ -202,6 +204,7 @@ describe('thought-inline-editor.svelte (change a thought where you read it)', ()
         verdict: 'down',
         reasonKind: null,
         editApplied: false,
+        changed: false,
         editError: null,
         thought: null,
       })

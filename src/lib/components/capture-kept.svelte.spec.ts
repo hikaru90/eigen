@@ -89,6 +89,7 @@ describe('capture-kept.svelte', () => {
         verdict: 'up',
         reasonKind: null,
         editApplied: false,
+        changed: false,
         editError: null,
         thought: null,
       })
@@ -109,6 +110,7 @@ describe('capture-kept.svelte', () => {
         verdict: 'down',
         reasonKind: 'wrong_category',
         editApplied: true,
+        changed: true,
         editError: null,
         thought: { id: 't1', category: 'observation', normalizedText: 'Oat milk is cheaper at Lidl' },
       })

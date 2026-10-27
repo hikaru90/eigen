@@ -74,6 +74,11 @@ export type EnrichThoughtOptions = {
   ingestTimer?: IngestPhaseTimer
   /** When true, relation extraction runs fire-and-forget after core enrich (background capture). */
   deferRelations?: boolean
+  /**
+   * The owner's correction of the last reading (a 👎 reason): LLM context for the entity and
+   * temporal extraction prompts only. Never persisted, never logged in plain text.
+   */
+  ownerCorrection?: string
 }
 
 /**
@@ -142,6 +147,7 @@ export async function enrichThought(
     precomputedTemporalMentions,
     ingestTimer,
     deferRelations = false,
+    ownerCorrection,
   } = options ?? {}
   const db = getDb()
   const time =
@@ -183,6 +189,7 @@ export async function enrichThought(
           precomputedEntityGraph,
           precomputedEntityEnrichmentContext,
           thoughtEmbedding,
+          ownerCorrection,
         }),
       )
       projectLikeEntities = entitySync.projectLikeEntities
@@ -248,6 +255,7 @@ export async function enrichThought(
           thoughtEmbedding,
           capturedAt,
           timezone,
+          ownerCorrection,
         }),
       ),
     ]).then((r) => r[0])

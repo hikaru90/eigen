@@ -92,6 +92,13 @@ vi.mock('$lib/server/capture/service', () => ({
   },
 }))
 
+// What a vote compares before and after its edit: the fake world's own rows.
+vi.mock('$lib/server/capture-review/recheck', () => ({
+  snapshotStoredData: async (input: { thoughtId: string }) =>
+    JSON.stringify(things().get(input.thoughtId) ?? null),
+  recheckStoredData: async () => undefined,
+}))
+
 vi.mock('$lib/server/memory/lifecycle', () => ({
   archiveThoughtForUser: async (userId: string, thoughtId: string) => {
     const row = things().get(thoughtId)
@@ -380,6 +387,7 @@ describe('capture review test-drive: the happy path stays within its budget', ()
       verdict: 'up',
       reason_kind: null,
       edit_applied: false,
+      changed: false,
       edit_error: null,
     })
 
@@ -478,6 +486,7 @@ describe('capture review test-drive: a thumbs-down with a reason', () => {
       verdict: 'down',
       reason_kind: 'wrong_name',
       edit_applied: true,
+      changed: true,
       edit_error: null,
       thought: {
         id: thoughtId,

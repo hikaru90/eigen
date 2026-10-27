@@ -1,4 +1,5 @@
 import { m } from '$lib/paraglide/messages.js'
+import { ownerCorrectionBlock } from '$lib/server/capture/owner-correction'
 import { evictEvalLlmCacheEntry } from '$lib/server/llm/eval-llm-cache'
 import { llmChatCompletion } from '$lib/server/llm/llm-client'
 import { parseLlmJsonPayload } from '$lib/server/memory/llm-json-content'
@@ -38,6 +39,8 @@ export async function extractTemporalMentions(input: {
   /** Anchor for relative expressions ("next Friday"). */
   capturedAt: Date
   timezone: string
+  /** The owner's correction of the last reading: prompt context only, never stored or logged. */
+  ownerCorrection?: string
 }): Promise<ExtractedTemporalMention[]> {
   const capturedIso = input.capturedAt.toISOString()
   const anchorTz = input.timezone.trim()
@@ -61,7 +64,9 @@ For malfunctions and repairs: appliance breakdown or repair shop visits → kind
 For lodging: distinguish booking/reservation date (booked, reserved → kind "milestone") from payment deadlines or booking deadlines (kind "deadline" only — do not use deadline as the booking date).
 For gardening/seeds: "started X since DATE" or "started seeds on DATE" → kind "milestone" with calendarDate at the start date (when planting began, not when seeds arrived).
 Text may be in any language (e.g. German "nächsten Mittwoch" = next Wednesday).
-If no temporal content exists, return {"mentions": []}.`
+If no temporal content exists, return {"mentions": []}.${
+    input.ownerCorrection === undefined ? '' : `\n${ownerCorrectionBlock(input.ownerCorrection)}`
+  }`
 
   const response = await llmChatCompletion({
     userId: input.userId,

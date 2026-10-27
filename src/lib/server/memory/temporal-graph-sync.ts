@@ -62,6 +62,8 @@ export async function syncTemporalEventsFromThought(input: {
   timezone?: string
   /** Pre-fetched LLM extraction (batch ingest). Skips extractTemporalMentions when set. */
   precomputedMentions?: ExtractedTemporalMention[]
+  /** The owner's correction of the last reading (prompt context only, never stored or logged). */
+  ownerCorrection?: string
 }): Promise<void> {
   const db = getDb()
   const capturedAt = input.capturedAt ?? new Date()
@@ -89,6 +91,7 @@ export async function syncTemporalEventsFromThought(input: {
         normalizedText: input.normalizedText,
         capturedAt,
         timezone,
+        ownerCorrection: input.ownerCorrection,
       })),
     capturedAt,
   )

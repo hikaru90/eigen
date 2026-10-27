@@ -10,7 +10,7 @@
  */
 
 import type { VerifyArgs } from './verify-cli'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { deleteEvalUserRow, insertEvalUserRow } from '$lib/eval/store'
 import {
   CAPTURE_REVIEW_VERIFY_TENANT_ID,
@@ -21,18 +21,20 @@ import { PLATFORM_CHAT_MODEL } from '$lib/server/billing/platform-llm'
 import { loadCaptureQuality } from '$lib/server/capture-review/admin-quality'
 import { loadCaptureAuditInput } from '$lib/server/capture-review/audit-input'
 import { CAPTURE_REVIEW_AUDIT_MAX_ATTEMPTS } from '$lib/server/capture-review/job'
+import { snapshotStoredData } from '$lib/server/capture-review/recheck'
 import { parseCaptureReviewParts } from '$lib/server/capture-review/review-parts'
 import { runCaptureReviewAudit } from '$lib/server/capture-review/run-audit'
 import { voteOnCapture } from '$lib/server/capture-review/vote'
 import type { CaptureVotePlace } from '$lib/server/capture-review/vote-input'
 import { processCaptureEnrichQueue } from '$lib/server/capture/enrich-queued-thought'
 import { captureThought } from '$lib/server/capture/service'
-import { captureReview } from '$lib/server/db/schema'
+import { captureReview, thought } from '$lib/server/db/schema'
 import { drainUserJobQueue } from '$lib/server/job-queue/drain'
 import {
   resolveDecisionEnforceKinds,
   resolveDecisionShadowConfig,
 } from '$lib/server/llm/decision-client'
+import { readSplitFamily } from '$lib/server/memory/split-multi-task'
 import { logEval, withEvalDb } from '../harness/eval-context'
 import { aggregateRunCost } from '../public-bench/cost'
 import { ensurePublicBenchOperator } from '../public-bench/ensure-operator'
@@ -40,6 +42,7 @@ import { loadVerifyCases, VERIFY_CASES_PATH, type VerifyCase } from './verify-fi
 import { InjectionSetupError, injectMutation, resetReviewForReaudit } from './verify-inject'
 import {
   evaluateCase,
+  expectedQualityDeltas,
   qualityDeltaChecks,
   voteRowChecks,
   type CaseTarget,
@@ -66,6 +69,13 @@ type Billing = { billingUserId: string }
 
 /** The made-up reason of the wrong-date vote. */
 const WRONG_DATE_REASON = 'wrong day, I said Friday'
+
+/** A reason about a date that is already stored right: the re-check must change nothing. */
+const NOTHING_CHANGES_REASON = 'Saturday is the right day, please just double-check the date'
+
+/** A reason about a split that should not have happened. */
+const SPLIT_REASON =
+  'this is one errand list for the morning, it should be a single to-do, not three'
 
 async function readReview(thoughtId: string, billing: Billing): Promise<ReviewSnapshot | null> {
   return withEvalDb(
@@ -285,7 +295,12 @@ type VoteStep = {
 async function castVote(
   step: VoteStep,
   billing: Billing,
-): Promise<VoteCheckGroup & { stored: StoredVote & { votedAt: Date | null } }> {
+): Promise<
+  VoteCheckGroup & {
+    stored: StoredVote & { votedAt: Date | null }
+    result: Awaited<ReturnType<typeof voteOnCapture>>
+  }
+> {
   logEval(`vote: ${step.title}`)
   const result = await withEvalDb(
     TENANT,
@@ -304,9 +319,18 @@ async function castVote(
   if (result.editError) notes.push(`the edit reported an error: ${result.editError}`)
   return {
     title: step.title,
-    checks: voteRowChecks(step.expected, stored),
+    checks: [
+      ...voteRowChecks(step.expected, stored),
+      {
+        name: 'changed',
+        ok: result.changed === step.expected.edit,
+        expected: String(step.expected.edit),
+        actual: String(result.changed),
+      },
+    ],
     notes,
     stored,
+    result,
   }
 }
 
@@ -403,7 +427,7 @@ export async function runVerify(args: VerifyArgs): Promise<number> {
   const originalDays = runs.find((r) => r.row.id === 'wrong_date_en')?.daysBefore ?? 'unknown'
   const withReason = await castVote(
     {
-      title: `thumbs down with a reason on wrong_date_en (place mesh): label wrong_date, edit applied`,
+      title: `thumbs down with a reason on wrong_date_en (place mesh): label wrong_date, the date is read again and fixed`,
       ...dateCase,
       verdict: 'down',
       place: 'mesh',
@@ -418,11 +442,143 @@ export async function runVerify(args: VerifyArgs): Promise<number> {
     },
     billing,
   )
-  voteGroups.push(withReason)
   const editedDays = dayList(await readAuditView(dateCase.thoughtId, billing))
+  withReason.checks.push({
+    name: 'date back to the captured day',
+    ok: editedDays === originalDays,
+    expected: originalDays,
+    actual: editedDays,
+  })
   withReason.notes.push(
-    `stored dates: as captured ${originalDays}; injected (one day late) ${injectedDays}; after the edit ${editedDays}; the edit ${editedDays === originalDays ? 'restored the captured date' : 'did NOT restore the captured date'}`,
+    `stored dates: as captured ${originalDays}; injected (one day late) ${injectedDays}; after the vote ${editedDays}`,
   )
+  voteGroups.push(withReason)
+
+  const nothingCase = need('clean_weekday_de')
+  const nothingBefore = await withEvalDb(
+    TENANT,
+    () => snapshotStoredData({ userId: TENANT, thoughtId: nothingCase.thoughtId }),
+    billing,
+  )
+  const nothing = await castVote(
+    {
+      title:
+        'thumbs down with a reason on clean_weekday_de (place capture): the stored data is already right, so nothing changes',
+      ...nothingCase,
+      verdict: 'down',
+      place: 'capture',
+      reason: NOTHING_CHANGES_REASON,
+      expected: {
+        verdict: 'down',
+        votedOn: 'capture',
+        reasonKind: undefined,
+        reasonStored: true,
+        edit: false,
+      },
+    },
+    billing,
+  )
+  nothing.notes.push(`Jev labelled the reason ${nothing.stored.reasonKind}`)
+  const nothingAfter = await withEvalDb(
+    TENANT,
+    () => snapshotStoredData({ userId: TENANT, thoughtId: nothingCase.thoughtId }),
+    billing,
+  )
+  if (nothingAfter !== nothingBefore) {
+    // made-up fixture data only: show which fields of the stored snapshot moved
+    const was = JSON.parse(nothingBefore) as Record<string, unknown>
+    const now = JSON.parse(nothingAfter) as Record<string, unknown>
+    for (const key of Object.keys(now)) {
+      if (JSON.stringify(was[key]) !== JSON.stringify(now[key])) {
+        nothing.notes.push(
+          `snapshot field ${key}: ${JSON.stringify(was[key])} -> ${JSON.stringify(now[key])}`,
+        )
+      }
+    }
+  }
+  voteGroups.push(nothing)
+
+  const splitCase = need('clean_split_en')
+  const familyBefore = await withEvalDb(
+    TENANT,
+    () => readSplitFamily({ userId: TENANT, thoughtId: splitCase.thoughtId }),
+    billing,
+  )
+  const splitChecks: Check[] = []
+  const splitNotes: string[] = []
+  let splitVote: Awaited<ReturnType<typeof castVote>> | null = null
+  if (familyBefore === null || familyBefore.children.length === 0) {
+    splitChecks.push({
+      name: 'setup: the capture was split',
+      ok: false,
+      expected: 'children',
+      actual: 'none',
+    })
+  } else {
+    const oldIds = familyBefore.children.map((c) => c.id)
+    splitVote = await castVote(
+      {
+        title:
+          'thumbs down with a reason on a child of clean_split_en (place mesh): the parent is split again',
+        thoughtId: oldIds[0],
+        capturedAt: splitCase.capturedAt,
+        verdict: 'down',
+        place: 'mesh',
+        reason: SPLIT_REASON,
+        expected: {
+          verdict: 'down',
+          votedOn: 'mesh',
+          reasonKind: 'split_wrong',
+          reasonStored: true,
+          edit: true,
+        },
+      },
+      billing,
+    )
+    // the new children are queued for enrichment; let them finish so their reviews exist
+    await withEvalDb(TENANT, () => processCaptureEnrichQueue(TENANT, { concurrency: 1 }), {
+      ...billing,
+      clock: splitCase.capturedAt,
+    })
+    const familyAfter = await withEvalDb(
+      TENANT,
+      () => readSplitFamily({ userId: TENANT, thoughtId: splitCase.thoughtId }),
+      billing,
+    )
+    // once the capture is one thought again the parent has no split marker, so the family reads
+    // as empty: read the old children's status straight from their rows
+    const oldStates = await withEvalDb(
+      TENANT,
+      async (db) =>
+        db
+          .select({ id: thought.id, lifecycle: thought.lifecycleStatus })
+          .from(thought)
+          .where(inArray(thought.id, oldIds)),
+      billing,
+    )
+    splitChecks.push({
+      name: 'old children archived, not deleted',
+      ok: oldStates.length === oldIds.length && oldStates.every((r) => r.lifecycle === 'archived'),
+      expected: `${oldIds.length} stored, all archived`,
+      actual: `${oldStates.length} stored, ${oldStates.filter((r) => r.lifecycle === 'archived').length} archived`,
+    })
+    splitChecks.push({
+      name: 'the new split has fewer pieces',
+      ok: (familyAfter?.pieces.length ?? 0) < familyBefore.pieces.length,
+      expected: `< ${familyBefore.pieces.length}`,
+      actual: String(familyAfter?.pieces.length ?? 0),
+    })
+    splitNotes.push(
+      `pieces before: ${familyBefore.pieces.map((p) => `"${p}"`).join(', ')}`,
+      `pieces after: ${familyAfter && familyAfter.pieces.length > 0 ? familyAfter.pieces.map((p) => `"${p}"`).join(', ') : 'none (kept as one thought)'}`,
+      `children after: ${familyAfter?.children.map((c) => c.lifecycleStatus).join(', ') ?? 'none'}`,
+    )
+  }
+  voteGroups.push({
+    title: splitVote?.title ?? 'split_wrong vote on clean_split_en',
+    checks: [...(splitVote?.checks ?? []), ...splitChecks],
+    notes: [...(splitVote?.notes ?? []), ...splitNotes],
+  })
 
   const revoteCase = need('clean_person_place_en')
   const first = await castVote(
@@ -472,18 +628,22 @@ export async function runVerify(args: VerifyArgs): Promise<number> {
   })
 
   // --- operator counts ---
+  await drainUserJobQueue({ userId: TENANT, limit: 50 })
   const qualityAfter = await loadCaptureQuality({ includeHarness: true })
   const reviews = await countReviews(billing)
-  const deltas = qualityDeltaChecks(qualityBefore, qualityAfter, {
-    reviews,
-    votes: {
-      capture: { up: 2, down: 0 },
-      mesh: { up: 0, down: 2 },
-      mcp: { up: 0, down: 0 },
-    },
-    downWithoutReason: 1,
-    wrongDate: 1,
-  })
+  const finals = [
+    up,
+    emptyDown,
+    withReason,
+    nothing,
+    second,
+    ...(splitVote ? [splitVote] : []),
+  ].map((v) => v.stored)
+  const deltas = qualityDeltaChecks(
+    qualityBefore,
+    qualityAfter,
+    expectedQualityDeltas(reviews, finals),
+  )
   const quality = JSON.stringify(qualityAfter)
   const leaked = cases.filter((c) => quality.includes(c.text))
   notes.push(

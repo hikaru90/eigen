@@ -15,8 +15,10 @@ export type CaptureVoteAnswer = {
   /** The closed label of the mistake the reason described; null without a reason. */
   reasonKind: string | null
   editApplied: boolean
+  /** Something in the stored data changed (the edit or the re-check); false: only the vote was saved. */
+  changed: boolean
   editError: string | null
-  /** The thought as the edit left it, when an edit ran. */
+  /** The thought as the edit left it, when something changed. */
   thought: CaptureSubmitResult | null
 }
 
@@ -41,6 +43,7 @@ function parseAnswer(body: unknown): CaptureVoteAnswer {
     (b.verdict === 'up' || b.verdict === 'down') &&
     (b.reasonKind === null || typeof b.reasonKind === 'string') &&
     typeof b.editApplied === 'boolean' &&
+    typeof b.changed === 'boolean' &&
     (b.editError === null || typeof b.editError === 'string') &&
     (thought === null || (typeof thought === 'object' && thought !== null))
   if (!understood) throw new Error('Vote answer was not understood')
@@ -48,6 +51,7 @@ function parseAnswer(body: unknown): CaptureVoteAnswer {
     verdict: b.verdict as CaptureVoteVerdict,
     reasonKind: b.reasonKind as string | null,
     editApplied: b.editApplied as boolean,
+    changed: b.changed as boolean,
     editError: b.editError as string | null,
     thought: thought as CaptureSubmitResult | null,
   }

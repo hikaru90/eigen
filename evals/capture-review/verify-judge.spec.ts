@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { CaptureQuality } from '$lib/server/capture-review/admin-quality'
 import {
   evaluateCase,
+  expectedQualityDeltas,
   otherPartChanges,
   qualityDeltaChecks,
   voteRowChecks,
@@ -218,7 +219,7 @@ describe('qualityDeltaChecks', () => {
     reviews: 14,
     votes: { capture: { up: 2, down: 0 }, mesh: { up: 0, down: 2 }, mcp: { up: 0, down: 0 } },
     downWithoutReason: 1,
-    wrongDate: 1,
+    reasonKinds: { wrong_date: 1 },
   }
 
   it('passes when every delta matches, whatever the baseline was', () => {
@@ -305,5 +306,51 @@ describe('voteRowChecks', () => {
       'reason',
       'edit_applied_at',
     ])
+  })
+})
+
+describe('expectedQualityDeltas', () => {
+  it('tallies the final stored votes by place, the empty thumbs-downs and the reason kinds', () => {
+    const out = expectedQualityDeltas(9, [
+      { verdict: 'up', votedOn: 'capture', reasonKind: null, reasonStored: false },
+      { verdict: 'down', votedOn: 'mesh', reasonKind: null, reasonStored: false },
+      { verdict: 'down', votedOn: 'mesh', reasonKind: 'wrong_date', reasonStored: true },
+      { verdict: 'down', votedOn: 'capture', reasonKind: 'wrong_date', reasonStored: true },
+      { verdict: 'down', votedOn: null, reasonKind: 'split_wrong', reasonStored: true },
+    ])
+    expect(out).toEqual({
+      reviews: 9,
+      votes: {
+        capture: { up: 1, down: 1 },
+        mesh: { up: 0, down: 2 },
+        mcp: { up: 0, down: 1 },
+      },
+      downWithoutReason: 1,
+      reasonKinds: { wrong_date: 2, split_wrong: 1 },
+    })
+  })
+})
+
+describe('voteRowChecks: any label', () => {
+  const base = {
+    verdict: 'down' as const,
+    votedOn: 'capture' as const,
+    reasonStored: true,
+    edit: false,
+  }
+  const row = (reasonKind: string | null) => ({
+    verdict: 'down' as const,
+    votedOn: 'capture' as const,
+    reasonKind,
+    reasonStored: true,
+    editAppliedAt: null,
+  })
+
+  it('accepts whichever label Jev gave, but needs one', () => {
+    expect(
+      voteRowChecks({ ...base, reasonKind: undefined }, row('wrong_date')).every((c) => c.ok),
+    ).toBe(true)
+    const bad = voteRowChecks({ ...base, reasonKind: undefined }, row(null)).filter((c) => !c.ok)
+    expect(bad.map((c) => c.name)).toEqual(['reason_kind'])
   })
 })
