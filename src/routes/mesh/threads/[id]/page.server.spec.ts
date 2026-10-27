@@ -26,7 +26,12 @@ const project = {
   milestones: [],
 }
 
-function yarnRow(id: string, category: string, status: 'open' | 'completed' = 'open') {
+function yarnRow(
+  id: string,
+  category: string,
+  status: 'open' | 'completed' = 'open',
+  verdict: 'up' | 'down' | null = null,
+) {
   return {
     id,
     text: `words of ${id}`,
@@ -36,6 +41,7 @@ function yarnRow(id: string, category: string, status: 'open' | 'completed' = 'o
     isTodo: category === 'task',
     threadLabel: 'Studio',
     threadEntityId: 'p1',
+    verdict,
   }
 }
 
@@ -68,6 +74,22 @@ describe('a thread lists every thought on it (board b6f74d02)', () => {
     expect(data.thoughts.map((t) => t.thoughtId)).toEqual(['d1', 'q1', 't1'])
     expect(data.questions.map((q) => q.thoughtId)).toEqual(['q1'])
     expect(data.kinds).toHaveLength(1)
+  })
+
+  it('carries each thought’s current vote to the row, from the same reader as Yarn', async () => {
+    m.loadYarnThoughts.mockResolvedValue([
+      yarnRow('d1', 'decision', 'open', 'up'),
+      yarnRow('q1', 'question', 'open', 'down'),
+      yarnRow('t1', 'task'),
+    ])
+    const data = (await load(event())) as {
+      thoughts: Array<{ thoughtId: string; verdict: string | null }>
+    }
+    expect(data.thoughts.map((t) => [t.thoughtId, t.verdict])).toEqual([
+      ['d1', 'up'],
+      ['q1', 'down'],
+      ['t1', null],
+    ])
   })
 
   it('a hub that is not a listed project is a 404', async () => {

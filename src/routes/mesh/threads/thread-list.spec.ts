@@ -8,6 +8,7 @@ import {
   groupItemsByThread,
   openQuestionsOf,
   threadMeta,
+  toThreadThought,
   uniqueThoughts,
 } from './thread-list'
 
@@ -183,5 +184,25 @@ describe('hrefs — the thread hands off to Capture and Ask by URL only', () => 
     expect(askWhereItStandsHref('', 'Where does Atlas stand?')).toBe(
       '/chat?q=Where%20does%20Atlas%20stand%3F',
     )
+  })
+})
+
+describe('toThreadThought: the vote on a thread row', () => {
+  const item = {
+    thoughtId: 't1',
+    thoughtText: 'Call the studio',
+    createdAt: '2026-10-20T10:00:00Z',
+    thoughtCategory: 'task',
+    thoughtStatus: 'open' as const,
+  }
+
+  it('carries the verdict it was given', () => {
+    expect(toThreadThought({ ...item, verdict: 'up' }).verdict).toBe('up')
+    expect(toThreadThought({ ...item, verdict: 'down' }).verdict).toBe('down')
+  })
+
+  it('is null when the thought was never voted on, or the source has no votes', () => {
+    expect(toThreadThought({ ...item, verdict: null }).verdict).toBeNull()
+    expect(toThreadThought(item).verdict).toBeNull()
   })
 })

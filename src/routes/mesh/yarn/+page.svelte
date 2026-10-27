@@ -222,6 +222,7 @@
                 ? { entityId: row.threadEntityId, label: row.threadLabel }
                 : null}
               kinds={data.kinds}
+              verdict={row.verdict}
               onchange={(next) => applyRowChange(row.id, next)}
             />
           {/snippet}

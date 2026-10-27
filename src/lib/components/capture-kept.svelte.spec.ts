@@ -1,7 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-svelte'
-import { page } from 'vitest/browser'
+import { page, userEvent } from 'vitest/browser'
 import CaptureKept from './capture-kept.svelte'
+
+const client = vi.hoisted(() => ({ postCaptureVote: vi.fn() }))
+vi.mock('$lib/capture/capture-vote-client', () => client)
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 const base = {
   thoughtId: null as string | null,
@@ -63,5 +70,89 @@ describe('capture-kept.svelte', () => {
   it('never shows the kept words again', async () => {
     render(CaptureKept, { ...base, stage: 'linked' })
     expect((page.getByTestId('capture-kept').element() as HTMLElement).textContent).not.toContain('Buy oat milk')
+  })
+  describe('the vote (👍 / 👎), once the thought is kept', () => {
+    it('waits for the thought id: nothing to vote on while it is still being saved', async () => {
+      render(CaptureKept, { ...base, stage: 'saving' })
+      await expect.element(page.getByTestId('capture-kept-vote')).not.toBeInTheDocument()
+    })
+
+    it('shows the pair in the strip as soon as the thought is kept — it does not wait for indexing', async () => {
+      render(CaptureKept, { ...base, thoughtId: 't1', stage: 'indexing' })
+      await expect.element(page.getByTestId('capture-kept-vote')).toBeInTheDocument()
+      await expect.element(page.getByRole('button', { name: 'Stored right' })).toBeInTheDocument()
+      await expect.element(page.getByRole('button', { name: 'Stored wrong' })).toBeInTheDocument()
+    })
+
+    it('starts with no vote, and a 👍 posts for place "capture"', async () => {
+      client.postCaptureVote.mockResolvedValue({
+        verdict: 'up',
+        reasonKind: null,
+        editApplied: false,
+        editError: null,
+        thought: null,
+      })
+      render(CaptureKept, { ...base, thoughtId: 't1', stage: 'linked' })
+      await expect
+        .element(page.getByRole('button', { name: 'Stored right' }))
+        .toHaveAttribute('aria-pressed', 'false')
+      await page.getByRole('button', { name: 'Stored right' }).click()
+      expect(client.postCaptureVote).toHaveBeenCalledWith({
+        thoughtId: 't1',
+        verdict: 'up',
+        place: 'capture',
+      })
+    })
+
+    it('a 👎 reason that edited the thought keeps the strip in step: the new type, the same thread', async () => {
+      client.postCaptureVote.mockResolvedValue({
+        verdict: 'down',
+        reasonKind: 'wrong_category',
+        editApplied: true,
+        editError: null,
+        thought: { id: 't1', category: 'observation', normalizedText: 'Oat milk is cheaper at Lidl' },
+      })
+      const onkeptchange = vi.fn()
+      render(CaptureKept, {
+        ...base,
+        thoughtId: 't1',
+        stage: 'linked',
+        thread: { entityId: 'p1', label: 'Groceries' },
+        onkeptchange,
+      })
+      await page.getByRole('button', { name: 'Stored wrong' }).click()
+      await userEvent.type(page.getByTestId('capture-vote-field'), 'this is an observation, not a task')
+      await page.getByTestId('capture-vote-send').click()
+      await vi.waitFor(() =>
+        expect(onkeptchange).toHaveBeenCalledWith({
+          typeKey: 'observation',
+          thread: { entityId: 'p1', label: 'Groceries' },
+        }),
+      )
+    })
+
+    it('keeps the strip up while the reason box is open, and lets go when it closes', async () => {
+      const oneditingchange = vi.fn()
+      render(CaptureKept, { ...base, thoughtId: 't1', stage: 'linked', oneditingchange })
+      await page.getByRole('button', { name: 'Stored wrong' }).click()
+      expect(oneditingchange).toHaveBeenLastCalledWith(true)
+      await page.getByRole('button', { name: 'Stored wrong' }).click()
+      expect(oneditingchange).toHaveBeenLastCalledWith(false)
+    })
+
+    it('does not let the pencil closing release the strip while the reason box is still open', async () => {
+      const oneditingchange = vi.fn()
+      render(CaptureKept, { ...base, thoughtId: 't1', stage: 'linked', oneditingchange })
+      await page.getByRole('button', { name: 'Stored wrong' }).click()
+      await page.getByTestId('capture-kept-edit').click()
+      await page.getByTestId('capture-kept-edit').click()
+      expect(oneditingchange).toHaveBeenLastCalledWith(true)
+    })
+
+    it('adds no question or prompt to the strip', async () => {
+      render(CaptureKept, { ...base, thoughtId: 't1', stage: 'linked' })
+      const vote = page.getByTestId('capture-kept-vote').element()
+      expect(vote.textContent?.trim()).toBe('')
+    })
   })
 })

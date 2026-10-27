@@ -87,6 +87,7 @@ export default defineConfig({
       'src/lib/components/capture-reading.svelte.spec.ts',
       'src/lib/components/brand/glyph-scramble.svelte.spec.ts',
       'src/lib/components/capture-kept.svelte.spec.ts',
+      'src/lib/components/capture-vote.svelte.spec.ts',
       'src/lib/components/check-in-question.svelte.spec.ts',
       'src/lib/components/chrome/view-select.svelte.spec.ts',
       'src/lib/components/chrome/you-menu.svelte.spec.ts',

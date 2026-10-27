@@ -64,6 +64,7 @@ export const load: PageServerLoad = async (event) => {
       thoughtCategory: row.category,
       thoughtStatus: row.status,
       related: row.related,
+      verdict: row.verdict,
     }),
   )
 

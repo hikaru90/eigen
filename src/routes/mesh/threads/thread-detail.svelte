@@ -276,6 +276,7 @@
               category={row.category}
               thread={ownThread}
               {kinds}
+              verdict={row.verdict}
               onchange={(next) => applyRowChange(row.thoughtId, next)}
             />
           {/snippet}

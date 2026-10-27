@@ -58,6 +58,8 @@ export type ThreadThought = {
   status: 'open' | 'completed' | 'archived'
   /** Nearest thoughts (max 3); empty where the source has none (loose list, questions). */
   related: { id: string; text: string; createdAtIso: string }[]
+  /** The owner's current 👍/👎 on how it was stored; null when never voted on. */
+  verdict: 'up' | 'down' | null
 }
 
 export type ThreadMilestone = {
@@ -85,6 +87,7 @@ export function toThreadThought(item: {
   thoughtCategory: string
   thoughtStatus: 'open' | 'completed' | 'archived'
   related?: ThreadThought['related']
+  verdict?: ThreadThought['verdict']
 }): ThreadThought {
   return {
     thoughtId: item.thoughtId,
@@ -93,6 +96,7 @@ export function toThreadThought(item: {
     category: item.thoughtCategory,
     status: item.thoughtStatus,
     related: item.related ?? [],
+    verdict: item.verdict ?? null,
   }
 }
 

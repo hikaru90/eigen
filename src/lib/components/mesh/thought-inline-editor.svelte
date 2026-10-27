@@ -1,6 +1,8 @@
 <script lang="ts">
+  import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
   import type { ThoughtKindOption } from '$lib/thought/kind-option'
   import { tick } from 'svelte'
+  import CaptureVote from '$lib/components/capture-vote.svelte'
   import { pillAction } from '$lib/components/mesh/pill-classes'
   import ThoughtThreadMenu from '$lib/components/thought-thread-menu.svelte'
   import ThoughtTypeMenu from '$lib/components/thought-type-menu.svelte'
@@ -25,6 +27,9 @@
    * its thread — each one tap away, in the flow of the list (board 3f2796a8, b6f74d02:
    * editing used to need the thought page). Every change goes to the real endpoint and
    * the row takes what the server kept (`onchange`); a failure says why, in the row.
+   * The row also carries the 👍/👎 on how the thought was stored (capture feedback C2, shown
+   * with the row's current vote): a 👎 reason is applied as an edit and the row takes the
+   * words and type it left, the thread as it is — the same as an "Edit words" save.
    */
   type Thought = { text: string; category: string; thread: ThreadRef | null }
 
@@ -34,10 +39,13 @@
     category,
     thread,
     kinds,
+    verdict,
     onchange,
   }: Thought & {
     thoughtId: string
     kinds: ThoughtKindOption[]
+    /** The owner's current vote on how it was stored; null when there is none. */
+    verdict: 'up' | 'down' | null
     onchange: (next: Thought) => void
   } = $props()
 
@@ -89,6 +97,11 @@
       e.stopPropagation()
       draft = null
     }
+  }
+
+  // ——— the vote ———
+  function votedEdit(edited: CaptureSubmitResult): void {
+    onchange({ text: edited.normalizedText, category: edited.category, thread })
   }
 
   // ——— the type ———
@@ -217,6 +230,7 @@
       </div>
     </div>
   {/if}
+  <CaptureVote {thoughtId} initialVerdict={verdict} place="mesh" onedited={votedEdit} />
   {#if error}
     <p class="order-last m-0 basis-full font-mesh text-sm text-clay" role="alert">{error}</p>
   {/if}

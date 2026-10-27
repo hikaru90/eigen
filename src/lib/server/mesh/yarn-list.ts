@@ -1,8 +1,15 @@
 import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm'
 import { effectiveLifecycleStatus, isTodoCategory } from '$lib/mesh/thought-status'
+import { loadCaptureVerdicts } from '$lib/server/capture-review/vote-store'
 import { decryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
-import { canonicalEntity, thought, thoughtEntity, type MemoryAuthor } from '$lib/server/db/schema'
+import {
+  canonicalEntity,
+  thought,
+  thoughtEntity,
+  type CaptureReviewVerdict,
+  type MemoryAuthor,
+} from '$lib/server/db/schema'
 import { resolveAuthorSqlCondition } from '$lib/server/memory/authorship'
 import { projectMembershipLinkCondition } from '$lib/server/memory/project-membership'
 import { loadRelatedThoughts, type RelatedThought } from '$lib/server/mesh/related-thoughts'
@@ -19,7 +26,9 @@ import { loadRelatedThoughts, type RelatedThought } from '$lib/server/mesh/relat
  * the unified timeline resolves them (loadProjectLinksByThoughtId,
  * src/lib/server/memory/temporal-event-list.ts:255-286): thoughtEntity ⨝
  * canonical_entity where project_status is set, highest salience wins.
- * Embedding columns are never selected (embeddings are DB-only).
+ * Embedding columns are never selected (embeddings are DB-only). Each row also
+ * carries the owner's current 👍/👎 on it (`verdict`, capture feedback C2) —
+ * the verdict only, never the reason text or the review's score.
  */
 
 /** Same ceiling as listThoughts (capture/service.ts caps its limit at 100). */
@@ -36,6 +45,8 @@ export type YarnThought = {
   threadEntityId: string | null
   /** Nearest thoughts by stored embedding (max 3, above the similarity floor). */
   related: RelatedThought[]
+  /** The owner's current vote on how it was stored; null when never voted on. */
+  verdict: CaptureReviewVerdict | null
 }
 
 /** Author scope for the strand — 'all' means the whole tenant (you + agents). */
@@ -129,7 +140,10 @@ export async function loadYarnThoughts(
           )
           .orderBy(desc(thoughtEntity.salience))
       : []
-  const relatedByThought = await loadRelatedThoughts(userId, thoughtIds)
+  const [relatedByThought, verdictByThought] = await Promise.all([
+    loadRelatedThoughts(userId, thoughtIds),
+    loadCaptureVerdicts(userId, thoughtIds),
+  ])
   const threadByThought = new Map<string, { entityId: string; label: string }>()
   for (const link of linkRows) {
     if (!threadByThought.has(link.thoughtId)) {
@@ -172,6 +186,7 @@ export async function loadYarnThoughts(
           threadLabel: thread?.label ?? null,
           threadEntityId: thread?.entityId ?? null,
           related: relatedByThought.get(row.id) ?? [],
+          verdict: verdictByThought.get(row.id) ?? null,
         } satisfies YarnThought
       }),
     )

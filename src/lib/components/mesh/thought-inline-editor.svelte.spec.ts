@@ -12,6 +12,9 @@ const client = vi.hoisted(() => ({
 }))
 vi.mock('$lib/thought/thought-edit-client', () => client)
 
+const voteClient = vi.hoisted(() => ({ postCaptureVote: vi.fn() }))
+vi.mock('$lib/capture/capture-vote-client', () => voteClient)
+
 const kinds = [
   { key: 'decision', name: 'Decision', definition: 'A choice made' },
   { key: 'task', name: 'Task', definition: 'Something to do' },
@@ -21,6 +24,7 @@ const base = {
   text: 'Call the studio about pricing',
   category: 'decision',
   thread: { entityId: 'p1', label: 'Studio' },
+  verdict: null as 'up' | 'down' | null,
   kinds,
 }
 
@@ -123,5 +127,90 @@ describe('thought-inline-editor.svelte (change a thought where you read it)', ()
     await page.getByTestId('thought-type-task').click()
     await expect.element(page.getByRole('alert')).toHaveTextContent('Unknown type "task"')
     expect(onchange).not.toHaveBeenCalled()
+  })
+  describe('the vote (👍 / 👎), on the unfolded row', () => {
+    it('sits in the row with the pills, and shows no vote when there is none', async () => {
+      render(ThoughtInlineEditor, { ...base, onchange: vi.fn() })
+      const vote = page.getByTestId('capture-vote')
+      await expect.element(vote).toBeInTheDocument()
+      await expect
+        .element(page.getByRole('button', { name: 'Stored right' }))
+        .toHaveAttribute('aria-pressed', 'false')
+      const editor = page.getByTestId('thought-inline-editor').element()
+      expect(editor.contains(vote.element())).toBe(true)
+    })
+
+    it('shows the row’s current 👍', async () => {
+      render(ThoughtInlineEditor, { ...base, verdict: 'up', onchange: vi.fn() })
+      await expect
+        .element(page.getByRole('button', { name: 'Stored right' }))
+        .toHaveAttribute('aria-pressed', 'true')
+    })
+
+    it('shows the row’s current 👎', async () => {
+      render(ThoughtInlineEditor, { ...base, verdict: 'down', onchange: vi.fn() })
+      await expect
+        .element(page.getByRole('button', { name: 'Stored wrong' }))
+        .toHaveAttribute('aria-pressed', 'true')
+    })
+
+    it('posts for place "mesh"', async () => {
+      voteClient.postCaptureVote.mockResolvedValue({
+        verdict: 'up',
+        reasonKind: null,
+        editApplied: false,
+        editError: null,
+        thought: null,
+      })
+      render(ThoughtInlineEditor, { ...base, onchange: vi.fn() })
+      await page.getByRole('button', { name: 'Stored right' }).click()
+      expect(voteClient.postCaptureVote).toHaveBeenCalledWith({
+        thoughtId: 't1',
+        verdict: 'up',
+        place: 'mesh',
+      })
+    })
+
+    it('a 👎 reason that edited the thought updates the row: the new words and type, the same thread', async () => {
+      voteClient.postCaptureVote.mockResolvedValue({
+        verdict: 'down',
+        reasonKind: 'wrong_category',
+        editApplied: true,
+        editError: null,
+        thought: { id: 't1', category: 'task', normalizedText: 'Call the studio on Monday about pricing' },
+      })
+      const onchange = vi.fn()
+      render(ThoughtInlineEditor, { ...base, onchange })
+      await page.getByRole('button', { name: 'Stored wrong' }).click()
+      // the reason box takes its own full-width line, after the pills
+      const box = page.getByTestId('capture-vote-reason').element()
+      expect(box.className).toContain('basis-full')
+      expect(box.className).toContain('order-last')
+      await userEvent.type(page.getByTestId('capture-vote-field'), 'make it a task for Monday')
+      await page.getByTestId('capture-vote-send').click()
+      await vi.waitFor(() =>
+        expect(onchange).toHaveBeenCalledWith({
+          text: 'Call the studio on Monday about pricing',
+          category: 'task',
+          thread: { entityId: 'p1', label: 'Studio' },
+        }),
+      )
+    })
+
+    it('a vote that changed nothing does not touch the row', async () => {
+      voteClient.postCaptureVote.mockResolvedValue({
+        verdict: 'down',
+        reasonKind: null,
+        editApplied: false,
+        editError: null,
+        thought: null,
+      })
+      const onchange = vi.fn()
+      render(ThoughtInlineEditor, { ...base, onchange })
+      await page.getByRole('button', { name: 'Stored wrong' }).click()
+      await page.getByTestId('capture-vote-send').click()
+      await vi.waitFor(() => expect(voteClient.postCaptureVote).toHaveBeenCalledTimes(1))
+      expect(onchange).not.toHaveBeenCalled()
+    })
   })
 })

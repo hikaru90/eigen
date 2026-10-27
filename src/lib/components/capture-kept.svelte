@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
   import type { KeptStage } from '$lib/capture/kept-progress'
   import { categoryLabel } from '$lib/capture/reading-state'
   import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
+  import CaptureVote from '$lib/components/capture-vote.svelte'
   import ThoughtThreadMenu from '$lib/components/thought-thread-menu.svelte'
   import ThoughtTypeMenu from '$lib/components/thought-type-menu.svelte'
   import { m } from '$lib/paraglide/messages.js'
@@ -25,7 +27,10 @@
    * the old heading slot let one keystroke hide the whole process). The kept words
    * are never shown again (editing lives in Mesh), but how it was kept can be corrected:
    * the pencil beside "Kept as" opens the type and thread pickers in place, once the
-   * thought has an id.
+   * thought has an id. The same moment brings the 👍/👎 pair (capture feedback C2): the
+   * owner may say whether it was kept right — it never asks, and a 👎 reason is applied as
+   * an edit, so the strip takes the type the edit left (the thread stays as it is, like
+   * the words edit in Mesh).
    */
   let {
     thoughtId,
@@ -72,6 +77,8 @@
 
   // ——— correcting how it was kept ———
   let editing = $state(false)
+  /** The 👎 reason box is open: the page keeps the strip up, as while the pickers are open. */
+  let voteOpen = false
   let typeMenuOpen = $state(false)
   let threadMenuOpen = $state(false)
   let threadOptions = $state<ThreadRef[]>([])
@@ -92,6 +99,15 @@
     } finally {
       busy = false
     }
+  }
+
+  function keptAfterVoteEdit(edited: CaptureSubmitResult): void {
+    onkeptchange({ typeKey: edited.category, thread })
+  }
+
+  function onVoteOpenChange(open: boolean): void {
+    voteOpen = open
+    oneditingchange?.(editing || voteOpen)
   }
 
   function pickType(key: string): void {
@@ -163,7 +179,7 @@
       disabled={!thoughtId}
       onclick={() => {
         editing = !editing
-        oneditingchange?.(editing)
+        oneditingchange?.(editing || voteOpen)
       }}
     >
       <svg
@@ -225,4 +241,19 @@
       {/key}
     {/if}
   </div>
+
+  {#if thoughtId}
+    <!-- 👍 / 👎 once the thought is kept — no headline, no question; the box opens on 👎 -->
+    <div class="mt-2 flex flex-wrap items-center gap-2" data-testid="capture-kept-vote">
+      {#key thoughtId}
+        <CaptureVote
+          {thoughtId}
+          initialVerdict={null}
+          place="capture"
+          onedited={keptAfterVoteEdit}
+          onopenchange={onVoteOpenChange}
+        />
+      {/key}
+    </div>
+  {/if}
 </div>
