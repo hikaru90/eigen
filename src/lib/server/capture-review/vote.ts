@@ -6,16 +6,20 @@
  *
  * - 👍: the verdict, nothing else.
  * - 👎 with no text: the verdict, nothing else. No edit, no label.
- * - 👎 with a reason: Jev labels the kind of mistake (closed set, the only thing ever aggregated),
- *   the reason is applied as an edit through the existing natural-language edit, and verdict,
- *   encrypted reason, label and the edit time are stored (a `split_wrong` reason skips the edit and
- *   redoes the split). When the edit changed nothing (the text
- *   already said the right thing) and the label is about stored data, the thought is read again with
- *   the owner's correction (`recheck.ts`). `edit_applied_at` is set only when a snapshot of the
- *   stored data after the edit / re-check differs from the one before it (`changed`). If the label cannot be made (the ingest
- *   ladder: the first try and exactly 3 retries) NOTHING is stored and the call throws, so the UI
- *   keeps the text and the owner can send again. If only the edit fails, the vote is stored anyway
- *   and the edit error is returned to the caller, never swallowed.
+ * - 👎 with a reason: Jev labels the kind of mistake (closed set, the only thing ever aggregated).
+ *   A reason is a complaint about what Eigen stored, never an instruction to rewrite the thought, so
+ *   the label routes it:
+ *   - `wording_changed`: the reason goes through the natural-language edit (`editStoredThought`);
+ *   - data kinds (`wrong_date`, `wrong_name`, `wrong_link`, `split_wrong`, `something_missing`,
+ *     `wrong_category`): the thought is read again with the owner's correction (`recheck.ts`), and
+ *     the text is never edited;
+ *   - `not_worth_keeping`, `other`: the vote, the encrypted reason and the label only (nothing is
+ *     archived or changed).
+ *   `edit_applied_at` is set only when a snapshot of the stored data after the edit / re-check
+ *   differs from the one before it (`changed`). If the label cannot be made (the ingest ladder: the
+ *   first try and exactly 3 retries) NOTHING is stored and the call throws, so the UI keeps the text
+ *   and the owner can send again. If only the edit or re-check fails, the vote is stored anyway and
+ *   the error is returned to the caller, never swallowed.
  * - One vote per thought: voting again replaces the previous one.
  *
  * A thought with no review row (captured before the review existed, or still enriching) gets an
@@ -234,35 +238,40 @@ export async function voteOnCapture(input: VoteOnCaptureInput): Promise<VoteOnCa
   })
   await ensureCaptureReview(userId, thoughtId)
 
-  const snapshotBefore = await snapshotStoredData({ userId, thoughtId })
-  // A reason about the SPLIT is not an edit of this thought's words (the vote may be on one child
-  // of the split, and rewriting that child would only corrupt it): the split is redone instead.
-  const edit: EditOutcome | null =
-    reasonKind === 'split_wrong' ? null : await applyReasonAsEdit(userId, thoughtId, reason)
-
-  let editError: string | null = edit === null || edit.applied ? null : edit.error
+  // Route on Jev's label. A reason is a complaint about what Eigen stored, not an instruction to
+  // rewrite the thought, so the text is touched only for `wording_changed`.
+  const rereads = isRecheckReasonKind(reasonKind)
+  const edits = reasonKind === 'wording_changed'
+  const snapshotBefore = rereads || edits ? await snapshotStoredData({ userId, thoughtId }) : null
   let snapshotAfter = snapshotBefore
-  if (edit === null || edit.applied) {
-    snapshotAfter = edit === null ? snapshotBefore : await snapshotStoredData({ userId, thoughtId })
-    // The edit changed neither text nor status nor any stored data, and the reason is about stored
-    // data: read the thought again with the owner's correction.
-    if (snapshotAfter === snapshotBefore && isRecheckReasonKind(reasonKind)) {
-      try {
-        await recheckStoredData({ userId, thoughtId, reasonKind, correction: reason })
-        snapshotAfter = await snapshotStoredData({ userId, thoughtId })
-      } catch (err) {
-        console.error('[capture-review] re-check failed', {
-          userId,
-          thoughtId,
-          reasonKind,
-          errorName: err instanceof Error ? err.name : typeof err,
-        })
-        editError = `Eigen could not read the capture again with your correction: ${
-          err instanceof Error ? err.message : String(err)
-        }`
-      }
+  let editError: string | null = null
+  let editedThought: CaptureSubmitResult | null = null
+
+  if (edits) {
+    const edit = await applyReasonAsEdit(userId, thoughtId, reason)
+    if (edit.applied) {
+      editedThought = edit.thought
+      snapshotAfter = await snapshotStoredData({ userId, thoughtId })
+    } else {
+      editError = edit.error
+    }
+  } else if (rereads) {
+    try {
+      await recheckStoredData({ userId, thoughtId, reasonKind, correction: reason })
+      snapshotAfter = await snapshotStoredData({ userId, thoughtId })
+    } catch (err) {
+      console.error('[capture-review] re-check failed', {
+        userId,
+        thoughtId,
+        reasonKind,
+        errorName: err instanceof Error ? err.name : typeof err,
+      })
+      editError = `Eigen could not read the capture again with your correction: ${
+        err instanceof Error ? err.message : String(err)
+      }`
     }
   }
+  // `not_worth_keeping` and `other`: the verdict, the reason and the label only.
   const changed = editError === null && snapshotAfter !== snapshotBefore
 
   await saveCaptureVote({
@@ -288,6 +297,6 @@ export async function voteOnCapture(input: VoteOnCaptureInput): Promise<VoteOnCa
     editApplied: changed,
     changed,
     editError,
-    thought: changed && edit?.applied ? edit.thought : null,
+    thought: changed ? editedThought : null,
   }
 }

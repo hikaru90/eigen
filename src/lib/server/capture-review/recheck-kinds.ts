@@ -1,10 +1,11 @@
 import type { CaptureReasonKind } from './reason-question'
 
 /**
- * The reason kinds that are about stored data, so the stored data is read again for them when the
- * edit alone changed nothing (docs/planning/capture-feedback.md, C5 follow-up). The other kinds
- * (`wording_changed`, `not_worth_keeping`, `other`) stay edit-only. The kind is Jev's label of the
- * owner's reason; this list only says which labels trigger the re-check.
+ * The reason kinds that are about stored data. For these the thought is read again with the owner's
+ * correction and its text is never edited (a reason is a complaint, not an edit instruction).
+ * `wording_changed` is the one kind that edits the text; `not_worth_keeping` and `other` store the
+ * vote only. The kind is Jev's label of the owner's reason; this list only says which labels
+ * trigger the re-check.
  */
 export const RECHECK_REASON_KINDS: readonly CaptureReasonKind[] = [
   'wrong_date',

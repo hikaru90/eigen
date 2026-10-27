@@ -25,7 +25,7 @@ Every capture gets a **score**: how sure Eigen is that it stored the capture rig
   stored-thought strip on Capture) and on the Mesh page (the unfolded thought row). Eigen never
   asks. There are no check-in questions and no prompts: the confirm step at capture already asks
   when the reading deviates (operator, 2026-10-27).
-- A 👎 comes with "What was wrong?". That text is applied as an edit, so the capture gets fixed.
+- A 👎 comes with "What was wrong?". Jev labels that text; a wording complaint is applied as an edit, a complaint about names, dates, links, the split or the category makes Eigen read the capture again with it, so the capture gets fixed.
 - The score never shows to the user. It feeds the operator's numbers: how often weak captures get
   👎, which is what calibrates the threshold.
 - The operator sees aggregates only: counts per part, confidence band and kind of mistake. Never
@@ -142,13 +142,22 @@ in the user's own tenant.
   locale.
 - **👍:** verdict `up`, nothing else changes.
 - **👎:** a text box, "What was wrong?". On submit:
-  1. The text goes to `applyThoughtEditRequest` as the edit request (the existing natural-language
-     edit), and the place shows the result as today's edits do.
-  2. Jev labels the kind of mistake (`capture_reason`): `wrong_category | wrong_name |
+  1. Jev labels the kind of mistake (`capture_reason`): `wrong_category | wrong_name |
      wrong_link | wrong_date | wording_changed | split_wrong | something_missing |
      not_worth_keeping | other`. Only that label is aggregated.
+  2. The label routes the reason. A reason is a complaint about what Eigen stored, not an
+     instruction to rewrite the thought, so the thought's text (`raw_text`, the verbatim invariant)
+     is rewritten only for `wording_changed`:
+     - `wording_changed`: the reason goes to `applyThoughtEditRequest` (the existing natural-language
+       edit), and the place shows the result as today's edits do;
+     - data kinds (`wrong_date`, `wrong_name`, `wrong_link`, `split_wrong`, `something_missing`,
+       `wrong_category`): the thought is read again with the owner's correction as prompt context
+       (the re-check, see C5); there is no edit;
+     - `not_worth_keeping`, `other`: the verdict, the encrypted reason and the label only. Nothing
+       is edited, re-read or archived (what `not_worth_keeping` should do is not decided).
+     `changed` and `edit_applied_at` follow a before/after snapshot of the stored data.
   - Empty text (decided: D2): only the verdict is stored, with no edit and no label.
-  - An edit failure shows an explicit error in place; the verdict stays stored.
+  - An edit or re-check failure shows an explicit error in place; the verdict stays stored.
 - **Thoughts captured before this ships:** they get a review record when they are first voted on.
   The record has the vote and no score; there is no back-fill audit.
 
@@ -434,47 +443,50 @@ in the user's own tenant.
     | bad_piece_en | piece 2 cut | 0.62 missing_dates | 0.44 | piece:p2 right 0.68 | FAIL (piece stayed right; pieces_cover went wrong 0.44) |
     | lost_piece_en | last piece dropped | 0.07 date:d1 | 0.00 | pieces_cover wrong 0.00 | PASS |
 
-  - **Follow-up: the 👎 reason re-checks the stored data (2026-10-28).** Run 3 showed a 👎 "wrong day,
-    I said Friday" labelled `wrong_date` and marked as applied while the stored date stayed one day
-    late: the edit LLM returned the same text, `editStoredThought` took its metadata-only branch and
-    nothing re-read dates, names or pieces. Now (`vote.ts`, `recheck.ts`):
-    - After the label, the reason goes through `editStoredThought` as before, except for
-      `split_wrong` (below). A snapshot of the stored data (`snapshotStoredData`: raw and stored text,
-      category, lifecycle status, names, the dates' day and clock detail, pieces, and the split
-      family with the children's status) is taken before and after.
-    - If the edit changed nothing and Jev's label is about stored data (`wrong_date`, `wrong_name`,
-      `wrong_link`, `split_wrong`, `something_missing`, `wrong_category`; `recheck-kinds.ts`), the
-      thought is read again with the owner's correction. `ownerCorrection` is an option of
-      `reenrichThought` / `enrichThought`; it enters the standalone entity extraction prompt
-      (`extractEntityGraphBundle`) and the temporal extraction prompt (`extractTemporalMentions`) as
-      "The owner said the last reading of this thought was wrong: "<reason>". Read the thought again
-      with that in mind." (`owner-correction.ts`). It is LLM context only: never stored, only its
-      length is logged. The queued-enrichment bundle prompt does not take it (the re-check does not use
-      the bundle). The re-check runs inside `withDecisionRecorder` and `recordCaptureReview` rebuilds
-      the review (capture-time category / content role carry over), which also closes the "score not
-      recomputed after a 👎 edit" gap for these kinds.
+  - **Follow-up: the 👎 reason re-checks the stored data (2026-10-28), routed by Jev's label.** Run 3
+    showed a 👎 "wrong day, I said Friday" labelled `wrong_date` and marked as applied while the stored
+    date stayed one day late (the edit LLM returned the same text, nothing re-read the dates). A later
+    run showed the opposite harm: the edit LLM wrote the feedback into a correct thought ("Am Samstag
+    (Datum noch einmal prüfen) …"). A reason is a complaint, not an edit instruction, so
+    (`vote.ts`, `recheck.ts`):
+    - **Routing.** `wording_changed` goes through `editStoredThought`; the data kinds (`wrong_date`,
+      `wrong_name`, `wrong_link`, `split_wrong`, `something_missing`, `wrong_category`;
+      `recheck-kinds.ts`) go straight to `recheckStoredData` and never call the edit, so `raw_text` and
+      `normalized_text` are untouched; `not_worth_keeping` and `other` store the vote, the encrypted
+      reason and the label only (nothing archived). A snapshot of the stored data
+      (`snapshotStoredData`: raw and stored text, category, lifecycle status, names, the dates' day and
+      clock detail, pieces, and the split family with the children's status) is taken before and
+      after wherever something can change.
+    - **The re-read.** `ownerCorrection` is an option of `reenrichThought` / `enrichThought`; it enters
+      the standalone entity extraction prompt (`extractEntityGraphBundle`) and the temporal extraction
+      prompt (`extractTemporalMentions`) as "The owner said the last reading of this thought was wrong:
+      "<reason>". Read the thought again with that in mind." (`owner-correction.ts`). LLM context only:
+      never stored, only its length is logged. The queued-enrichment bundle prompt does not take it.
+      The re-read runs inside `withDecisionRecorder` and `recordCaptureReview` rebuilds the review
+      (capture-time category / content role carry over).
     - `wrong_category` re-reads the thought too, but `reenrichThought` does not decide the category
-      again (that is done at capture by the decision plane), so it rarely changes anything.
-    - `split_wrong` does not apply the reason as an edit of the voted thought (the vote may be on one
-      child; rewriting it only corrupts it). `redoCaptureSplit` (`split-multi-task.ts`) redoes the
-      split of the parent (the voted thought, or the parent its `metadata.splitFrom` names): the split
-      judge gets the correction, and only after it answered are the untouched old children archived
-      through the lifecycle (never deleted), the parent's `splitInto` replaced (removed when the judge
-      now sees one thought) and the new children created like the first fan-out. Children are found by
-      the parent's own `created_at` (the fan-out gives them that time) plus `metadata.splitFrom`. A
-      child counts as edited, and is left alone, when it is not open, carries `metadata.lastEditRequest`
-      (stamped by every natural-language edit and lifecycle change) or its raw text is no longer one of
-      the parent's recorded pieces. The parent's review is queued for a new audit.
-    - `edit_applied_at` is set only when the snapshot differs; the result (endpoint, MCP
+      again (the decision plane does that at capture), so it rarely changes anything.
+    - **`split_wrong`** runs `redoCaptureSplit` (`split-multi-task.ts`) on the parent (the voted
+      thought, or the parent its `metadata.splitFrom` names): the split judge gets the correction, and
+      only after it answered are the untouched old children archived through the lifecycle (never
+      deleted), the parent's `splitInto` replaced (removed when the judge now sees one thought) and the
+      new children created like the first fan-out. Children are found by the parent's own `created_at`
+      plus `metadata.splitFrom`. A child counts as edited, and is left alone, when it is not open,
+      carries `metadata.lastEditRequest` (stamped by every natural-language edit and lifecycle change)
+      or its raw text is no longer one of the parent's recorded pieces. The parent's review is queued
+      for a new audit.
+    - **Result.** `edit_applied_at` is set only when the snapshot differs; the result (endpoint, MCP
       `rate_capture`) carries `changed`; the vote UI says "Saved your vote. Nothing changed in what was
-      stored." when a reason was sent and nothing changed. A re-check that fails after the ingest
-      ladder keeps the vote and returns the error (`editError`) with `edit_applied_at` null.
-    - Verify now asserts the wrong-date vote restores the captured day (it did), a reason that
-      changes nothing leaves `edit_applied_at` null, and a `split_wrong` vote archives the old children.
-      Second real run of the follow-up: wrong-date restored; split_wrong archived the three old
-      children (confirmed in the rows) and left the capture as one thought; the "changes nothing" vote
-      did not test that (the edit LLM rewrote "Am Samstag" to "Diesen Samstag", a real text change that
-      also made the capture split in two), so its reason was reworded and is untested.
+      stored." when a reason was sent and nothing changed. A re-check (or edit) that fails after the
+      ingest ladder keeps the vote and returns the error (`editError`) with `edit_applied_at` null.
+    - **Verify.** Asserts the wrong-date vote restores the captured day, the `split_wrong` vote
+      archives the old children, and a reason on correct data leaves `rawText` and `storedText`
+      untouched; the change of that vote and a `wording_changed`-style vote are reported, not asserted.
+      Latest run: wrong date restored; split vote archived the three old children and left one thought;
+      the correct German capture kept its text, but the re-read with the correction added "Samstag"
+      (and once "Oma in Dresden besuchen") as a name, so the correction nudges name extraction on
+      correct data; the wording complaint on `changed_wording_de` was labelled `wrong_category` by Jev
+      (the stored summary Jev sees does not contain the stored wording), so no edit ran.
   - **Findings for the planner (not fixed here):** every clean capture scored below the threshold
     before any injection (weakest: a name rated right at 0.64-0.67, a category at 0.47, a date at
     0.68), most mistake cases were already weak before their injection, a fragment piece

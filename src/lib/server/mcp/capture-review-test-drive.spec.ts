@@ -45,7 +45,7 @@ const world = vi.hoisted(() => ({
   jobs: [] as unknown[],
   labelCalls: 0,
   editCalls: [] as string[],
-  reasonLabel: { kind: 'wrong_name', probability: 0.91 },
+  reasonLabel: { kind: 'wording_changed', probability: 0.91 },
 }))
 
 const things = () => world.thoughts as Map<string, FakeThought>
@@ -341,7 +341,7 @@ beforeEach(() => {
   world.jobs.length = 0
   world.labelCalls = 0
   world.editCalls.length = 0
-  world.reasonLabel = { kind: 'wrong_name', probability: 0.91 }
+  world.reasonLabel = { kind: 'wording_changed', probability: 0.91 }
 })
 
 afterEach(() => {
@@ -484,7 +484,7 @@ describe('capture review test-drive: a thumbs-down with a reason', () => {
     })
     expect(rated).toMatchObject({
       verdict: 'down',
-      reason_kind: 'wrong_name',
+      reason_kind: 'wording_changed',
       edit_applied: true,
       changed: true,
       edit_error: null,
@@ -500,7 +500,7 @@ describe('capture review test-drive: a thumbs-down with a reason', () => {
     expect(review.vote).toEqual({
       verdict: 'down',
       voted_on: null,
-      reason_kind: 'wrong_name',
+      reason_kind: 'wording_changed',
       edit_applied: true,
     })
     expect(review.note).toBe('The parts describe the capture before its latest edit.')

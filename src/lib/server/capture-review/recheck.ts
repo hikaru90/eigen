@@ -1,11 +1,10 @@
 /**
  * The re-check after a 👎 reason (docs/planning/capture-feedback.md, C5 follow-up).
  *
- * The reason goes through the natural-language edit first. That edit only touches stored data when
- * the TEXT changes: when the text already says the right thing ("Friday") but the stored date is
- * wrong (Saturday), the edit returns the same text and nothing re-reads the dates, names or pieces.
- * So, for a reason Jev labelled as being about stored data, the thought is read again with the
- * owner's correction as prompt context:
+ * A 👎 reason is a complaint about what Eigen stored, not an instruction to rewrite the thought, so
+ * for a reason Jev labelled as being about stored data the text is never edited: the thought is read
+ * again with the owner's correction as prompt context (the edit path only touches stored data when the
+ * text changes, which is exactly what must not happen here):
  * - dates, names, links, category: `reenrichThought` with `ownerCorrection`, inside the decision
  *   recorder like the queued enrichment, then `recordCaptureReview` rebuilds the review (parts
  *   reset, new audit queued);

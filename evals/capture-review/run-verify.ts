@@ -74,6 +74,9 @@ const WRONG_DATE_REASON = 'wrong day, I said Friday'
 const NOTHING_CHANGES_REASON = 'Saturday is the right day, please just double-check the date'
 
 /** A reason about a split that should not have happened. */
+/** A complaint about the wording: the one kind of reason that rewrites the text. */
+const WORDING_REASON = 'I only said maybe, I never said I would call her tomorrow'
+
 const SPLIT_REASON =
   'this is one errand list for the morning, it should be a single to-do, not three'
 
@@ -283,6 +286,8 @@ async function readStoredVote(
 }
 
 type VoteStep = {
+  /** Report whether the stored data changed instead of asserting it. */
+  reportChange?: boolean
   title: string
   thoughtId: string
   capturedAt: Date
@@ -319,16 +324,23 @@ async function castVote(
   if (result.editError) notes.push(`the edit reported an error: ${result.editError}`)
   return {
     title: step.title,
-    checks: [
-      ...voteRowChecks(step.expected, stored),
-      {
-        name: 'changed',
-        ok: result.changed === step.expected.edit,
-        expected: String(step.expected.edit),
-        actual: String(result.changed),
-      },
-    ],
-    notes,
+    checks: step.reportChange
+      ? voteRowChecks(step.expected, stored).filter((c) => c.name !== 'edit_applied_at')
+      : [
+          ...voteRowChecks(step.expected, stored),
+          {
+            name: 'changed',
+            ok: result.changed === step.expected.edit,
+            expected: String(step.expected.edit),
+            actual: String(result.changed),
+          },
+        ],
+    notes: step.reportChange
+      ? [
+          ...notes,
+          `changed ${result.changed}, edit_applied_at ${stored.editAppliedAt ? 'set' : 'null'}`,
+        ]
+      : notes,
     stored,
     result,
   }
@@ -468,6 +480,7 @@ export async function runVerify(args: VerifyArgs): Promise<number> {
       verdict: 'down',
       place: 'capture',
       reason: NOTHING_CHANGES_REASON,
+      reportChange: true,
       expected: {
         verdict: 'down',
         votedOn: 'capture',
@@ -484,6 +497,18 @@ export async function runVerify(args: VerifyArgs): Promise<number> {
     () => snapshotStoredData({ userId: TENANT, thoughtId: nothingCase.thoughtId }),
     billing,
   )
+  {
+    const was = JSON.parse(nothingBefore) as Record<string, unknown>
+    const now = JSON.parse(nothingAfter) as Record<string, unknown>
+    for (const key of ['rawText', 'storedText'] as const) {
+      nothing.checks.push({
+        name: `${key} untouched`,
+        ok: was[key] === now[key],
+        expected: String(was[key]),
+        actual: String(now[key]),
+      })
+    }
+  }
   if (nothingAfter !== nothingBefore) {
     // made-up fixture data only: show which fields of the stored snapshot moved
     const was = JSON.parse(nothingBefore) as Record<string, unknown>
@@ -497,6 +522,47 @@ export async function runVerify(args: VerifyArgs): Promise<number> {
     }
   }
   voteGroups.push(nothing)
+
+  const wordingCase = need('changed_wording_de')
+  const wordingBefore = JSON.parse(
+    await withEvalDb(
+      TENANT,
+      () => snapshotStoredData({ userId: TENANT, thoughtId: wordingCase.thoughtId }),
+      billing,
+    ),
+  ) as Record<string, unknown>
+  const wording = await castVote(
+    {
+      title:
+        'thumbs down with a reason on changed_wording_de (place mesh): a wording complaint is the one reason that edits the text (reported, not asserted)',
+      ...wordingCase,
+      reportChange: true,
+      verdict: 'down',
+      place: 'mesh',
+      reason: WORDING_REASON,
+      expected: {
+        verdict: 'down',
+        votedOn: 'mesh',
+        reasonKind: undefined,
+        reasonStored: true,
+        edit: true,
+      },
+    },
+    billing,
+  )
+  const wordingAfter = JSON.parse(
+    await withEvalDb(
+      TENANT,
+      () => snapshotStoredData({ userId: TENANT, thoughtId: wordingCase.thoughtId }),
+      billing,
+    ),
+  ) as Record<string, unknown>
+  wording.notes.push(
+    `Jev labelled the reason ${wording.stored.reasonKind}`,
+    `rawText: ${JSON.stringify(wordingBefore.rawText)} -> ${JSON.stringify(wordingAfter.rawText)}`,
+    `storedText: ${JSON.stringify(wordingBefore.storedText)} -> ${JSON.stringify(wordingAfter.storedText)}`,
+  )
+  voteGroups.push(wording)
 
   const splitCase = need('clean_split_en')
   const familyBefore = await withEvalDb(
@@ -636,6 +702,7 @@ export async function runVerify(args: VerifyArgs): Promise<number> {
     emptyDown,
     withReason,
     nothing,
+    wording,
     second,
     ...(splitVote ? [splitVote] : []),
   ].map((v) => v.stored)
