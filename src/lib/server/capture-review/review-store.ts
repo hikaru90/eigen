@@ -5,12 +5,21 @@
  *
  * The vote columns (verdict, voted_at, voted_on, reason_*, edit_applied_at) belong to phase C2
  * (`vote-store.ts`): nothing here ever writes them, and the enrichment upsert leaves them
- * untouched. In turn the vote store never writes parts, score or status.
+ * untouched. In turn the vote store never writes parts, score or status. The one read of the whole
+ * review (`loadCaptureReviewSnapshot`, for the `get_capture_review` tool) selects the vote's
+ * verdict, place, label and edit time, and never the reason in any form.
  */
 
 import { and, eq, sql } from 'drizzle-orm'
 import { getDb } from '$lib/server/db'
-import { captureReview, type CaptureReviewStatus } from '$lib/server/db/schema'
+import {
+  captureReview,
+  thought,
+  type CaptureReviewStatus,
+  type CaptureReviewVerdict,
+  type CaptureReviewVotedOn,
+  type LifecycleStatus,
+} from '$lib/server/db/schema'
 import { parseCaptureReviewParts, type CaptureReviewPart } from './review-parts'
 
 function requireId(value: string, field: string): void {
@@ -123,4 +132,71 @@ export async function failCaptureReviewAudit(input: {
     .where(pendingWhere(input.thoughtId, expectedParts))
     .returning({ id: captureReview.id })
   return rows.length > 0
+}
+
+/**
+ * A thought and its review, for reading (the `get_capture_review` tool). `review` is null for a
+ * thought that was never reviewed. The reason is never selected, encrypted or not.
+ */
+export type CaptureReviewSnapshot = {
+  category: string
+  lifecycleStatus: LifecycleStatus
+  review: {
+    status: CaptureReviewStatus
+    score: number | null
+    parts: CaptureReviewPart[]
+    auditError: string | null
+    verdict: CaptureReviewVerdict | null
+    /** NULL for a vote cast over MCP (see `votedOnColumn`). */
+    votedOn: CaptureReviewVotedOn | null
+    reasonKind: string | null
+    editAppliedAt: Date | null
+    /** The last write of the audit columns (a vote leaves it alone). */
+    updatedAt: Date
+  } | null
+}
+
+/**
+ * The thought's category and lifecycle with its review, or null when the thought does not exist for
+ * this user (deleted, or not theirs). An archived thought keeps its review, so it is read like any
+ * other. Stored parts are validated on read.
+ */
+export async function loadCaptureReviewSnapshot(input: {
+  userId: string
+  thoughtId: string
+}): Promise<CaptureReviewSnapshot | null> {
+  requireId(input.userId, 'userId')
+  requireId(input.thoughtId, 'thoughtId')
+  const db = getDb()
+
+  const [thoughtRow] = await db
+    .select({ category: thought.category, lifecycleStatus: thought.lifecycleStatus })
+    .from(thought)
+    .where(and(eq(thought.id, input.thoughtId), eq(thought.userId, input.userId)))
+    .limit(1)
+  if (!thoughtRow) return null
+
+  const [row] = await db
+    .select({
+      status: captureReview.status,
+      score: captureReview.score,
+      parts: captureReview.parts,
+      auditError: captureReview.auditError,
+      verdict: captureReview.verdict,
+      votedOn: captureReview.votedOn,
+      reasonKind: captureReview.reasonKind,
+      editAppliedAt: captureReview.editAppliedAt,
+      updatedAt: captureReview.updatedAt,
+    })
+    .from(captureReview)
+    .where(
+      and(eq(captureReview.thoughtId, input.thoughtId), eq(captureReview.userId, input.userId)),
+    )
+    .limit(1)
+
+  return {
+    category: thoughtRow.category,
+    lifecycleStatus: thoughtRow.lifecycleStatus,
+    review: row ? { ...row, parts: parseCaptureReviewParts(row.parts) } : null,
+  }
 }

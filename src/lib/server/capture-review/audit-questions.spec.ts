@@ -16,6 +16,7 @@ import {
   auditNameQuestionId,
   auditPieceQuestionId,
   buildCaptureAuditRequest,
+  describeStoredDatePhrases,
   describeStoredDates,
   type CaptureAuditInput,
 } from './audit-questions'
@@ -1055,5 +1056,38 @@ describe('describeStoredDates (the stored dates in words, for the 👎 reason la
     expect(() =>
       describeStoredDates({ ...when, dates: [{ ref: 'd1', event: ' ', day: '2026-10-30', detail: null }] }),
     ).toThrow('dates[0].event must not be empty')
+  })
+})
+
+describe('describeStoredDatePhrases (the stored dates split into event and words, for the review tool)', () => {
+  const when = { capturedAt: BASE.capturedAt, timezone: BASE.timezone }
+
+  it('is one { ref, event, when } per date, with the same words describeStoredDates joins', () => {
+    const dates = [
+      { ref: 'd1', event: ' Dentist ', day: '2026-10-30', detail: 'at 09:00' },
+      { ref: 'd2', event: 'Yoga', day: null, detail: 'every Tuesday at 19:00' },
+    ]
+    const phrases = describeStoredDatePhrases({ ...when, dates })
+    expect(phrases).toEqual([
+      {
+        ref: 'd1',
+        event: 'Dentist',
+        when: 'the Friday after the capture day (3 days later) at 09:00, once (not repeating)',
+      },
+      { ref: 'd2', event: 'Yoga', when: 'every Tuesday at 19:00' },
+    ])
+    expect(phrases.map((p) => `${p.event}: ${p.when}`)).toEqual(
+      describeStoredDates({ ...when, dates }),
+    )
+  })
+
+  it('has nothing to say when no date was stored, and fails loudly on a bad date item', () => {
+    expect(describeStoredDatePhrases({ ...when, dates: [] })).toEqual([])
+    expect(() =>
+      describeStoredDatePhrases({
+        ...when,
+        dates: [{ ref: 'd1', event: 'a', day: null, detail: null }],
+      }),
+    ).toThrow('dates[0] needs a day or a detail')
   })
 })

@@ -314,6 +314,26 @@ function datePhrase(date: CaptureAuditInput['dates'][number], captureDay: Calend
 }
 
 /**
+ * The stored dates as `{ ref, event, when }`, where `when` is the same phrase the date question
+ * says (the day as a distance from the capture day, then the detail). The pieces of
+ * `describeStoredDates`, for callers that show the event and the time apart (the review tool).
+ * Pure and deterministic.
+ */
+export function describeStoredDatePhrases(
+  input: Pick<CaptureAuditInput, 'capturedAt' | 'timezone' | 'dates'>,
+): Array<{ ref: string; event: string; when: string }> {
+  validateCapturedAt(input.capturedAt)
+  validateTimezone(input.timezone)
+  input.dates.forEach(validateDate)
+  const captureDay = captureDayOf(input.capturedAt, input.timezone)
+  return input.dates.map((date) => ({
+    ref: date.ref,
+    event: date.event.trim(),
+    when: datePhrase(date, captureDay),
+  }))
+}
+
+/**
  * The stored dates as one plain phrase each — `{event}: {when}`, where `{when}` is the same phrase
  * the date question says — for text that tells Jev how Eigen stored a capture (the 👎 reason
  * label). Pure and deterministic; the day is shown as a distance from the capture day.
@@ -321,11 +341,7 @@ function datePhrase(date: CaptureAuditInput['dates'][number], captureDay: Calend
 export function describeStoredDates(
   input: Pick<CaptureAuditInput, 'capturedAt' | 'timezone' | 'dates'>,
 ): string[] {
-  validateCapturedAt(input.capturedAt)
-  validateTimezone(input.timezone)
-  input.dates.forEach(validateDate)
-  const captureDay = captureDayOf(input.capturedAt, input.timezone)
-  return input.dates.map((date) => `${date.event.trim()}: ${datePhrase(date, captureDay)}`)
+  return describeStoredDatePhrases(input).map((date) => `${date.event}: ${date.when}`)
 }
 
 function question(

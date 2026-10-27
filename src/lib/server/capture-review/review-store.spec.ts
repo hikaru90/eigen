@@ -44,6 +44,7 @@ import {
   completeCaptureReviewAudit,
   failCaptureReviewAudit,
   loadCaptureReviewForAudit,
+  loadCaptureReviewSnapshot,
   upsertPendingCaptureReview,
 } from './review-store'
 
@@ -283,5 +284,113 @@ describe('failCaptureReviewAudit', () => {
     await expect(failCaptureReviewAudit({ thoughtId: 't1', auditError: ' ' })).rejects.toThrow(
       /auditError/,
     )
+  })
+})
+
+describe('loadCaptureReviewSnapshot (the read behind get_capture_review)', () => {
+  const ID = '0b6f3f8e-5c1a-4d7e-9a2b-3c4d5e6f7a8b'
+  const updatedAt = new Date('2026-10-27T10:05:00Z')
+  const editAppliedAt = new Date('2026-10-27T10:09:00Z')
+
+  function reviewRow(patch: Record<string, unknown> = {}) {
+    return {
+      status: 'scored',
+      score: 0.62,
+      parts: [decisionPart, auditPart],
+      auditError: null,
+      verdict: 'down',
+      votedOn: null,
+      reasonKind: 'wrong_name',
+      editAppliedAt,
+      updatedAt,
+      ...patch,
+    }
+  }
+
+  it('is null when the thought does not exist for this user (no review lookup follows)', async () => {
+    dbMocks.limit.mockResolvedValueOnce([])
+    await expect(loadCaptureReviewSnapshot({ userId: 'u1', thoughtId: ID })).resolves.toBeNull()
+    expect(dbMocks.select).toHaveBeenCalledTimes(1)
+    const where = dialect.sqlToQuery(dbMocks.selectWhere.mock.calls[0][0] as never)
+    expect(where.sql).toContain('"thought"."id" = $1')
+    expect(where.sql).toContain('"thought"."user_id" = $2')
+    expect(where.params).toEqual([ID, 'u1'])
+  })
+
+  it('is the thought category and lifecycle with the review, parts validated', async () => {
+    dbMocks.limit
+      .mockResolvedValueOnce([{ category: 'task', lifecycleStatus: 'archived' }])
+      .mockResolvedValueOnce([reviewRow()])
+
+    await expect(loadCaptureReviewSnapshot({ userId: 'u1', thoughtId: ID })).resolves.toEqual({
+      category: 'task',
+      lifecycleStatus: 'archived',
+      review: {
+        status: 'scored',
+        score: 0.62,
+        parts: [decisionPart, auditPart],
+        auditError: null,
+        verdict: 'down',
+        votedOn: null,
+        reasonKind: 'wrong_name',
+        editAppliedAt,
+        updatedAt,
+      },
+    })
+    const where = dialect.sqlToQuery(dbMocks.selectWhere.mock.calls[1][0] as never)
+    expect(where.sql).toContain('"capture_review"."thought_id" = $1')
+    expect(where.sql).toContain('"capture_review"."user_id" = $2')
+    expect(where.params).toEqual([ID, 'u1'])
+  })
+
+  it('has no review for a thought that was never reviewed', async () => {
+    dbMocks.limit
+      .mockResolvedValueOnce([{ category: 'idea', lifecycleStatus: 'open' }])
+      .mockResolvedValueOnce([])
+    await expect(loadCaptureReviewSnapshot({ userId: 'u1', thoughtId: ID })).resolves.toEqual({
+      category: 'idea',
+      lifecycleStatus: 'open',
+      review: null,
+    })
+  })
+
+  it('never selects the reason (encrypted or not) or any thought text', async () => {
+    dbMocks.limit
+      .mockResolvedValueOnce([{ category: 'task', lifecycleStatus: 'open' }])
+      .mockResolvedValueOnce([reviewRow()])
+    await loadCaptureReviewSnapshot({ userId: 'u1', thoughtId: ID })
+    const thoughtFields = Object.keys(dbMocks.select.mock.calls[0][0] as object)
+    const reviewFields = Object.keys(dbMocks.select.mock.calls[1][0] as object)
+    expect(thoughtFields.sort()).toEqual(['category', 'lifecycleStatus'])
+    expect(reviewFields.sort()).toEqual([
+      'auditError',
+      'editAppliedAt',
+      'parts',
+      'reasonKind',
+      'score',
+      'status',
+      'updatedAt',
+      'verdict',
+      'votedOn',
+    ])
+  })
+
+  it('refuses stored parts that break the strict shape, before anything is shown', async () => {
+    dbMocks.limit
+      .mockResolvedValueOnce([{ category: 'task', lifecycleStatus: 'open' }])
+      .mockResolvedValueOnce([reviewRow({ parts: [{ ...decisionPart, surface: 'Anna' }] })])
+    await expect(loadCaptureReviewSnapshot({ userId: 'u1', thoughtId: ID })).rejects.toThrow(
+      'invalid capture review parts',
+    )
+  })
+
+  it('rejects empty ids before any query', async () => {
+    await expect(loadCaptureReviewSnapshot({ userId: '', thoughtId: ID })).rejects.toThrow(
+      'userId must not be empty',
+    )
+    await expect(loadCaptureReviewSnapshot({ userId: 'u1', thoughtId: ' ' })).rejects.toThrow(
+      'thoughtId must not be empty',
+    )
+    expect(dbMocks.select).not.toHaveBeenCalled()
   })
 })
