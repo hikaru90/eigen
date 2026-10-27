@@ -5,8 +5,9 @@
  * Jev judges four things the chat model wrote: the stored wording, the names it found (and whether
  * one is missing), the dates it took from the text, and the pieces a capture was split into. The
  * criteria below are the product contract for those judgments, tuned with `npm run jev:check`
- * (evals/jev-check) before anything is wired. The capture date and time zone go into the state so a
- * relative time ("Friday", "tomorrow") can be checked against the day the user wrote it.
+ * (evals/jev-check) before anything is wired. The state names the day and time the user wrote; each
+ * date question says when Eigen stored the event as a distance from that capture day ("the Friday
+ * after the capture day (3 days later)"), computed here, because Jev cannot do calendar arithmetic.
  *
  * No string rules decide meaning here: every semantic call is Jev's. This code only formats the
  * question text and validates the shape of its input.
@@ -25,8 +26,12 @@ export type CaptureAuditInput = {
   storedText: string
   /** Names the chat model found. */
   names: Array<{ ref: string; surface: string }>
-  /** Dates the chat model took from the text; `when` is human-readable and already resolved. */
-  dates: Array<{ ref: string; event: string; when: string }>
+  /**
+   * Dates the chat model took from the text. `day` is the stored calendar day (YYYY-MM-DD, in the
+   * capture time zone) or null; `detail` is plain extra words ("at 09:00", "before 18:00", "as the
+   * deadline", "every Tuesday at 19:00") or null. At least one of the two is given.
+   */
+  dates: Array<{ ref: string; event: string; day: string | null; detail: string | null }>
   /** Pieces the capture was split into; empty when it was not split. */
   pieces: Array<{ ref: string; text: string }>
 }
@@ -64,9 +69,9 @@ export const AUDIT_CRITERIA_MISSING_NAMES: Readonly<
 
 export const AUDIT_CRITERIA_DATE: Readonly<Record<'right' | 'wrong', string>> = {
   right:
-    'The capture says this event is at this time. A relative time ("Friday", "tomorrow", "next week", "before 6pm" with no day meaning today) counts as right when it resolves to this time from the capture date — use the calendar above to resolve weekday names and relative days. A repeating time counts as right when the capture says it repeats.',
+    'Yes: the capture\'s own time words for this event ("Friday", "tomorrow", "Mittwoch", "today", "before 6pm", "every Tuesday") point to this time. A vague time in the capture ("next week", "end of November", "in spring") is right when the stored time falls within it.',
   wrong:
-    'The capture gives a different time for this event, gives no time for it at all, or does not contain this event.',
+    "No: the capture's time words point to a different day or time, the capture gives no time for this event, or the event is not in the capture.",
 }
 
 export const AUDIT_CRITERIA_PIECE: Readonly<Record<'right' | 'wrong', string>> = {
@@ -131,7 +136,13 @@ function validate(input: CaptureAuditInput): void {
   )
   input.dates.forEach((d, i) => {
     requireText(d.event, `dates[${i}].event`)
-    requireText(d.when, `dates[${i}].when`)
+    if (d.day !== null) requireDay(d.day, `dates[${i}].day`)
+    if (d.detail !== null && d.detail.trim() === '') {
+      fail(`dates[${i}].detail must not be empty when given, or null`)
+    }
+    if (d.day === null && d.detail === null) {
+      fail(`dates[${i}] needs a day or a detail, both are null`)
+    }
   })
 
   if (input.pieces.length === 1) {
@@ -144,8 +155,13 @@ function validate(input: CaptureAuditInput): void {
   input.pieces.forEach((p, i) => requireText(p.text, `pieces[${i}].text`))
 }
 
-/** Days in the calendar of the state: the capture day and the 13 after it. */
-const CALENDAR_DAYS = 14
+type DayParts = { weekday: string; day: string; month: string; year: string }
+
+/** A calendar date with no time of day and no zone. */
+type CalendarDay = { year: number; month: number; day: number }
+
+const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})$/
+const MS_PER_DAY = 86_400_000
 
 function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): string {
   const found = parts.find((p) => p.type === type)
@@ -153,8 +169,7 @@ function part(parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTyp
   return found.value
 }
 
-/** "Tuesday 27 October 2026" in the given zone; parts are joined here so ICU punctuation cannot vary. */
-function formatDay(instant: Date, timeZone: string): string {
+function dayParts(instant: Date, timeZone: string): DayParts {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone,
     weekday: 'long',
@@ -162,12 +177,17 @@ function formatDay(instant: Date, timeZone: string): string {
     month: 'long',
     year: 'numeric',
   }).formatToParts(instant)
-  return [
-    part(parts, 'weekday'),
-    part(parts, 'day'),
-    part(parts, 'month'),
-    part(parts, 'year'),
-  ].join(' ')
+  return {
+    weekday: part(parts, 'weekday'),
+    day: part(parts, 'day'),
+    month: part(parts, 'month'),
+    year: part(parts, 'year'),
+  }
+}
+
+/** "Tuesday 27 October 2026": parts are joined here so ICU punctuation cannot vary. */
+function formatDay(d: DayParts): string {
+  return `${d.weekday} ${d.day} ${d.month} ${d.year}`
 }
 
 /** "Tuesday 27 October 2026 at 10:00" in the given zone. */
@@ -179,33 +199,65 @@ function formatCapturedOn(capturedAt: string, timezone: string): string {
     minute: '2-digit',
     hour12: false,
   }).formatToParts(instant)
-  return `${formatDay(instant, timezone)} at ${part(clock, 'hour')}:${part(clock, 'minute')}`
+  return `${formatDay(dayParts(instant, timezone))} at ${part(clock, 'hour')}:${part(clock, 'minute')}`
 }
 
-/**
- * The capture day and the 13 days after it, one line each, so a relative day ("Friday",
- * "tomorrow", "Mittwoch") can be read off instead of computed. Deterministic: the capture day is
- * the calendar date in the capture time zone, and each next day is that date plus one in plain
- * calendar arithmetic (UTC midday carries no daylight-saving shift).
- */
-function formatCalendar(capturedAt: string, timezone: string): string {
-  const local = new Intl.DateTimeFormat('en-GB', {
+/** A real YYYY-MM-DD calendar date, or a loud failure naming the field. */
+function requireDay(value: string, field: string): CalendarDay {
+  const match = ISO_DAY.exec(value)
+  if (match) {
+    const day = { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) }
+    const check = new Date(Date.UTC(day.year, day.month - 1, day.day))
+    if (
+      check.getUTCFullYear() === day.year &&
+      check.getUTCMonth() === day.month - 1 &&
+      check.getUTCDate() === day.day
+    ) {
+      return day
+    }
+  }
+  return fail(`${field} must be a real calendar date as YYYY-MM-DD, or null, got "${value}"`)
+}
+
+/** The calendar date of the capture in the capture time zone. */
+function captureDayOf(capturedAt: string, timezone: string): CalendarDay {
+  const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: timezone,
     year: 'numeric',
     month: 'numeric',
     day: 'numeric',
   }).formatToParts(new Date(capturedAt))
-  const year = Number(part(local, 'year'))
-  const month = Number(part(local, 'month'))
-  const day = Number(part(local, 'day'))
-
-  const lines = ['Calendar from the capture day on:']
-  for (let i = 0; i < CALENDAR_DAYS; i++) {
-    const label = formatDay(new Date(Date.UTC(year, month - 1, day + i, 12)), 'UTC')
-    const note = i === 0 ? ' (today, the capture day)' : i === 1 ? ' (tomorrow)' : ''
-    lines.push(`- ${label}${note}`)
+  return {
+    year: Number(part(parts, 'year')),
+    month: Number(part(parts, 'month')),
+    day: Number(part(parts, 'day')),
   }
-  return lines.join('\n')
+}
+
+/** Whole days since the epoch for a calendar date: plain arithmetic on year-month-day, no zone, no DST. */
+function dayNumber(d: CalendarDay): number {
+  return Date.UTC(d.year, d.month - 1, d.day) / MS_PER_DAY
+}
+
+/**
+ * Where a stored day lies relative to the capture day, in words Jev can read without calendar
+ * arithmetic: the weekday for the next two weeks, the full date and the distance beyond that, and a
+ * note when the day is the last of its month ("Ende November" resolved to 30 November).
+ */
+function describeDay(target: CalendarDay, captureDay: CalendarDay): string {
+  const n = dayNumber(target) - dayNumber(captureDay)
+  if (n === 0) return 'the capture day itself'
+  if (n === 1) return 'the day after the capture day'
+  if (n === -1) return 'the day before the capture day'
+
+  const names = dayParts(new Date(Date.UTC(target.year, target.month - 1, target.day, 12)), 'UTC')
+  if (n >= 2 && n <= 13) return `the ${names.weekday} after the capture day (${n} days later)`
+
+  const lastDayOfMonth = new Date(Date.UTC(target.year, target.month, 0)).getUTCDate()
+  const lastDay = target.day === lastDayOfMonth ? `, the last day of ${names.month}` : ''
+  return n >= 14
+    ? `${formatDay(names)} (${n} days after the capture day${lastDay})`
+    : `${formatDay(names)} (${-n} days before the capture day${lastDay})`
 }
 
 function question(
@@ -223,16 +275,13 @@ function question(
 export function buildCaptureAuditRequest(input: CaptureAuditInput): DecisionRequest {
   validate(input)
 
-  const stateLines = [
+  const state = [
     `Captured on ${formatCapturedOn(input.capturedAt, input.timezone)} (${input.timezone}).`,
     'The user wrote:',
     '<<<capture',
     input.rawText,
     'capture>>>',
-  ]
-  // Jev cannot do calendar arithmetic ("Friday" from a Tuesday): with a date question it reads the day off a calendar.
-  if (input.dates.length > 0) stateLines.push(formatCalendar(input.capturedAt, input.timezone))
-  const state = stateLines.join('\n')
+  ].join('\n')
 
   const questions: Record<string, DecisionChoiceQuestion> = {}
 
@@ -257,11 +306,20 @@ export function buildCaptureAuditRequest(input: CaptureAuditInput): DecisionRequ
     AUDIT_CRITERIA_MISSING_NAMES,
   )
 
-  for (const date of input.dates) {
-    questions[auditDateQuestionId(date.ref)] = question(
-      `Eigen stored: "${date.event}" — ${date.when}. Does the capture say that?`,
-      AUDIT_CRITERIA_DATE,
-    )
+  if (input.dates.length > 0) {
+    const captureDay = captureDayOf(input.capturedAt, input.timezone)
+    for (const date of input.dates) {
+      const when = [
+        date.day === null ? null : describeDay(requireDay(date.day, 'day'), captureDay),
+        date.detail === null ? null : date.detail.trim(),
+      ]
+        .filter((piece) => piece !== null)
+        .join(' ')
+      questions[auditDateQuestionId(date.ref)] = question(
+        `Eigen stored "${date.event}" for ${when}. Does the capture put this event at that time?`,
+        AUDIT_CRITERIA_DATE,
+      )
+    }
   }
 
   if (input.pieces.length > 0) {

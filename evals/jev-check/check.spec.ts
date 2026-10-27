@@ -11,7 +11,7 @@ const AUDIT_INPUT = {
   rawText: 'Call Mom on Friday',
   storedText: 'Call Mom on Friday',
   names: [{ ref: 'n1', surface: 'Mom' }],
-  dates: [{ ref: 'd1', event: 'Call Mom', when: 'Friday 30 October 2026' }],
+  dates: [{ ref: 'd1', event: 'Call Mom', day: '2026-10-30', detail: null }],
   pieces: [],
 }
 

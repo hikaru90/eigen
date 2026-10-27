@@ -10,7 +10,7 @@
         "rawText": "Call Mom on Friday about the birthday dinner",
         "storedText": "Call Mom on Friday about the birthday dinner",
         "names": [{ "ref": "n1", "surface": "Mom" }],
-        "dates": [{ "ref": "d1", "event": "Call Mom about the birthday dinner", "when": "Friday 30 October 2026" }],
+        "dates": [{ "ref": "d1", "event": "Call Mom about the birthday dinner", "day": "2026-10-30", "detail": null }],
         "pieces": []
       },
       "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "right" }
@@ -24,7 +24,7 @@
         "rawText": "Dentist appointment on Friday at 9am",
         "storedText": "Dentist appointment on Friday at 9am",
         "names": [],
-        "dates": [{ "ref": "d1", "event": "Dentist appointment", "when": "Thursday 29 October 2026, 09:00" }],
+        "dates": [{ "ref": "d1", "event": "Dentist appointment", "day": "2026-10-29", "detail": "at 09:00" }],
         "pieces": []
       },
       "expected": { "missing_names": "none_missing", "date:d1": "wrong" }
@@ -52,7 +52,7 @@
         "rawText": "remind me to by oat milk and eggs tmrw",
         "storedText": "Remind me to buy oat milk and eggs tomorrow.",
         "names": [],
-        "dates": [{ "ref": "d1", "event": "Buy oat milk and eggs", "when": "Wednesday 28 October 2026" }],
+        "dates": [{ "ref": "d1", "event": "Buy oat milk and eggs", "day": "2026-10-28", "detail": null }],
         "pieces": []
       },
       "expected": { "wording": "right", "missing_names": "none_missing", "date:d1": "right" }
@@ -66,7 +66,7 @@
         "rawText": "Lunch with the new team lead on Thursday",
         "storedText": "Lunch with the new team lead on Thursday",
         "names": [{ "ref": "n1", "surface": "Sarah" }],
-        "dates": [{ "ref": "d1", "event": "Lunch with the new team lead", "when": "Thursday 29 October 2026" }],
+        "dates": [{ "ref": "d1", "event": "Lunch with the new team lead", "day": "2026-10-29", "detail": null }],
         "pieces": []
       },
       "expected": { "name:n1": "wrong", "missing_names": "none_missing", "date:d1": "right" }
@@ -80,7 +80,7 @@
         "rawText": "Pick up the keys from Anna and drop them at Café Lotte before 6pm",
         "storedText": "Pick up the keys from Anna and drop them at Café Lotte before 6pm",
         "names": [{ "ref": "n1", "surface": "Anna" }],
-        "dates": [{ "ref": "d1", "event": "Drop the keys at Café Lotte", "when": "Tuesday 27 October 2026, before 18:00" }],
+        "dates": [{ "ref": "d1", "event": "Drop the keys at Café Lotte", "day": "2026-10-27", "detail": "before 18:00" }],
         "pieces": []
       },
       "expected": { "name:n1": "right", "missing_names": "something_missing", "date:d1": "right" }
@@ -94,7 +94,7 @@
         "rawText": "Am Mittwoch mit Papa zum Arzt nach Leipzig fahren",
         "storedText": "Am Mittwoch mit Papa zum Arzt nach Leipzig fahren",
         "names": [{ "ref": "n1", "surface": "Papa" }, { "ref": "n2", "surface": "Leipzig" }],
-        "dates": [{ "ref": "d1", "event": "Mit Papa zum Arzt nach Leipzig fahren", "when": "Mittwoch, 28. Oktober 2026" }],
+        "dates": [{ "ref": "d1", "event": "Mit Papa zum Arzt nach Leipzig fahren", "day": "2026-10-28", "detail": null }],
         "pieces": []
       },
       "expected": { "name:n1": "right", "name:n2": "right", "missing_names": "none_missing", "date:d1": "right" }
@@ -108,7 +108,7 @@
         "rawText": "Steuererklärung bis Ende November abgeben",
         "storedText": "Steuererklärung bis Ende November abgeben",
         "names": [],
-        "dates": [{ "ref": "d1", "event": "Steuererklärung abgeben", "when": "bis 31. Oktober 2026" }],
+        "dates": [{ "ref": "d1", "event": "Steuererklärung abgeben", "day": "2026-10-31", "detail": "as the deadline" }],
         "pieces": []
       },
       "expected": { "missing_names": "none_missing", "date:d1": "wrong" }
@@ -229,7 +229,7 @@
         "rawText": "Yoga every Tuesday at 7pm at Studio Nord",
         "storedText": "Yoga every Tuesday at 7pm at Studio Nord",
         "names": [{ "ref": "n1", "surface": "Studio Nord" }],
-        "dates": [{ "ref": "d1", "event": "Yoga at Studio Nord", "when": "every Tuesday, 19:00" }],
+        "dates": [{ "ref": "d1", "event": "Yoga at Studio Nord", "day": null, "detail": "every Tuesday at 19:00" }],
         "pieces": []
       },
       "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "right" }
@@ -243,10 +243,66 @@
         "rawText": "Need to finish the slides for the board meeting",
         "storedText": "Need to finish the slides for the board meeting",
         "names": [],
-        "dates": [{ "ref": "d1", "event": "Board meeting", "when": "Friday 30 October 2026" }],
+        "dates": [{ "ref": "d1", "event": "Board meeting", "day": "2026-10-30", "detail": null }],
         "pieces": []
       },
       "expected": { "missing_names": "none_missing", "date:d1": "wrong" }
+    },
+    {
+      "id": "a16-wrong-hour",
+      "note": "Right day, wrong hour.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Dentist appointment on Friday at 9am",
+        "storedText": "Dentist appointment on Friday at 9am",
+        "names": [],
+        "dates": [{ "ref": "d1", "event": "Dentist appointment", "day": "2026-10-30", "detail": "at 15:00" }],
+        "pieces": []
+      },
+      "expected": { "missing_names": "none_missing", "date:d1": "wrong" }
+    },
+    {
+      "id": "a17-far-deadline-right",
+      "note": "Vague 'Ende November' resolved to its last day.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Steuererklärung bis Ende November abgeben",
+        "storedText": "Steuererklärung bis Ende November abgeben",
+        "names": [],
+        "dates": [{ "ref": "d1", "event": "Steuererklärung abgeben", "day": "2026-11-30", "detail": "as the deadline" }],
+        "pieces": []
+      },
+      "expected": { "missing_names": "none_missing", "date:d1": "right" }
+    },
+    {
+      "id": "a18-wrong-repeat-day",
+      "note": "Repeat stored on the wrong weekday.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Yoga every Tuesday at 7pm at Studio Nord",
+        "storedText": "Yoga every Tuesday at 7pm at Studio Nord",
+        "names": [{ "ref": "n1", "surface": "Studio Nord" }],
+        "dates": [{ "ref": "d1", "event": "Yoga at Studio Nord", "day": null, "detail": "every Thursday at 19:00" }],
+        "pieces": []
+      },
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "wrong" }
+    },
+    {
+      "id": "a19-next-monday",
+      "note": "'next Monday' from Tuesday 27 Oct = Mon 2 Nov.",
+      "input": {
+        "capturedAt": "2026-10-27T10:00:00+01:00",
+        "timezone": "Europe/Berlin",
+        "rawText": "Ask Priya about the budget next Monday",
+        "storedText": "Ask Priya about the budget next Monday",
+        "names": [{ "ref": "n1", "surface": "Priya" }],
+        "dates": [{ "ref": "d1", "event": "Ask Priya about the budget", "day": "2026-11-02", "detail": null }],
+        "pieces": []
+      },
+      "expected": { "name:n1": "right", "missing_names": "none_missing", "date:d1": "right" }
     }
   ]
 }

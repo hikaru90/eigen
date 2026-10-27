@@ -23,7 +23,7 @@ const BASE: CaptureAuditInput = {
   storedText: 'Call Mom on Friday about the birthday dinner',
   names: [{ ref: 'n1', surface: 'Mom' }],
   dates: [
-    { ref: 'd1', event: 'Call Mom about the birthday dinner', when: 'Friday 30 October 2026' },
+    { ref: 'd1', event: 'Call Mom about the birthday dinner', day: '2026-10-30', detail: null },
   ],
   pieces: [],
 }
@@ -47,7 +47,9 @@ describe('question id helpers', () => {
   })
 })
 
-const STATE_WITHOUT_CALENDAR = [
+// The state is the capture line and the capture, nothing else, whatever questions follow: a
+// calendar block in it was tried against the live check and did not help Jev with dates.
+const STATE = [
   'Captured on Tuesday 27 October 2026 at 10:00 (Europe/Berlin).',
   'The user wrote:',
   '<<<capture',
@@ -55,55 +57,26 @@ const STATE_WITHOUT_CALENDAR = [
   'capture>>>',
 ].join('\n')
 
-const CALENDAR_FROM_BASE = [
-  'Calendar from the capture day on:',
-  '- Tuesday 27 October 2026 (today, the capture day)',
-  '- Wednesday 28 October 2026 (tomorrow)',
-  '- Thursday 29 October 2026',
-  '- Friday 30 October 2026',
-  '- Saturday 31 October 2026',
-  '- Sunday 1 November 2026',
-  '- Monday 2 November 2026',
-  '- Tuesday 3 November 2026',
-  '- Wednesday 4 November 2026',
-  '- Thursday 5 November 2026',
-  '- Friday 6 November 2026',
-  '- Saturday 7 November 2026',
-  '- Sunday 8 November 2026',
-  '- Monday 9 November 2026',
-].join('\n')
-
 describe('buildCaptureAuditRequest: state', () => {
-  it('names the capture date in the capture timezone and quotes the raw text (no date questions: no calendar, byte for byte)', () => {
-    const request = buildCaptureAuditRequest(input({ dates: [] }))
-    expect(request.state).toBe(STATE_WITHOUT_CALENDAR)
-    expect(request.state).not.toContain('Calendar')
+  it('names the capture date in the capture timezone and quotes the raw text', () => {
+    expect(buildCaptureAuditRequest(BASE).state).toBe(STATE)
   })
 
-  it('appends the calendar after the quoted capture when there is a date question', () => {
-    expect(buildCaptureAuditRequest(BASE).state).toBe(
-      `${STATE_WITHOUT_CALENDAR}\n${CALENDAR_FROM_BASE}`,
-    )
-  })
-
-  it('keeps the rest of the state identical with and without date questions', () => {
-    const without = buildCaptureAuditRequest(input({ dates: [] })).state
-    const withDates = buildCaptureAuditRequest(BASE).state
-    expect(withDates.startsWith(without)).toBe(true)
-  })
-
-  it('appends no calendar for wording, name or piece questions alone', () => {
-    const request = buildCaptureAuditRequest(
-      input({
-        dates: [],
-        storedText: 'Call Mom on Friday.',
-        pieces: [
-          { ref: 'p1', text: 'one' },
-          { ref: 'p2', text: 'two' },
-        ],
-      }),
-    )
-    expect(request.state).toBe(STATE_WITHOUT_CALENDAR)
+  it('is the same with and without date questions, and for every other question set', () => {
+    const two = [
+      { ref: 'p1', text: 'one' },
+      { ref: 'p2', text: 'two' },
+    ]
+    for (const patch of [
+      { dates: [] },
+      { storedText: 'Call Mom on Friday.' },
+      { names: [], dates: [] },
+      { pieces: two },
+      { storedText: 'Call Mom on Friday.', pieces: two },
+    ] satisfies Partial<CaptureAuditInput>[]) {
+      expect(buildCaptureAuditRequest(input(patch)).state).toBe(STATE)
+    }
+    expect(STATE).not.toContain('Calendar')
   })
 
   it('renders the instant in the given timezone: UTC late evening is the next day in Berlin, midnight hour is 00', () => {
@@ -131,14 +104,15 @@ describe('buildCaptureAuditRequest: state', () => {
           {
             ref: 'd1',
             event: 'Mit Papa zum Arzt nach Leipzig fahren',
-            when: 'Mittwoch, 28. Oktober 2026',
+            day: '2026-10-28',
+            detail: 'um 9 Uhr',
           },
         ],
       }),
     )
     expect(request.state).toContain(`<<<capture\n${rawText}\ncapture>>>`)
     expect(request.questions['date:d1'].instructions).toBe(
-      'Eigen stored: "Mit Papa zum Arzt nach Leipzig fahren" — Mittwoch, 28. Oktober 2026. Does the capture say that?',
+      'Eigen stored "Mit Papa zum Arzt nach Leipzig fahren" for the day after the capture day um 9 Uhr. Does the capture put this event at that time?',
     )
   })
 
@@ -150,90 +124,240 @@ describe('buildCaptureAuditRequest: state', () => {
   })
 })
 
-describe('buildCaptureAuditRequest: calendar', () => {
-  function calendarOf(patch: Partial<CaptureAuditInput>): string[] {
-    const state = buildCaptureAuditRequest(input(patch)).state
-    const at = state.indexOf('Calendar from the capture day on:\n')
-    expect(at).toBeGreaterThan(-1)
-    return state.slice(at).split('\n')
+describe('buildCaptureAuditRequest: the time of a date question', () => {
+  // The capture day is Tuesday 27 October 2026 (Europe/Berlin) unless a test says otherwise.
+  const asked = (phrase: string, event = 'Dentist appointment') =>
+    `Eigen stored "${event}" for ${phrase}. Does the capture put this event at that time?`
+
+  function instructions(
+    date: { day: string | null; detail: string | null; event?: string },
+    patch: Partial<CaptureAuditInput> = {},
+  ): string {
+    const request = buildCaptureAuditRequest(
+      input({
+        dates: [
+          {
+            ref: 'd1',
+            event: date.event ?? 'Dentist appointment',
+            day: date.day,
+            detail: date.detail,
+          },
+        ],
+        ...patch,
+      }),
+    )
+    return request.questions['date:d1'].instructions
   }
 
-  it('is a heading and 14 days: the capture day and the next 13', () => {
-    const lines = calendarOf({})
-    expect(lines[0]).toBe('Calendar from the capture day on:')
-    expect(lines).toHaveLength(15)
-    for (const line of lines.slice(1)) expect(line.startsWith('- ')).toBe(true)
+  describe('the day is named by its distance from the capture day', () => {
+    it('0 days: the capture day itself', () => {
+      expect(instructions({ day: '2026-10-27', detail: null })).toBe(
+        asked('the capture day itself'),
+      )
+    })
+
+    it('1 day: the day after the capture day', () => {
+      expect(instructions({ day: '2026-10-28', detail: null })).toBe(
+        asked('the day after the capture day'),
+      )
+    })
+
+    it.each([
+      ['2026-10-29', 'the Thursday after the capture day (2 days later)'],
+      ['2026-10-30', 'the Friday after the capture day (3 days later)'],
+      ['2026-11-03', 'the Tuesday after the capture day (7 days later)'],
+      ['2026-11-09', 'the Monday after the capture day (13 days later)'],
+    ])('2 to 13 days (%s): the weekday and the number of days', (day, phrase) => {
+      expect(instructions({ day, detail: null })).toBe(asked(phrase))
+    })
+
+    it('14 days and more: the full date and the number of days after', () => {
+      expect(instructions({ day: '2026-11-10', detail: null })).toBe(
+        asked('Tuesday 10 November 2026 (14 days after the capture day)'),
+      )
+      expect(instructions({ day: '2026-11-29', detail: null })).toBe(
+        asked('Sunday 29 November 2026 (33 days after the capture day)'),
+      )
+    })
+
+    it('-1 day: the day before the capture day', () => {
+      expect(instructions({ day: '2026-10-26', detail: null })).toBe(
+        asked('the day before the capture day'),
+      )
+    })
+
+    it('-2 days and fewer: the full date and the number of days before', () => {
+      expect(instructions({ day: '2026-10-25', detail: null })).toBe(
+        asked('Sunday 25 October 2026 (2 days before the capture day)'),
+      )
+      expect(instructions({ day: '2026-10-17', detail: null })).toBe(
+        asked('Saturday 17 October 2026 (10 days before the capture day)'),
+      )
+    })
   })
 
-  it('marks only the capture day (today) and the day after (tomorrow)', () => {
-    const lines = calendarOf({})
-    expect(lines[1]).toBe('- Tuesday 27 October 2026 (today, the capture day)')
-    expect(lines[2]).toBe('- Wednesday 28 October 2026 (tomorrow)')
-    expect(lines.slice(3).filter((line) => line.includes('('))).toEqual([])
+  describe('the last day of a month is said so, in the two long forms only', () => {
+    it('after the capture day', () => {
+      expect(instructions({ day: '2026-11-30', detail: null })).toBe(
+        asked('Monday 30 November 2026 (34 days after the capture day, the last day of November)'),
+      )
+    })
+
+    it('before the capture day', () => {
+      expect(
+        instructions(
+          { day: '2026-10-31', detail: null },
+          { capturedAt: '2026-11-05T10:00:00+01:00' },
+        ),
+      ).toBe(
+        asked('Saturday 31 October 2026 (5 days before the capture day, the last day of October)'),
+      )
+    })
+
+    it('not in the short forms, even on a last day', () => {
+      expect(instructions({ day: '2026-10-31', detail: null })).toBe(
+        asked('the Saturday after the capture day (4 days later)'),
+      )
+      expect(
+        instructions(
+          { day: '2026-10-31', detail: null },
+          { capturedAt: '2026-10-30T10:00:00+01:00' },
+        ),
+      ).toBe(asked('the day after the capture day'))
+    })
+
+    it('knows February in a leap year and in a common year', () => {
+      expect(
+        instructions(
+          { day: '2028-02-29', detail: null },
+          { capturedAt: '2028-01-10T10:00:00+01:00' },
+        ),
+      ).toBe(
+        asked('Tuesday 29 February 2028 (50 days after the capture day, the last day of February)'),
+      )
+      expect(
+        instructions(
+          { day: '2027-02-28', detail: null },
+          { capturedAt: '2027-01-10T10:00:00+01:00' },
+        ),
+      ).toBe(
+        asked('Sunday 28 February 2027 (49 days after the capture day, the last day of February)'),
+      )
+      expect(
+        instructions(
+          { day: '2028-02-28', detail: null },
+          { capturedAt: '2028-01-10T10:00:00+01:00' },
+        ),
+      ).toBe(asked('Monday 28 February 2028 (49 days after the capture day)'))
+    })
+
+    it('is not said for a day that is not the last of its month', () => {
+      expect(instructions({ day: '2026-11-29', detail: null })).not.toContain('last day')
+    })
   })
 
-  it('starts on the capture day in the capture timezone, not in UTC', () => {
-    expect(calendarOf({ capturedAt: '2026-10-27T23:30:00Z' })[1]).toBe(
-      '- Wednesday 28 October 2026 (today, the capture day)',
-    )
-    expect(
-      calendarOf({ capturedAt: '2026-10-27T01:00:00Z', timezone: 'America/New_York' })[1],
-    ).toBe('- Monday 26 October 2026 (today, the capture day)')
+  describe('the capture day is the date in the capture timezone', () => {
+    it('late evening UTC is already the next day in Berlin', () => {
+      const patch = { capturedAt: '2026-10-27T23:30:00Z' }
+      expect(instructions({ day: '2026-10-28', detail: null }, patch)).toBe(
+        asked('the capture day itself'),
+      )
+      expect(instructions({ day: '2026-10-29', detail: null }, patch)).toBe(
+        asked('the day after the capture day'),
+      )
+      expect(instructions({ day: '2026-10-27', detail: null }, patch)).toBe(
+        asked('the day before the capture day'),
+      )
+    })
+
+    it('early morning UTC is still the day before in New York', () => {
+      const patch = { capturedAt: '2026-10-27T01:00:00Z', timezone: 'America/New_York' }
+      expect(instructions({ day: '2026-10-26', detail: null }, patch)).toBe(
+        asked('the capture day itself'),
+      )
+      expect(instructions({ day: '2026-10-27', detail: null }, patch)).toBe(
+        asked('the day after the capture day'),
+      )
+    })
+
+    it('counts calendar days: daylight saving time (25 October 2026) and a year end change nothing', () => {
+      expect(
+        instructions(
+          { day: '2026-10-26', detail: null },
+          { capturedAt: '2026-10-24T10:00:00+02:00' },
+        ),
+      ).toBe(asked('the Monday after the capture day (2 days later)'))
+      expect(
+        instructions(
+          { day: '2027-01-02', detail: null },
+          { capturedAt: '2026-12-30T10:00:00+01:00' },
+        ),
+      ).toBe(asked('the Saturday after the capture day (3 days later)'))
+    })
+
+    it('does not depend on the clock time of the capture', () => {
+      for (const capturedAt of ['2026-10-27T00:00:00+01:00', '2026-10-27T23:59:59+01:00']) {
+        expect(instructions({ day: '2026-10-30', detail: null }, { capturedAt })).toBe(
+          asked('the Friday after the capture day (3 days later)'),
+        )
+      }
+    })
   })
 
-  it('steps by calendar days across the end of daylight saving time (25 October 2026)', () => {
-    const lines = calendarOf({ capturedAt: '2026-10-20T10:00:00+02:00' })
-    expect(lines.slice(1)).toEqual([
-      '- Tuesday 20 October 2026 (today, the capture day)',
-      '- Wednesday 21 October 2026 (tomorrow)',
-      '- Thursday 22 October 2026',
-      '- Friday 23 October 2026',
-      '- Saturday 24 October 2026',
-      '- Sunday 25 October 2026',
-      '- Monday 26 October 2026',
-      '- Tuesday 27 October 2026',
-      '- Wednesday 28 October 2026',
-      '- Thursday 29 October 2026',
-      '- Friday 30 October 2026',
-      '- Saturday 31 October 2026',
-      '- Sunday 1 November 2026',
-      '- Monday 2 November 2026',
-    ])
+  describe('day and detail', () => {
+    it('day and detail: the day, one space, the detail', () => {
+      expect(instructions({ day: '2026-10-30', detail: 'at 09:00' })).toBe(
+        asked('the Friday after the capture day (3 days later) at 09:00'),
+      )
+      expect(instructions({ day: '2026-10-27', detail: 'before 18:00' })).toBe(
+        asked('the capture day itself before 18:00'),
+      )
+      expect(instructions({ day: '2026-11-30', detail: 'as the deadline' })).toBe(
+        asked(
+          'Monday 30 November 2026 (34 days after the capture day, the last day of November) as the deadline',
+        ),
+      )
+    })
+
+    it('day only: no trailing space', () => {
+      expect(instructions({ day: '2026-10-30', detail: null })).toBe(
+        asked('the Friday after the capture day (3 days later)'),
+      )
+    })
+
+    it('detail only: the detail alone', () => {
+      expect(instructions({ day: null, detail: 'every Tuesday at 19:00' }, {})).toBe(
+        asked('every Tuesday at 19:00'),
+      )
+    })
+
+    it('trims the detail', () => {
+      expect(instructions({ day: '2026-10-28', detail: '  at 09:00\n' })).toBe(
+        asked('the day after the capture day at 09:00'),
+      )
+    })
+
+    it('quotes the event as given', () => {
+      expect(
+        instructions({ day: '2026-10-28', detail: null, event: 'Steuererklärung abgeben' }),
+      ).toBe(asked('the day after the capture day', 'Steuererklärung abgeben'))
+    })
   })
 
-  it('runs over a year end', () => {
-    const lines = calendarOf({ capturedAt: '2026-12-24T09:00:00+01:00' })
-    expect(lines[1]).toBe('- Thursday 24 December 2026 (today, the capture day)')
-    expect(lines[9]).toBe('- Friday 1 January 2027')
-    expect(lines[14]).toBe('- Wednesday 6 January 2027')
-  })
-
-  it('includes a leap day', () => {
-    const lines = calendarOf({ capturedAt: '2028-02-27T09:00:00+01:00' })
-    expect(lines[1]).toBe('- Sunday 27 February 2028 (today, the capture day)')
-    expect(lines[3]).toBe('- Tuesday 29 February 2028')
-    expect(lines[4]).toBe('- Wednesday 1 March 2028')
-  })
-
-  it('is the same for German captures: English day names, whatever the capture language', () => {
-    const rawText = 'Am Mittwoch mit Papa zum Arzt nach Leipzig fahren'
-    const state = buildCaptureAuditRequest(
+  it('builds a phrase per date question', () => {
+    const request = buildCaptureAuditRequest(
       input({
-        rawText,
-        storedText: rawText,
-        names: [],
-        dates: [{ ref: 'd1', event: 'Arzt', when: 'Mittwoch, 28. Oktober 2026' }],
+        dates: [
+          { ref: 'd1', event: 'a', day: '2026-10-27', detail: null },
+          { ref: 'd2', event: 'b', day: null, detail: 'every Tuesday at 19:00' },
+        ],
       }),
-    ).state
-    expect(state).toBe(
-      [
-        'Captured on Tuesday 27 October 2026 at 10:00 (Europe/Berlin).',
-        'The user wrote:',
-        '<<<capture',
-        rawText,
-        'capture>>>',
-        CALENDAR_FROM_BASE,
-      ].join('\n'),
+    )
+    expect(request.questions['date:d1'].instructions).toBe(
+      'Eigen stored "a" for the capture day itself. Does the capture put this event at that time?',
+    )
+    expect(request.questions['date:d2'].instructions).toBe(
+      'Eigen stored "b" for every Tuesday at 19:00. Does the capture put this event at that time?',
     )
   })
 })
@@ -272,8 +396,8 @@ describe('buildCaptureAuditRequest: which questions', () => {
           { ref: 'n2', surface: 'Leipzig' },
         ],
         dates: [
-          { ref: 'd1', event: 'a', when: 'b' },
-          { ref: 'd2', event: 'c', when: 'd' },
+          { ref: 'd1', event: 'a', day: '2026-10-30', detail: null },
+          { ref: 'd2', event: 'c', day: null, detail: 'every Tuesday' },
         ],
         pieces: [
           { ref: 'p1', text: 'one' },
@@ -356,9 +480,9 @@ describe('buildCaptureAuditRequest: instructions', () => {
     )
   })
 
-  it('date quotes the event and the resolved time', () => {
+  it('date quotes the event and says when it was stored', () => {
     expect(full.questions['date:d1'].instructions).toBe(
-      'Eigen stored: "Call Mom about the birthday dinner" — Friday 30 October 2026. Does the capture say that?',
+      'Eigen stored "Call Mom about the birthday dinner" for the Friday after the capture day (3 days later). Does the capture put this event at that time?',
     )
   })
 
@@ -428,14 +552,17 @@ describe('buildCaptureAuditRequest: criteria', () => {
     expect(AUDIT_CRITERIA_WORDING.right).toContain('Fixing typos')
     expect(AUDIT_CRITERIA_WORDING.wrong).toContain("'maybe' turned into a plan")
     expect(AUDIT_CRITERIA_MISSING_NAMES.none_missing).toContain('"the team lead"')
-    expect(AUDIT_CRITERIA_DATE.right).toContain('"before 6pm" with no day meaning today')
+    expect(AUDIT_CRITERIA_DATE.right).toContain('"before 6pm"')
     expect(AUDIT_CRITERIA_PIECE.wrong).toContain('a greeting, a sign-off, half a sentence')
   })
 
   // Tuned against the live check: pinned word for word so a change is deliberate.
-  it('date right sends Jev to the calendar in the state to resolve weekday names and relative days', () => {
+  it("date right and wrong judge the capture's own time words against the stored time", () => {
     expect(AUDIT_CRITERIA_DATE.right).toBe(
-      'The capture says this event is at this time. A relative time ("Friday", "tomorrow", "next week", "before 6pm" with no day meaning today) counts as right when it resolves to this time from the capture date — use the calendar above to resolve weekday names and relative days. A repeating time counts as right when the capture says it repeats.',
+      'Yes: the capture\'s own time words for this event ("Friday", "tomorrow", "Mittwoch", "today", "before 6pm", "every Tuesday") point to this time. A vague time in the capture ("next week", "end of November", "in spring") is right when the stored time falls within it.',
+    )
+    expect(AUDIT_CRITERIA_DATE.wrong).toBe(
+      "No: the capture's time words point to a different day or time, the capture gives no time for this event, or the event is not in the capture.",
     )
   })
 
@@ -509,9 +636,9 @@ describe('buildCaptureAuditRequest: validation', () => {
     expect(failing({ names: [{ ref: '', surface: 'Mom' }] })).toThrow(
       '[capture-review] audit: names[0].ref must not be empty',
     )
-    expect(failing({ dates: [{ ref: '  ', event: 'a', when: 'b' }] })).toThrow(
-      '[capture-review] audit: dates[0].ref must not be empty',
-    )
+    expect(
+      failing({ dates: [{ ref: '  ', event: 'a', day: '2026-10-30', detail: null }] }),
+    ).toThrow('[capture-review] audit: dates[0].ref must not be empty')
     expect(
       failing({
         pieces: [
@@ -526,9 +653,9 @@ describe('buildCaptureAuditRequest: validation', () => {
     expect(failing({ names: [{ ref: 'n 1', surface: 'Mom' }] })).toThrow(
       '[capture-review] audit: names[0].ref must not contain whitespace, got "n 1"',
     )
-    expect(failing({ dates: [{ ref: 'd\t1', event: 'a', when: 'b' }] })).toThrow(
-      '[capture-review] audit: dates[0].ref must not contain whitespace',
-    )
+    expect(
+      failing({ dates: [{ ref: 'd\t1', event: 'a', day: '2026-10-30', detail: null }] }),
+    ).toThrow('[capture-review] audit: dates[0].ref must not contain whitespace')
   })
 
   it('rejects a duplicate ref within a list, but allows the same ref in different lists', () => {
@@ -543,8 +670,8 @@ describe('buildCaptureAuditRequest: validation', () => {
     expect(
       failing({
         dates: [
-          { ref: 'd1', event: 'a', when: 'b' },
-          { ref: 'd1', event: 'c', when: 'd' },
+          { ref: 'd1', event: 'a', day: '2026-10-30', detail: null },
+          { ref: 'd1', event: 'c', day: '2026-10-31', detail: null },
         ],
       }),
     ).toThrow('[capture-review] audit: dates refs must be unique, "d1" appears more than once')
@@ -559,7 +686,7 @@ describe('buildCaptureAuditRequest: validation', () => {
     expect(
       failing({
         names: [{ ref: 'x', surface: 'Mom' }],
-        dates: [{ ref: 'x', event: 'a', when: 'b' }],
+        dates: [{ ref: 'x', event: 'a', day: '2026-10-30', detail: null }],
       }),
     ).not.toThrow()
   })
@@ -570,15 +697,12 @@ describe('buildCaptureAuditRequest: validation', () => {
     )
   })
 
-  it('rejects empty surface, event, when and piece text', () => {
+  it('rejects empty surface, event and piece text', () => {
     expect(failing({ names: [{ ref: 'n1', surface: ' ' }] })).toThrow(
       '[capture-review] audit: names[0].surface must not be empty',
     )
-    expect(failing({ dates: [{ ref: 'd1', event: '', when: 'b' }] })).toThrow(
+    expect(failing({ dates: [{ ref: 'd1', event: '', day: '2026-10-30', detail: null }] })).toThrow(
       '[capture-review] audit: dates[0].event must not be empty',
-    )
-    expect(failing({ dates: [{ ref: 'd1', event: 'a', when: '' }] })).toThrow(
-      '[capture-review] audit: dates[0].when must not be empty',
     )
     expect(
       failing({
@@ -588,6 +712,87 @@ describe('buildCaptureAuditRequest: validation', () => {
         ],
       }),
     ).toThrow('[capture-review] audit: pieces[1].text must not be empty')
+  })
+
+  describe('a date item: day and detail', () => {
+    const date = (day: string | null, detail: string | null) => ({
+      dates: [{ ref: 'd1', event: 'Dentist appointment', day, detail }],
+    })
+
+    it.each([
+      '',
+      '2026-10-32',
+      '2026-13-01',
+      '2026-00-10',
+      '2026-02-29',
+      '2027-02-29',
+      '2026-1-5',
+      '27.10.2026',
+      '2026/10/27',
+      ' 2026-10-27',
+      '2026-10-27T10:00',
+      'Friday',
+      '0000-01-01',
+    ])('rejects a day that is not a real YYYY-MM-DD date: "%s"', (day) => {
+      expect(failing(date(day, null))).toThrow(
+        `[capture-review] audit: dates[0].day must be a real calendar date as YYYY-MM-DD, or null, got "${day}"`,
+      )
+    })
+
+    it('accepts real dates, including a leap day', () => {
+      for (const day of ['2026-10-27', '2028-02-29', '2026-12-31', '1999-01-01']) {
+        expect(failing(date(day, null))).not.toThrow()
+      }
+    })
+
+    it('rejects an empty or whitespace-only detail', () => {
+      expect(failing(date('2026-10-30', ''))).toThrow(
+        '[capture-review] audit: dates[0].detail must not be empty when given, or null',
+      )
+      expect(failing(date(null, ' \n '))).toThrow(
+        '[capture-review] audit: dates[0].detail must not be empty when given, or null',
+      )
+    })
+
+    it('rejects an item with neither a day nor a detail', () => {
+      expect(failing(date(null, null))).toThrow(
+        '[capture-review] audit: dates[0] needs a day or a detail, both are null',
+      )
+    })
+
+    it('accepts a day alone, a detail alone, and both', () => {
+      expect(failing(date('2026-10-30', null))).not.toThrow()
+      expect(failing(date(null, 'every Tuesday at 19:00'))).not.toThrow()
+      expect(failing(date('2026-10-30', 'at 09:00'))).not.toThrow()
+    })
+
+    it('names the item that is wrong', () => {
+      expect(
+        failing({
+          dates: [
+            { ref: 'd1', event: 'a', day: '2026-10-30', detail: null },
+            { ref: 'd2', event: 'b', day: '2026-02-30', detail: null },
+          ],
+        }),
+      ).toThrow('dates[1].day must be a real calendar date')
+      expect(
+        failing({
+          dates: [
+            { ref: 'd1', event: 'a', day: '2026-10-30', detail: null },
+            { ref: 'd2', event: 'b', day: null, detail: null },
+          ],
+        }),
+      ).toThrow('dates[1] needs a day or a detail')
+    })
+
+    it('has no `when` any more: the old shape is not accepted as a date', () => {
+      const old = {
+        ref: 'd1',
+        event: 'a',
+        when: 'Friday 30 October 2026',
+      } as unknown as CaptureAuditInput['dates'][number]
+      expect(failing({ dates: [old] })).toThrow('dates[0].day must be a real calendar date')
+    })
   })
 
   it('does not change its input', () => {

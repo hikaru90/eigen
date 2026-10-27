@@ -29,7 +29,14 @@ const auditInputSchema = z.strictObject({
   rawText: z.string(),
   storedText: z.string(),
   names: z.array(z.strictObject({ ref: z.string(), surface: z.string() })),
-  dates: z.array(z.strictObject({ ref: z.string(), event: z.string(), when: z.string() })),
+  dates: z.array(
+    z.strictObject({
+      ref: z.string(),
+      event: z.string(),
+      day: z.string().nullable(),
+      detail: z.string().nullable(),
+    }),
+  ),
   pieces: z.array(z.strictObject({ ref: z.string(), text: z.string() })),
 })
 
