@@ -737,30 +737,32 @@ html.pwa-standalone::before {
 }
 ::view-transition-old(page),
 ::view-transition-old(glass-writer) {
-  animation: route-leave 0.42s var(--ease) both;
+  animation: route-leave 0.2s var(--ease) both;
 }
+/* Short on purpose: the page takes no input while a view transition runs, so a long
+   settle reads as a slow tab switch (board: "switching tabs is extremely slow"). */
 ::view-transition-new(page),
 ::view-transition-new(glass-writer) {
   animation:
-    route-enter-fade 0.7s var(--ease) 0.1s both,
-    route-enter-settle 0.9s var(--ease) 0.1s both;
+    route-enter-fade 0.3s var(--ease) 0.04s both,
+    route-enter-settle 0.4s var(--ease) 0.04s both;
 }
 @keyframes route-leave {
   to {
     opacity: 0;
-    transform: translate3d(0, -10px, 0);
-    filter: blur(8px);
+    transform: translate3d(0, -6px, 0);
+    filter: blur(4px);
   }
 }
 @keyframes route-enter-fade {
   from {
     opacity: 0;
-    filter: blur(8px);
+    filter: blur(4px);
   }
 }
 @keyframes route-enter-settle {
   from {
-    transform: translate3d(0, 14px, 0);
+    transform: translate3d(0, 8px, 0);
   }
   to {
     transform: translate3d(0, 0, 0);

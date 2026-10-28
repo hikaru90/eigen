@@ -32,18 +32,18 @@ export const load: PageServerLoad = async (event) => {
   const userId = event.locals.user.id
   const db = getDb()
 
-  const preferredTimezone = await getUserPreferredTimezone(userId)
-
   // Ontology names for the kind chips (the memory hub loads it the same way).
-  await ensureUserOntologySeeded(db, userId)
-  const loadedOntology = await loadOntologyForUser(db, userId)
+  const [preferredTimezone, [loadedOntology, kinds], thoughts] = await Promise.all([
+    getUserPreferredTimezone(userId),
+    ensureUserOntologySeeded(db, userId).then(() =>
+      Promise.all([loadOntologyForUser(db, userId), loadThoughtKindOptions(db, userId)]),
+    ),
+    loadYarnThoughts(userId, { author: 'user' }),
+  ])
   const kindLabels: Record<string, string> = {}
   for (const kind of loadedOntology.entityKinds) {
     kindLabels[kind.key] = kind.name
   }
-
-  const kinds = await loadThoughtKindOptions(db, userId)
-  const thoughts = await loadYarnThoughts(userId, { author: 'user' })
 
   return {
     user: event.locals.user,

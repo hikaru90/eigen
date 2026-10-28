@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { base, resolve } from '$app/paths'
-  import { page } from '$app/state'
+  import { navigating, page } from '$app/state'
   import {
     closeMeshSearch,
     meshSearch,
@@ -33,8 +33,11 @@
 
   /** ei app.js:196 — which tab a mesh pathname shows (default: Yarn). */
   const activeTab = $derived.by<TabId>(() => {
-    let p: string = page.url.pathname
-    if (base && p.startsWith(base)) p = p.slice(base.length) || '/'
+    const strip = (path: string) =>
+      base && path.startsWith(base) ? path.slice(base.length) || '/' : path
+    // the lens being opened lights while its page loads (leaving Mesh changes nothing here)
+    const pending = navigating.to ? strip(navigating.to.url.pathname) : null
+    const p = pending?.startsWith('/mesh/') ? pending : strip(page.url.pathname)
     if (p.startsWith('/mesh/threads')) return 'threads'
     if (p.startsWith('/mesh/patterns')) return 'patterns'
     return 'yarn'

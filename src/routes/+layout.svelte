@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { browser } from '$app/environment'
-  import { afterNavigate, goto, onNavigate } from '$app/navigation'
+  import { afterNavigate, goto, onNavigate, preloadCode } from '$app/navigation'
   import { base, resolve } from '$app/paths'
   import { page } from '$app/state'
   import './layout.css'
@@ -21,13 +21,19 @@
   import BetaAgreementModal from '$lib/components/beta-agreement-modal.svelte'
   import AppChrome from '$lib/components/chrome/app-chrome.svelte'
   import BottomNav from '$lib/components/chrome/bottom-nav.svelte'
-  import { activeNavId } from '$lib/components/chrome/nav-active'
+  import { activeNavId, BOTTOM_NAV_HREFS } from '$lib/components/chrome/nav-active'
   import { pageFadeVars } from '$lib/components/chrome/page-fade'
   import { pageTitle } from '$lib/components/chrome/page-title'
   import { swipeNavTarget, swipeStartsInOwnGesture } from '$lib/components/chrome/swipe-nav'
   import InstallPromptToast from '$lib/components/install-prompt-toast.svelte'
   import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
   import { hapticPress, installButtonHaptics } from '$lib/haptics'
+  import { offlineNotice } from '$lib/offline/page-cache'
+  import {
+    clearOfflinePageCache,
+    offlineStatus,
+    startOfflineStatus,
+  } from '$lib/offline/offline-status.svelte'
   import { m } from '$lib/paraglide/messages.js'
   import { themeColorMetas, type LookPreference } from '$lib/pwa/theme-color'
   import { getLocale, setLocale } from '$lib/paraglide/runtime'
@@ -83,6 +89,7 @@
    * the ei prototype's smootherstep (52px, faint 2–6% tails behind the chrome).
    */
   const fadeVars = $derived(pageFadeVars(mainView))
+  const notice = $derived(offlineNotice(offlineStatus))
   const chromeMainClass = $derived.by(() => {
     if (hideAppChrome) {
       return 'static overflow-visible min-h-svh mask-none animate-none'
@@ -214,9 +221,18 @@
 
     const stopPushNavigation = startPushNavigationFromServiceWorker()
 
+    const stopOfflineStatus = startOfflineStatus()
     if ((page.data as { user?: { id: string } | null }).user) {
       startCaptureQueueRunner()
       startThoughtSync()
+      // the other tabs' code, fetched while idle: the first switch skips the download,
+      // and the service worker keeps it for offline launches
+      setTimeout(() => {
+        for (const href of Object.values(BOTTOM_NAV_HREFS)) void preloadCode(resolve(href))
+      }, 1500)
+    } else {
+      // nobody signed in: no stored pages of a previous session may outlive it
+      void clearOfflinePageCache()
     }
 
     const preferredUiLocale = (page.data as { preferredUiLocale?: string | null }).preferredUiLocale
@@ -224,10 +240,11 @@
       setLocale(preferredUiLocale as 'en' | 'de')
     }
 
+    // The service worker runs for everyone: offline reading, the capture queue's
+    // Background Sync and push. (It used to wait on `pwaInfo`, which is always undefined
+    // with `manifest: false` — so only push users ever got a worker.)
     void (async () => {
       try {
-        const { pwaInfo } = await import('virtual:pwa-info')
-        if (!pwaInfo) return
         const { registerSW } = await import('virtual:pwa-register')
         registerSW({ immediate: true })
       } catch {
@@ -270,6 +287,7 @@
     return () => {
       stopButtonHaptics()
       stopPushNavigation()
+      stopOfflineStatus()
       stopInstallStore?.()
       stopInstallStore = null
       media.removeEventListener('change', handleChange)
@@ -289,6 +307,17 @@
 
 {#if !hideAppChrome}
   <AppChrome />
+{/if}
+
+{#if !hideAppChrome && notice}
+  <!-- offline reading: says plainly that this is a stored copy and what still works -->
+  <p
+    class="fixed inset-x-0 top-head z-[34] mx-auto w-fit max-w-[min(560px,calc(100vw-32px))] rounded-2xl bg-paper-2 px-3.5 py-1.5 text-center text-[13px] leading-[18px] text-ink-2"
+    role="status"
+    data-testid="offline-notice"
+  >
+    {notice === 'offline' ? m.offline_notice_offline() : m.offline_notice_stale()}
+  </p>
 {/if}
 
 <!--

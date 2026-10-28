@@ -53,3 +53,23 @@ describe('the entire graph', () => {
     expect(activeNavId('/graph')).toBe('mesh')
   })
 })
+
+describe('displayedNavId', () => {
+  it('lights the tab being navigated to before its page has loaded', async () => {
+    const { displayedNavId } = await import('./nav-active')
+    expect(displayedNavId('/capture', '/mesh/yarn')).toBe('mesh')
+    expect(displayedNavId('/mesh/yarn', '/chat')).toBe('ask')
+  })
+
+  it('lights the current tab when nothing is loading', async () => {
+    const { displayedNavId } = await import('./nav-active')
+    expect(displayedNavId('/chat', null)).toBe('ask')
+  })
+})
+
+describe('BOTTOM_NAV_HREFS', () => {
+  it('points Mesh straight at the yarn, so a tap is not a redirect plus a load', async () => {
+    const { BOTTOM_NAV_HREFS } = await import('./nav-active')
+    expect(BOTTOM_NAV_HREFS).toEqual({ capture: '/capture', mesh: '/mesh/yarn', ask: '/chat' })
+  })
+})

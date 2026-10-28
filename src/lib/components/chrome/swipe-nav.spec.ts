@@ -5,9 +5,9 @@ const swipe = (dx: number, dy = 0) => ({ dx, dy })
 
 describe('swipeNavTarget', () => {
   it('left swipe goes to the next core page, right swipe to the previous', () => {
-    expect(swipeNavTarget('capture', swipe(-SWIPE_MIN_PX - 1))).toBe('/mesh')
+    expect(swipeNavTarget('capture', swipe(-SWIPE_MIN_PX - 1))).toBe('/mesh/yarn')
     expect(swipeNavTarget('mesh', swipe(-SWIPE_MIN_PX - 1))).toBe('/chat')
-    expect(swipeNavTarget('ask', swipe(SWIPE_MIN_PX + 1))).toBe('/mesh')
+    expect(swipeNavTarget('ask', swipe(SWIPE_MIN_PX + 1))).toBe('/mesh/yarn')
     expect(swipeNavTarget('mesh', swipe(SWIPE_MIN_PX + 1))).toBe('/capture')
   })
 

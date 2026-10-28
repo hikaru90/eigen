@@ -24,6 +24,27 @@ export function activeNavId(pathname: string): BottomNavId | null {
   return null
 }
 
+/**
+ * Where each bottom-nav item goes. Mesh points at its landing lens directly: `/mesh`
+ * only redirects to `/mesh/yarn`, which cost a tap a second round trip.
+ */
+export const BOTTOM_NAV_HREFS = {
+  capture: '/capture',
+  mesh: '/mesh/yarn',
+  ask: '/chat',
+} as const satisfies Record<BottomNavId, string>
+
+/**
+ * The item the bottom nav lights: the tab being navigated to while its page loads,
+ * otherwise the current one — so a tap answers at once instead of after the load.
+ */
+export function displayedNavId(
+  currentPathname: string,
+  pendingPathname: string | null,
+): BottomNavId | null {
+  return activeNavId(pendingPathname ?? currentPathname)
+}
+
 /** The bottom nav's mark for `id` — the landing point for motion aimed at a tab (the capture fly). */
 export function navMarkSelector(id: BottomNavId): string {
   return `[data-nav-mark="${id}"]`

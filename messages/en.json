@@ -541,5 +541,10 @@
   "voice_error_transcribe": "Couldn't transcribe the recording",
   "patterns_out_of_credits": "Patterns can’t be read right now — your account is out of credits.",
   "patterns_out_of_credits_link": "Add credits",
-  "patterns_load_failed": "Couldn’t read your patterns."
+  "patterns_load_failed": "Couldn’t read your patterns.",
+  "offline_notice_offline": "You're offline — showing what you last saw. New thoughts wait here and send when you're back; other changes need a connection.",
+  "offline_notice_stale": "Eigen can't be reached — showing what you last saw. New thoughts wait here; other changes need a connection.",
+  "capture_reflect_label": "For today",
+  "capture_reflect_dismiss": "Not today",
+  "capture_reflect_error": "Today's questions couldn't be written: {error}"
 }

@@ -5,6 +5,18 @@ import {
 /// <reference lib="webworker" />
 import { drainCaptureQueue } from '$lib/capture/queue/drain'
 import { CAPTURE_QUEUE_SYNC_TAG, type CaptureQueueBroadcast } from '$lib/capture/queue/types'
+import {
+  ASSET_CACHE,
+  ASSET_CACHE_MAX_ENTRIES,
+  classifyOfflineRequest,
+  isStorableResponse,
+  OFFLINE_LANDING_PATH,
+  PAGE_CACHE,
+  PAGE_CACHE_MAX_ENTRIES,
+  pageCacheKey,
+  type PageSourceMessage,
+  trimOrder,
+} from '$lib/offline/page-cache'
 
 const SW_DRAIN_LOCK_HOLDER = 'service-worker'
 
@@ -58,6 +70,84 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim())
+})
+
+/* ————— offline reading (src/lib/offline/page-cache.ts) ————— */
+
+async function storeInCache(cacheName: string, key: string, response: Response, max: number) {
+  const cache = await caches.open(cacheName)
+  await cache.put(key, response)
+  const keys = await cache.keys()
+  await Promise.all(trimOrder(keys, max).map((old) => cache.delete(old)))
+}
+
+async function tellClient(clientId: string, message: PageSourceMessage): Promise<void> {
+  // a navigation has no client yet; tell every window instead
+  const targets = clientId
+    ? [await self.clients.get(clientId)]
+    : await self.clients.matchAll({ type: 'window' })
+  for (const client of targets) client?.postMessage(message)
+}
+
+/** Hashed build files never change: the cached copy is the copy. */
+async function assetCacheFirst(request: Request): Promise<Response> {
+  const cached = await caches.match(request, { cacheName: ASSET_CACHE })
+  if (cached) return cached
+  const response = await fetch(request)
+  if (isStorableResponse(response)) {
+    await storeInCache(ASSET_CACHE, request.url, response.clone(), ASSET_CACHE_MAX_ENTRIES)
+  }
+  return response
+}
+
+/**
+ * Pages always come from the server when it answers. Only when the request itself fails
+ * (no connection) does the last stored copy stand in — and the page is told, so it can
+ * say it is showing what you last saw.
+ */
+async function pageNetworkFirst(event: FetchEvent): Promise<Response> {
+  const { request } = event
+  const key = pageCacheKey(request.url)
+  try {
+    const response = await fetch(request)
+    if (isStorableResponse(response)) {
+      await storeInCache(PAGE_CACHE, key, response.clone(), PAGE_CACHE_MAX_ENTRIES)
+    }
+    void tellClient(event.clientId, { type: 'page-source', source: 'network' })
+    return response
+  } catch (err) {
+    const cached = await caches.match(key, { cacheName: PAGE_CACHE })
+    if (cached) {
+      void tellClient(event.clientId, { type: 'page-source', source: 'cache' })
+      return cached
+    }
+    return offlineLanding(request, err)
+  }
+}
+
+/** An offline page load this cache cannot answer lands on Capture, if Capture was stored. */
+async function offlineLanding(request: Request, err: unknown): Promise<Response> {
+  const landing = new URL(OFFLINE_LANDING_PATH, self.location.origin).href
+  if (request.mode === 'navigate' && (await caches.match(landing, { cacheName: PAGE_CACHE }))) {
+    return Response.redirect(landing, 302)
+  }
+  throw err
+}
+
+/** Pages that are never stored (/login, /settings, …): the server, or offline the landing. */
+async function navigationWithLanding(request: Request): Promise<Response> {
+  try {
+    return await fetch(request)
+  } catch (err) {
+    return offlineLanding(request, err)
+  }
+}
+
+self.addEventListener('fetch', (event) => {
+  const kind = classifyOfflineRequest(event.request, self.location.origin)
+  if (kind === 'asset') event.respondWith(assetCacheFirst(event.request))
+  else if (kind === 'page') event.respondWith(pageNetworkFirst(event))
+  else if (kind === 'navigation') event.respondWith(navigationWithLanding(event.request))
 })
 
 self.addEventListener('sync', (event) => {

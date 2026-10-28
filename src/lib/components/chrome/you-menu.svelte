@@ -5,6 +5,7 @@
   import { resetPostHog } from '$lib/analytics/posthog-client'
   import { creditMeterFraction, type CreditMeter } from '$lib/billing/credit-meter'
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu'
+  import { clearOfflinePageCache } from '$lib/offline/offline-status.svelte'
   import { m } from '$lib/paraglide/messages.js'
   import { getLocale } from '$lib/paraglide/runtime'
   import { deferredInstallState, installApp } from '$lib/pwa/deferred-install-store.svelte'
@@ -86,6 +87,7 @@
       return
     }
     resetPostHog()
+    await clearOfflinePageCache()
     await goto(resolve('/login'), { invalidateAll: true })
   }
 

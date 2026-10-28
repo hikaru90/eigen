@@ -541,5 +541,10 @@
   "voice_error_transcribe": "Die Aufnahme konnte nicht transkribiert werden",
   "patterns_out_of_credits": "Die Muster können gerade nicht gelesen werden – dein Konto hat keine Credits mehr.",
   "patterns_out_of_credits_link": "Credits aufladen",
-  "patterns_load_failed": "Deine Muster konnten nicht gelesen werden."
+  "patterns_load_failed": "Deine Muster konnten nicht gelesen werden.",
+  "offline_notice_offline": "Du bist offline – du siehst den zuletzt geladenen Stand. Neue Gedanken warten hier und gehen raus, sobald du wieder online bist; andere Änderungen brauchen eine Verbindung.",
+  "offline_notice_stale": "Eigen ist nicht erreichbar – du siehst den zuletzt geladenen Stand. Neue Gedanken warten hier; andere Änderungen brauchen eine Verbindung.",
+  "capture_reflect_label": "Für heute",
+  "capture_reflect_dismiss": "Heute nicht",
+  "capture_reflect_error": "Die Fragen für heute konnten nicht geschrieben werden: {error}"
 }

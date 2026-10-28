@@ -1,25 +1,31 @@
 <script lang="ts">
   import { base, resolve } from '$app/paths'
-  import { page } from '$app/state'
+  import { navigating, page } from '$app/state'
   import type { RouteId } from '$app/types'
   import MenuMark from '$lib/components/brand/menu-mark.svelte'
   import { hapticPress } from '$lib/haptics'
   import { m } from '$lib/paraglide/messages.js'
-  import { activeNavId, type BottomNavId } from './nav-active'
+  import { BOTTOM_NAV_HREFS, displayedNavId, type BottomNavId } from './nav-active'
 
   /* `as const` keeps each href a literal route id — `resolve()` is typed per route and
      rejects a widened `string`; `satisfies` still pins the item shape. */
   const items = [
-    { id: 'capture', href: '/capture', label: m.nav_capture },
-    { id: 'mesh', href: '/mesh', label: m.nav_mesh },
-    { id: 'ask', href: '/chat', label: m.nav_ask },
+    { id: 'capture', href: BOTTOM_NAV_HREFS.capture, label: m.nav_capture },
+    { id: 'mesh', href: BOTTOM_NAV_HREFS.mesh, label: m.nav_mesh },
+    { id: 'ask', href: BOTTOM_NAV_HREFS.ask, label: m.nav_ask },
   ] as const satisfies ReadonlyArray<{ id: BottomNavId; href: RouteId; label: () => string }>
 
-  const active = $derived.by(() => {
-    let p: string = page.url.pathname
-    if (base && p.startsWith(base)) p = p.slice(base.length) || '/'
-    return activeNavId(p)
-  })
+  function stripBase(p: string): string {
+    return base && p.startsWith(base) ? p.slice(base.length) || '/' : p
+  }
+
+  /* While a tab's page loads, the tapped tab is already lit — the tap answers at once. */
+  const active = $derived(
+    displayedNavId(
+      stripBase(page.url.pathname),
+      navigating.to ? stripBase(navigating.to.url.pathname) : null,
+    ),
+  )
 
   /* Paper halo behind the active label, so the figure around it never fights the text. */
   const activeLabelShadow =

@@ -2120,3 +2120,22 @@ export const userNotification = pgTable(
   },
   (t) => [index('user_notification_user_created_idx').on(t.userId, t.createdAt)],
 )
+
+/**
+ * Capture reflection prompts: one set per user per local day (YYYY-MM-DD in the user's
+ * timezone). `prompts_encrypted` is null when the day was dismissed before generation.
+ * RLS: own rows only. docs/planning/feature-capture-reflection-prompts.md
+ */
+export const captureReflectionPrompt = pgTable(
+  'capture_reflection_prompt',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    day: text('day').notNull(),
+    promptsEncrypted: text('prompts_encrypted'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    dismissedAt: timestamp('dismissed_at'),
+  },
+  (t) => [primaryKey({ name: 'capture_reflection_prompt_pk', columns: [t.userId, t.day] })],
+)

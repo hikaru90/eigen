@@ -52,6 +52,7 @@
   import CaptureKept from '$lib/components/capture-kept.svelte'
   import CaptureOnboardingOverlay from '$lib/components/capture-onboarding-overlay.svelte'
   import CaptureReading from '$lib/components/capture-reading.svelte'
+  import CaptureReflectionPrompts from '$lib/components/capture-reflection-prompts.svelte'
   import { navMarkSelector } from '$lib/components/chrome/nav-active'
   import CreditsTopUpPanel from '$lib/components/credits-top-up-panel.svelte'
   import FirstCaptureNudge from '$lib/components/first-capture-nudge.svelte'
@@ -84,7 +85,49 @@
   let firstCaptureNudgeDismissed = $state(false)
   let firstCaptureNudgeHydrated = $state(false)
 
+  /* ————— reflection prompts (docs/planning/feature-capture-reflection-prompts.md) ————— */
+
+  let reflectionPrompts = $state<string[]>([])
+  let reflectionError = $state<string | null>(null)
+  let reflectionClosed = $state(false)
+
+  /** Once per page load. Offline there is nothing to fetch; the offline line says why. */
+  async function loadReflectionPrompts() {
+    if (!navigator.onLine) return
+    try {
+      const res = await fetch('/api/capture/reflection-prompts')
+      const body = (await res.json()) as { state?: string; prompts?: string[]; error?: string }
+      if (!res.ok) {
+        reflectionError = body.error ?? `HTTP ${res.status}`
+        return
+      }
+      if (body.state === 'ready' && body.prompts) reflectionPrompts = body.prompts
+    } catch (e) {
+      if (navigator.onLine) reflectionError = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  function pickReflectionPrompt(prompt: string) {
+    // only the question goes in; the reading starts once the answer is typed
+    raw = `${prompt}\n`
+    pageInputDrafts.capture = raw
+    reflectionClosed = true
+    fieldEl?.focus()
+  }
+
+  async function dismissReflectionPrompts() {
+    reflectionClosed = true
+    try {
+      const res = await fetch('/api/capture/reflection-prompts', { method: 'POST' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    } catch (e) {
+      reflectionClosed = false
+      reflectionError = e instanceof Error ? e.message : String(e)
+    }
+  }
+
   onMount(() => {
+    void loadReflectionPrompts()
     trackCaptureGateInsufficientCredits()
     firstCaptureNudgeDismissed = isFirstCaptureNudgeDismissed(data.user.id)
     firstCaptureNudgeHydrated = true
@@ -808,6 +851,14 @@
     >
       {m.capture_placeholder()}
     </h1>
+    {#if !reflectionClosed && !kept && !stored && raw.trim() === '' && (reflectionPrompts.length > 0 || reflectionError)}
+      <CaptureReflectionPrompts
+        prompts={reflectionPrompts}
+        error={reflectionError}
+        onpick={pickReflectionPrompt}
+        ondismiss={() => void dismissReflectionPrompts()}
+      />
+    {/if}
   {/if}
 
   {#if kept}

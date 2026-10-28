@@ -21,7 +21,6 @@ export const load: PageServerLoad = async (event) => {
     throw redirect(302, '/login')
   }
   const userId = event.locals.user.id
-  await ensureUserOntologySeeded(getDb(), userId)
 
   const authUser = await authDb
     .select({ onboardingCompleted: user.onboardingCompleted, accountKind: user.accountKind })
@@ -32,24 +31,23 @@ export const load: PageServerLoad = async (event) => {
 
   const isHarness = authUser?.accountKind === 'harness'
 
-  if (!isHarness) {
-    await grantStartingFreeCredits(userId)
-  }
-
-  const [captureGate, wallet] = await Promise.all([
-    checkCaptureAllowed(userId),
-    getOrCreateWallet(userId),
-  ])
+  // Independent chains run together; each keeps its own order (grant → wallet, seed → kinds).
+  const [[captureGate, wallet], { recentThoughts, recentThoughtDetails }, kinds] =
+    await Promise.all([
+      (async () => {
+        if (!isHarness) await grantStartingFreeCredits(userId)
+        return Promise.all([checkCaptureAllowed(userId), getOrCreateWallet(userId)])
+      })(),
+      loadRecentCaptureThoughts(userId),
+      // "Kept as …" can be corrected after keeping: the type menu offers every active kind
+      ensureUserOntologySeeded(getDb(), userId).then(() => loadThoughtKindOptions(getDb(), userId)),
+    ])
 
   const paypalConfigured = isPayPalConfigured()
   const paypalClientId = paypalConfigured ? getPayPalClientId() : null
   const paypalSdkUrl = paypalConfigured ? getPayPalWebSdkUrl() : null
 
   const creditsGatePassed = isHarness || wallet.availableCredits >= MIN_CAPTURE_PIPELINE_CREDITS
-
-  const { recentThoughts, recentThoughtDetails } = await loadRecentCaptureThoughts(userId)
-  // "Kept as …" can be corrected after keeping: the type menu offers every active kind
-  const kinds = await loadThoughtKindOptions(getDb(), userId)
 
   return {
     user: event.locals.user,

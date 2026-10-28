@@ -1,11 +1,9 @@
-import type { BottomNavId } from './nav-active'
+import { BOTTOM_NAV_HREFS, type BottomNavId } from './nav-active'
+
+type BottomNavHref = (typeof BOTTOM_NAV_HREFS)[BottomNavId]
 
 /** The core loop, left to right — the bottom menu's order. */
-const ORDER: ReadonlyArray<readonly [BottomNavId, '/capture' | '/mesh' | '/chat']> = [
-  ['capture', '/capture'],
-  ['mesh', '/mesh'],
-  ['ask', '/chat'],
-]
+const ORDER: ReadonlyArray<BottomNavId> = ['capture', 'mesh', 'ask']
 
 /** A swipe must travel this far sideways… */
 export const SWIPE_MIN_PX = 70
@@ -20,13 +18,12 @@ const HORIZONTAL_RATIO = 1.8
 export function swipeNavTarget(
   current: BottomNavId | null,
   gesture: { dx: number; dy: number },
-): '/capture' | '/mesh' | '/chat' | null {
+): BottomNavHref | null {
   if (!current) return null
   const { dx, dy } = gesture
   if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < HORIZONTAL_RATIO * Math.abs(dy)) return null
-  const index = ORDER.findIndex(([id]) => id === current)
-  const next = ORDER[index + (dx < 0 ? 1 : -1)]
-  return next ? next[1] : null
+  const next = ORDER[ORDER.indexOf(current) + (dx < 0 ? 1 : -1)]
+  return next ? BOTTOM_NAV_HREFS[next] : null
 }
 
 /** Gestures that start in a text field or a sideways-scrolling area belong to it, not to navigation. */
