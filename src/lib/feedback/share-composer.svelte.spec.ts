@@ -34,7 +34,7 @@ describe('share-composer.svelte', () => {
     await expect.element(page.getByRole('button', { name: 'Start voice input' })).toBeInTheDocument()
   })
 
-  it('a voice message is transcribed and then shared through the normal share path', async () => {
+  it('a voice message is transcribed and then placed in the field and shared through the normal share path on send', async () => {
     fetchMock.mockImplementation(
       async () => new Response(JSON.stringify({ transcript: 'The mic is broken' }), { status: 200 }),
     )
@@ -43,6 +43,10 @@ describe('share-composer.svelte', () => {
     await expect.element(page.getByTestId('voice-bar')).toBeInTheDocument()
     FakeMediaRecorder.instances.at(-1)!.emitChunk([1, 2, 3])
     await page.getByTestId('voice-send').click()
+    // review before send: the transcript waits in the field, nothing is shared yet
+    await expect.element(page.getByRole('textbox', { name: 'What could be better?' })).toHaveValue('The mic is broken')
+    expect(oncheck).not.toHaveBeenCalled()
+    await page.getByRole('button', { name: 'Share' }).click()
     // the same judge a typed idea goes through, fed the transcript
     await expect.poll(() => oncheck.mock.calls.length).toBe(1)
     expect(oncheck).toHaveBeenCalledWith('The mic is broken')
