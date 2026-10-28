@@ -193,8 +193,8 @@
       >
         <button
           class={[
-            'block w-full p-0 border-0 bg-transparent [font:inherit] text-left text-inherit cursor-pointer',
-            !expanded && 'line-clamp-3',
+            'w-full p-0 border-0 bg-transparent [font:inherit] text-left text-inherit cursor-pointer',
+            expanded ? 'block' : 'line-clamp-3',
           ]}
           data-testid="idea-title"
           type="button"

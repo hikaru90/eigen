@@ -98,6 +98,8 @@ export default defineConfig({
       'src/lib/components/voice-message-bar.svelte.spec.ts',
       'src/lib/components/writer/glass-writer.svelte.spec.ts',
       'src/lib/feedback/board-empty.svelte.spec.ts',
+      'src/lib/feedback/board-row.svelte.spec.ts',
+      'src/lib/components/ui/button/button.svelte.spec.ts',
       'src/lib/feedback/share-composer.svelte.spec.ts',
       'src/lib/components/mesh/thought-inline-editor.svelte.spec.ts',
       'src/lib/components/mesh/thought-row.svelte.spec.ts',

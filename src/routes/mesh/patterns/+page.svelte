@@ -112,6 +112,20 @@
     {:else}
       {@const result = outcome.result}
       {@const previews = previewsById(result)}
+      <!-- the whole graph: a small quiet link just above the insight -->
+      <a
+        class="mb-2 inline-flex items-center gap-1 text-xs text-ink-3 no-underline transition-colors duration-300 ease-settle pointer-fine:hover:text-ink"
+        href={resolve('/graph')}
+        data-testid="mesh-show-graph"
+      >
+        <svg class="size-3 fill-none stroke-current [stroke-width:1.3] [stroke-linecap:round]" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="4" cy="4.5" r="1.8" />
+          <circle cx="12" cy="3.5" r="1.8" />
+          <circle cx="8" cy="12" r="1.8" />
+          <path d="M5.8 4.3 10.2 3.7M4.9 6.1 7.1 10.4M11.2 5.2 8.9 10.4" />
+        </svg>
+        {m.mesh_show_graph()}
+      </a>
       <p
         class="m-0 max-w-[24ch] text-[26px] leading-[1.18] tracking-[-0.028em] animate-[rise_1s_var(--ease)_0.25s_both] min-[720px]:text-[30px]"
       >

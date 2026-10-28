@@ -400,7 +400,7 @@ body::after {
   }
 }
 
-/* the capture echo settles in under the field — never pops */
+/* the stored-thought card on Capture settles in under the field — never pops */
 @keyframes echo-settle {
   from {
     opacity: 0;

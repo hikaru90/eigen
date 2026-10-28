@@ -18,7 +18,7 @@ describe('STT model', () => {
   it('is Qwen3 ASR 1.7B: verbatim transcription with no translate task, so speech is never auto-translated', () => {
     // whisper-large-v3 auto-translated speech instead of transcribing verbatim (2026-10-24);
     // its translate task is the failure mode — Qwen3-ASR is ASR + language-ID only.
-    expect(STT_MODEL).toBe('qwen/qwen3-asr-1.7b')
+    expect(STT_MODEL).toBe('qwen/qwen3-asr-0.6b')
   })
 })
 
@@ -58,7 +58,7 @@ describe('transcribeAudio', () => {
     expect(llmCreateTranscriptionMock).toHaveBeenCalledTimes(1)
     expect(llmCreateTranscriptionMock).toHaveBeenCalledWith({
       userId: 'u1',
-      model: 'qwen/qwen3-asr-1.7b',
+      model: 'qwen/qwen3-asr-0.6b',
       audio: { bytes: new Uint8Array([1, 2, 3]), format: 'webm' },
     })
   })

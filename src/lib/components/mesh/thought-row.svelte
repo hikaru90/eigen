@@ -66,6 +66,32 @@
   }: Props = $props()
 
   let relatedOpen = $state(false)
+  let expanded = $state(false)
+  /** The words run past three lines (measured while clamped); only then are they tappable. */
+  let overflowing = $state(false)
+  const toggleable = $derived(overflowing || expanded)
+
+  /** Measures the clamped paragraph on mount and on resize; skipped while expanded. */
+  function measureClamp(node: HTMLElement) {
+    const measure = () => {
+      if (expanded) return
+      overflowing = node.scrollHeight > node.clientHeight + 1
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return { destroy: () => observer.disconnect() }
+  }
+
+  function toggleWords() {
+    if (toggleable) expanded = !expanded
+  }
+  function onWordsKey(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      toggleWords()
+    }
+  }
 </script>
 
 <article
@@ -77,7 +103,9 @@
   style:--i={Math.min(index, 14)}
 >
   <p
-    class="font-you text-[23px] leading-[1.15] tracking-[-0.006em] text-pretty [overflow-wrap:anywhere] transition-colors duration-500 ease-settle line-clamp-3"
+    class="font-you text-[23px] leading-[1.15] tracking-[-0.006em] text-pretty [overflow-wrap:anywhere] transition-colors duration-500 ease-settle"
+    class:line-clamp-3={!expanded}
+    use:measureClamp
     data-testid="thought-row-text"
     class:text-ink-3={done}
     class:line-through={done}
@@ -98,7 +126,16 @@
         onclick={() => ontoggle?.()}
       ></button>
     {/if}
-    {text}
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <span
+      class={toggleable ? 'cursor-pointer' : undefined}
+      data-testid="thought-row-words"
+      role={toggleable ? 'button' : undefined}
+      tabindex={toggleable ? 0 : undefined}
+      aria-expanded={toggleable ? expanded : undefined}
+      onclick={toggleWords}
+      onkeydown={toggleable ? onWordsKey : undefined}>{text}</span
+    >
   </p>
   <div
     class="mt-1 flex flex-wrap items-center gap-1 border-l-[3px] border-ink-4 py-[2px] pl-2"

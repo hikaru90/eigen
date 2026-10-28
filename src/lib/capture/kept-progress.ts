@@ -11,9 +11,6 @@ export type KeptStage = 'saving' | 'indexing' | 'linked' | 'failed'
 export const KEPT_POLL_MS = 1500
 export const KEPT_POLL_MAX_TRIES = 60
 
-/** How long the linked strip stays before it fades (a failure stays until the next capture). */
-export const KEPT_LINKED_FADE_MS = 6_000
-
 export function keptStage(
   result: Pick<CaptureSubmitResult, 'queueStatus' | 'enrichmentComplete'>,
 ): KeptStage {

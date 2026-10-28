@@ -3,12 +3,12 @@ import { llmCreateTranscription } from './llm-client'
 /**
  * OpenRouter model id for speech-to-text (`/audio/transcriptions`) — fixed in code, there is
  * no environment override. It must have live endpoints that accept browser `webm`/opus and
- * Safari `m4a` uploads and pass the workspace ZDR guardrail. Qwen3 ASR 1.7B (2026-10-24):
- * ASR + language-ID only — it has no translate task, so speech is transcribed verbatim
- * instead of auto-translated (whisper-large-v3 did that; before it,
- * `qwen/qwen3-asr-0.6b` ignored the `language` hint and invented text on quiet audio).
+ * Safari `m4a` uploads and pass the workspace ZDR guardrail. Qwen3 ASR 0.6B: the operator chose
+ * it again on 2026-10-28 because `qwen/qwen3-asr-1.7b` (tried 2026-10-24) hung or was slow on
+ * transcription. Known trade-off from earlier use: 0.6B ignored the `language` hint and could
+ * invent text on quiet audio; it has no translate task, so speech is transcribed verbatim.
  */
-export const STT_MODEL = 'qwen/qwen3-asr-1.7b'
+export const STT_MODEL = 'qwen/qwen3-asr-0.6b'
 
 export type SttAudioInput = {
   bytes: Uint8Array

@@ -102,7 +102,7 @@
   spellcheck={false}
   onsubmit={() => void submit()}
   ontranscript={(transcript) => {
-    // the writer shares right after this: the transcript joins what was typed first
+    // review before send: the transcript joins what was typed and waits in the field
     text = appendVoiceTranscript(text, transcript)
   }}
 >

@@ -17,7 +17,7 @@
    * Yarn / Threads / Patterns as the ei tab group (ei styles.css .lens:
    * recessed --paper-2 track, raised pill sliding between choices) — plus the
    * round search button at the row's end that opens the in-track filter field
-   * (ei styles.css .search), and under it a link to the entire graph (/graph). Threads and Patterns routes arrive in wave 3;
+   * (ei styles.css .search). Threads and Patterns routes arrive in wave 3;
    * the entries exist from now on. Under the tabs, the one masked container
    * is the app chrome's; this layout only renders the routed page.
    */
@@ -132,20 +132,6 @@
       </svg>
     </button>
   </div>
-</div>
-
-<!-- the whole graph: one quiet link under the tabs, right-aligned above the content -->
-<div class="mx-auto -mt-1 mb-2 flex max-w-[700px] justify-end px-8 max-[640px]:px-[22px]">
-  <a
-    class="inline-flex items-center gap-1.5 font-mesh text-sm text-ink-3 no-underline transition-colors duration-300 ease-settle pointer-fine:hover:text-ink"
-    href={resolve('/graph')}
-    data-testid="mesh-show-graph"
-  >
-    {m.mesh_show_graph()}
-    <svg class="size-3 fill-none stroke-current [stroke-width:1.4] [stroke-linecap:round] [stroke-linejoin:round]" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M6 3.5 10.5 8 6 12.5" />
-    </svg>
-  </a>
 </div>
 
 <!-- tab switches animate through the root layout's view transition (the `page` snapshot);

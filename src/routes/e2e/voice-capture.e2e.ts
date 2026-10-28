@@ -16,11 +16,11 @@ import {
  * Voice messages (docs/planning/feature-voice-message-stt.md) on every surface with a mic:
  * Capture, Ask and Contribute. The mic and the transcribe endpoint are mocked (the fixture
  * clip stands in for the microphone; the endpoint answers without calling the provider), so
- * these cover the product flow: record → send → the text goes through the surface's normal
- * send; discard; failure → Retry. The real provider is exercised by the second test.
+ * these cover the product flow: record → send → the transcript appears in the field and
+ * nothing is submitted until the send button is tapped; discard; failure → Retry. The real provider is exercised by the second test.
  */
 test.describe('Voice messages @release', () => {
-  test('Capture, Ask and Contribute: record, send, and the text is submitted', async ({
+  test('Capture, Ask and Contribute: record, send, the text waits in the field until the send button is tapped', async ({
     page,
     context,
     baseURL,
@@ -37,9 +37,10 @@ test.describe('Voice messages @release', () => {
     await mockCaptureWithoutLlm(page)
     const transcribe = await mockTranscribeEndpoint(page)
 
-    await test.step('Capture: send submits the transcript through the normal capture path', async () => {
+    await test.step('Capture: the transcript lands in the field and is submitted only by the send button', async () => {
       await openCaptureForVoice(page)
       await startVoiceMessage(page, transcribe)
+      const submitted = trackCaptureSubmits(page)
       const captured = page.waitForRequest(
         (req) =>
           req.method() === 'POST' &&
@@ -49,9 +50,13 @@ test.describe('Voice messages @release', () => {
       )
       await page.getByTestId('voice-send').click()
       await expect(page.getByTestId('voice-status')).toBeVisible()
-      await captured
-      expectWholeClipUploaded(transcribe, 1)
       await expect(page.getByTestId('voice-bar')).toBeHidden()
+      expectWholeClipUploaded(transcribe, 1)
+      await expect(page.getByTestId('capture-input')).toHaveValue(VOICE_TRANSCRIPT)
+      await expect(page.getByTestId('capture-input')).toBeFocused()
+      expect(submitted(), 'nothing is submitted before the send button').toHaveLength(0)
+      await page.getByTestId('capture-submit').click()
+      await captured
       await expectNoMicrophoneHeld(page)
     })
 
@@ -71,6 +76,9 @@ test.describe('Voice messages @release', () => {
       await expect(page.getByTestId('ask-input')).toBeVisible()
       await startVoiceMessage(page, transcribe)
       await page.getByTestId('voice-send').click()
+      await expect(page.getByTestId('ask-input')).toHaveValue(VOICE_TRANSCRIPT)
+      await page.waitForTimeout(500)
+      await page.getByTestId('ask-submit').click()
       await asked
       expectWholeClipUploaded(transcribe, 2)
     })
@@ -94,6 +102,11 @@ test.describe('Voice messages @release', () => {
       await expect(page.getByRole('textbox', { name: 'What could be better?' })).toBeVisible()
       await startVoiceMessage(page, transcribe)
       await page.getByTestId('voice-send').click()
+      await expect(page.getByRole('textbox', { name: 'What could be better?' })).toHaveValue(
+        VOICE_TRANSCRIPT,
+      )
+      await page.waitForTimeout(500)
+      await page.getByTestId('glass-writer').locator('button[type="submit"]').click()
       await checked
       expectWholeClipUploaded(transcribe, 3)
     })
@@ -160,10 +173,13 @@ test.describe('Voice messages @release', () => {
       { timeout: 30_000 },
     )
     await page.getByTestId('voice-retry').click()
-    await captured
     // the same whole clip went up twice; the page never recorded again
-    expectWholeClipUploaded(transcribe, 2)
     await expect(page.getByTestId('voice-bar')).toBeHidden()
+    expectWholeClipUploaded(transcribe, 2)
+    await expect(page.getByTestId('capture-input')).toHaveValue(VOICE_TRANSCRIPT)
+    expect(submitted(), 'the retried transcript waits for the send button').toHaveLength(0)
+    await page.getByTestId('capture-submit').click()
+    await captured
   })
 
   test('the real transcribe endpoint turns the release clip into its words', async ({

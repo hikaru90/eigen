@@ -167,7 +167,7 @@ describe('glass-writer.svelte voice message', () => {
     expect([localStorage.length, sessionStorage.length]).toEqual(storageBefore)
   })
 
-  it('AC-2: send shows transcribing, uploads the whole clip once, then submits the text after what was typed', async () => {
+  it('AC-2: send shows transcribing, uploads the whole clip once, then puts the text after what was typed in the field, unsent', async () => {
     let answer: (r: Response) => void = () => {}
     fetchMock.mockImplementation(() => new Promise<Response>((r) => (answer = r)))
     const onsubmitted = vi.fn()
@@ -188,27 +188,29 @@ describe('glass-writer.svelte voice message', () => {
     await expect.element(page.getByTestId('writer-input')).not.toBeVisible()
 
     answer(transcriptResponse('and eggs'))
-    await expect.poll(() => onsubmitted.mock.calls.length).toBe(1)
-    expect(onsubmitted).toHaveBeenCalledWith('Buy milk and eggs')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    // the bar is gone, the field is back
+    // the bar is gone, the field is back with the words in it, focused, and nothing was sent
     await expect.element(page.getByTestId('voice-bar')).not.toBeInTheDocument()
-    await expect.element(page.getByTestId('writer-input')).toBeVisible()
+    await expect.element(page.getByTestId('writer-input')).toHaveValue('Buy milk and eggs')
+    await expect.poll(() => document.activeElement?.getAttribute('data-testid')).toBe('writer-input')
+    expect(onsubmitted).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await page.getByTestId('writer-send').click()
+    expect(onsubmitted).toHaveBeenCalledExactlyOnceWith('Buy milk and eggs')
     for (const track of doubles.stream.tracks) expect(track.stop).toHaveBeenCalled()
   })
 
-  it('submits the transcript alone when nothing was typed', async () => {
+  it('puts the transcript alone in the field when nothing was typed, unsent', async () => {
     fetchMock.mockImplementation(async () => transcriptResponse('Remember the dentist'))
     const onsubmitted = vi.fn()
     render(VoiceHarness, { onsubmitted })
     await startRecording()
     recorder().emitChunk([1])
     await page.getByTestId('voice-send').click()
-    await expect.poll(() => onsubmitted.mock.calls.length).toBe(1)
-    expect(onsubmitted).toHaveBeenCalledWith('Remember the dentist')
+    await expect.element(page.getByTestId('writer-input')).toHaveValue('Remember the dentist')
+    expect(onsubmitted).not.toHaveBeenCalled()
   })
 
-  it('leaves the transcript in the field, unsent, when the page cannot send right now', async () => {
+  it('leaves the transcript in the field, unsent, and the send button disabled when the page cannot send', async () => {
     fetchMock.mockImplementation(async () => transcriptResponse('later'))
     const onsubmitted = vi.fn()
     render(VoiceHarness, { initial: 'now', submitDisabled: true, onsubmitted })
@@ -255,8 +257,8 @@ describe('glass-writer.svelte voice message', () => {
     await expect.element(page.getByTestId('writer-input')).not.toBeVisible()
 
     await page.getByTestId('voice-retry').click()
-    await expect.poll(() => onsubmitted.mock.calls.length).toBe(1)
-    expect(onsubmitted).toHaveBeenCalledWith('worked')
+    await expect.element(page.getByTestId('writer-input')).toHaveValue('worked')
+    expect(onsubmitted).not.toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(await bytesSent(1)).toEqual(await bytesSent(0))
     expect(FakeMediaRecorder.instances).toHaveLength(1)
@@ -306,8 +308,27 @@ describe('glass-writer.svelte voice message', () => {
     await startRecording()
     recorder().emitChunk([1, 2])
     await page.getByTestId('voice-send').click()
-    await expect.poll(() => onsubmitted.mock.calls.length).toBe(1)
+    await expect.element(page.getByTestId('writer-input')).toHaveValue('whispered')
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('Cancel while transcribing drops the clip: the field keeps its text and nothing is sent', async () => {
+    let signal: AbortSignal | null | undefined
+    fetchMock.mockImplementation((_url: unknown, init?: RequestInit) => {
+      signal = init?.signal
+      return new Promise<Response>(() => {})
+    })
+    const onsubmitted = vi.fn()
+    render(VoiceHarness, { initial: 'typed first', onsubmitted })
+    await startRecording()
+    recorder().emitChunk([1])
+    await page.getByTestId('voice-send').click()
+    await expect.element(page.getByTestId('voice-transcribing-timer')).toBeInTheDocument()
+    await page.getByTestId('voice-cancel').click()
+    await expect.element(page.getByTestId('voice-bar')).not.toBeInTheDocument()
+    await expect.element(page.getByTestId('writer-input')).toHaveValue('typed first')
+    expect(signal?.aborted).toBe(true)
+    expect(onsubmitted).not.toHaveBeenCalled()
   })
 
   it('a denied microphone shows its reason in the bar with Dismiss, and nothing is recorded', async () => {

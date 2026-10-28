@@ -357,6 +357,28 @@ describe('voice message session', () => {
       for (const track of stream.tracks) expect(track.stop).toHaveBeenCalledTimes(1)
     })
 
+    it('counts the wait while transcribing, ticked by the session, and stops when it is over', async () => {
+      let finish: (text: string) => void = () => {}
+      const { session, views } = setup({
+        transcribe: () => new Promise<string>((r) => (finish = r)),
+      })
+      await session.start()
+      recorder().emitChunk([1])
+      const sending = session.send()
+      await flush()
+      expect(session.view().phase).toBe('transcribing')
+      expect(session.view().transcribingElapsedMs).toBe(0)
+      await vi.advanceTimersByTimeAsync(12_000)
+      expect(session.view().transcribingElapsedMs).toBeGreaterThanOrEqual(11_750)
+      expect(session.view().transcribingElapsedMs).toBeLessThanOrEqual(12_000)
+      finish('done')
+      await sending
+      const seen = views.length
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(views.length).toBe(seen)
+      expect(session.view().transcribingElapsedMs).toBe(0)
+    })
+
     it('discarding while the clip is transcribing aborts the upload and drops its late result', async () => {
       let signal: AbortSignal | undefined
       let finish: (text: string) => void = () => {}

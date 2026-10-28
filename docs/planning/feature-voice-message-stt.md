@@ -26,8 +26,8 @@ Hosted, whole-clip transcription is what ChatGPT dictation and AudioPen do.
 
 Tapping the mic records a **voice message**: a live waveform and a timer instead of live text.
 Send transcribes the **whole clip once** with one well-defined process (OpenRouter
-`qwen/qwen3-asr-1.7b`), shows that it is transcribing, then **sends the text straight away** through
-the surface's normal send. Audio is never stored; only the transcript is.
+`qwen/qwen3-asr-0.6b`), shows that it is transcribing, then **puts the text into the field for review**: nothing is sent until
+the user taps the surface's normal send button (edit first, or clear). Audio is never stored; only the transcript is.
 
 ## 3. Scope
 
@@ -45,9 +45,11 @@ no mic today and stays without one.
   the tap handler (before any `await`). The level never decides what is uploaded — there is no
   silence gate. A suspended context only means a flat waveform; the recording still works.
 - VM-4 **Send.** Stops the recorder, shows a transcribing state (the frozen waveform with a working
-  indicator and "Transcribing…"; field locked), uploads the whole clip once to
+  indicator, "Transcribing… m:ss" counting the wait live, and a **Cancel** button that aborts the upload
+  and sends nothing; field locked), uploads the whole clip once to
   `POST /api/capture/transcribe`. On success the transcript is appended to the typed text
-  (`appendVoiceTranscript`) and the surface's submit runs immediately — no extra tap.
+  (`appendVoiceTranscript`), the textarea is focused, and **nothing is submitted** — the user edits,
+  sends with the normal send button, or clears it.
 - VM-5 **Discard.** Stops and drops the clip; nothing is uploaded; the field is back as it was.
 - VM-6 **Failure.** The server retries the OpenRouter call exactly 3 times (one layer; the client
   sends once). If it still fails, the bar shows the plain error and keeps the clip in memory with
@@ -56,7 +58,7 @@ no mic today and stays without one.
 - VM-7 **Empty transcript** → "No speech detected"; nothing is submitted; Retry/Discard as in VM-6.
 - VM-8 **Length cap.** 5 minutes, visible in the timer; at the cap the clip is sent as if Send was
   tapped.
-- VM-9 **One model.** `qwen/qwen3-asr-1.7b` is fixed in code; the `LLM_MODEL_STT` override is removed.
+- VM-9 **One model.** `qwen/qwen3-asr-0.6b` is fixed in code (back to 0.6B on 2026-10-28: 1.7B transcription hung or was slow); the `LLM_MODEL_STT` override is removed.
   No language hint (the model identifies the language). Billing/usage log: one entry per clip.
 - VM-10 **Upload size.** Server limit: an explicit constant sized for 5 min of the largest format a
   recorder emits at 32 kbps (with headroom), oversize → 400 naming the limit. adapter-node's
@@ -78,16 +80,18 @@ storage or server), changing provider or model, a mic for the Mesh inline editor
   oversize / unsupported type, `401`, `402` billing, `5xx` after 3 provider attempts with a plain
   message.
 - `voice-input-button` → writer: `ontranscript(text)` once per successful clip, `onerror(message)`,
-  `onstart`, `onstop`; no partial callback. The writer submits after `ontranscript` has updated the
-  value.
+  `onstart`, `onstop`; no partial callback. The writer does not submit; the page puts the text in the
+  field and the writer focuses it.
 
 ## 5. Acceptance criteria (Given / When / Then)
 
 - AC-1 Given any of Capture, Ask, Contribute, when I tap the mic, then the voice bar with a moving
   waveform and a running timer replaces the field, and no request is made.
 - AC-2 Given a recording, when I tap send, then the transcribing state shows, exactly one
-  `POST /api/capture/transcribe` carries the whole clip, and on success the transcript (after any
-  typed text) is submitted through that surface's normal send.
+  `POST /api/capture/transcribe` carries the whole clip, and on success the transcript is appended after any
+  typed text in the field, the field is focused, and nothing is submitted until I tap the normal send.
+- AC-3a Given the transcribing state, then "Transcribing… m:ss" counts up, and Cancel aborts the
+  upload, leaves the field as it was and sends nothing.
 - AC-3 Given a recording, when I tap discard, then nothing is uploaded and the field shows what I
   had typed.
 - AC-4 Given the transcribe request fails, then the error shows with Retry and Discard, nothing is
@@ -98,7 +102,7 @@ storage or server), changing provider or model, a mic for the Mesh inline editor
   level gate exists.
 - AC-8 Given 5 minutes of recording, then the clip is sent automatically.
 - AC-9 Given a clip, then the server makes one transcription call (≤ 3 attempts) with
-  `qwen/qwen3-asr-1.7b` and writes one usage-log entry; no audio is written to the DB, logs or
+  `qwen/qwen3-asr-0.6b` and writes one usage-log entry; no audio is written to the DB, logs or
   browser storage.
 - AC-10 Given an upload over the limit, then 400 names the limit.
 
@@ -108,16 +112,16 @@ storage or server), changing provider or model, a mic for the Mesh inline editor
   transcribing → done/error; discard; retry reuses the clip; cap auto-send; AudioContext created
   before the first await); transcribe client (status mapping, 402); server route (size, type, one
   call, model fixed, no `LLM_MODEL_STT`).
-- Component (vitest browser): writer shows the voice bar, then the transcribing state, then calls
-  submit with the joined text.
+- Component (vitest browser): writer shows the voice bar, then the transcribing state, then puts
+  the joined text in the field without submitting.
 - E2E (`src/routes/e2e/voice-capture.e2e.ts`, headed): Capture, Ask and Contribute — record → send →
-  text submitted; discard; failure → Retry.
+  text appears in the field, nothing submitted until the send button is tapped; discard; failure → Retry.
 - Coverage tier: high (80%).
 
 ## 7. Decisions (operator, 2026-10-27)
 
 - Whole clip after send, no live text; waveform + transcribing feedback.
-- The transcript is sent straight away (no review step).
+- Review before send: the transcript lands in the field and is never auto-sent.
 - Audio is never stored; only the transcript.
-- One process: OpenRouter `qwen/qwen3-asr-1.7b`.
+- One process: OpenRouter `qwen/qwen3-asr-0.6b`.
 - Every mic surface (Capture, Ask, Contribute).

@@ -2,7 +2,7 @@
  * ECHOES on the thought page (ei DESIGN.md "A thought, up close": its echoes; ei
  * app.js:1334 renders `echoesOf(t, 3)`). The rows come from the existing retrieval
  * endpoint — POST /api/retrieval/search, the same call Capture's echo makes
- * (src/lib/capture/capture-echo.ts) — and only display fields are read. Embeddings are
+ * (the Capture echo it replaced, now deleted) — and only display fields are read. Embeddings are
  * DB-only and never part of the payload this module touches.
  */
 

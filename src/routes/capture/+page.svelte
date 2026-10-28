@@ -3,7 +3,6 @@
   import { onMount } from 'svelte'
   import { trackInsufficientCredits } from '$lib/analytics/billing-events'
   import { capture as captureEvent } from '$lib/analytics/posthog-client'
-  import { fetchEchoThought, ECHO_DELAY_MS, type EchoPick } from '$lib/capture/capture-echo'
   import { fetchCaptureResult } from '$lib/capture/capture-result-api'
   import type { CaptureSubmitResult } from '$lib/capture/capture-result-types'
   import {
@@ -13,7 +12,6 @@
   import { isFirstCaptureNudgeDismissed } from '$lib/capture/first-capture-nudge'
   import { keepOutcomeFromResponse } from '$lib/capture/keep-outcome'
   import {
-    KEPT_LINKED_FADE_MS,
     KEPT_POLL_MAX_TRIES,
     KEPT_POLL_MS,
     keptStage,
@@ -134,8 +132,6 @@
     failureReason: string | null
   }
   let kept = $state<Kept | null>(null)
-  /** The user is correcting how it was kept: the linked state does not fade under them. */
-  let keptEditing = false
   /** Monotonic token: a newer capture (or new typing) stops an older poll. */
   let keptToken = 0
 
@@ -161,12 +157,6 @@
       }
       if (stage === 'linked' || stage === 'failed') {
         handleCapturedThought(result, 'keep')
-        if (stage === 'linked') {
-          // done says itself for a moment, then the heading's place is free again
-          setTimeout(() => {
-            if (token === keptToken && kept?.stage === 'linked' && !keptEditing) kept = null
-          }, KEPT_LINKED_FADE_MS)
-        }
         return
       }
       await new Promise((resolve) => setTimeout(resolve, KEPT_POLL_MS))
@@ -174,12 +164,15 @@
     if (token === keptToken && kept) kept = { ...kept, slow: true }
   }
 
-  /* Capture never shows the kept thought again — editing it lives in Mesh. */
   let capturedThisVisit = $state(false)
   let submitting = $state(false)
   let err = $state<string | null>(null)
-  let echo = $state<EchoPick | null>(null)
-  let echoTimer: ReturnType<typeof setTimeout> | null = null
+  /**
+   * The last stored thought, shown under the strip from submit on and kept after the
+   * background pass: the accepted reading while it saves, then the stored text. The id
+   * arrives with the keep answer (the card links to the thought page from then on).
+   */
+  let stored = $state<{ thoughtId: string | null; text: string } | null>(null)
   /** The pencil's words, applied as a natural-language edit once the thought is stored. */
   let pendingSay = $state<string | null>(null)
 
@@ -413,20 +406,6 @@
     ])
   }
 
-  function scheduleEcho(thought: CaptureSubmitResult) {
-    if (echoTimer !== null) clearTimeout(echoTimer)
-    echoTimer = setTimeout(() => {
-      echoTimer = null
-      void fetchEchoThought(thought.normalizedText, thought.id)
-        .then((pick) => {
-          if (pick && !raw.trim()) echo = pick
-        })
-        .catch(() => {
-          // an echo may surface — absence is honest, never a substitute
-        })
-    }, ECHO_DELAY_MS)
-  }
-
   function playMeshArrival() {
     // Mesh's mark leans in as the thought arrives (ei menu icons play); the chrome
     // owns that animation, so a pulse on the slot is enough from here.
@@ -485,7 +464,6 @@
     //     background pass's progress (the words themselves are never shown again)
     if (plan.kind === 'keep') {
       keptToken += 1
-      keptEditing = false
       kept = {
         thoughtId: null,
         typeKey: plan.reading.category.key,
@@ -500,9 +478,9 @@
         failureReason: null,
       }
     }
+    stored = plan.kind === 'keep' ? { thoughtId: null, text: plan.reading.interpretedText } : null
     raw = ''
     pageInputDrafts.capture = ''
-    echo = null
     clearReading()
     threadMenuOpen = false
 
@@ -558,6 +536,7 @@
       }
       captureEvent('capture_confirmed', { thought_id: outcome.thoughtId })
       if (kept) kept = { ...kept, thoughtId: outcome.thoughtId, stage: 'indexing' }
+      if (stored) stored = { ...stored, thoughtId: outcome.thoughtId }
       await followKept(outcome.thoughtId, keptToken)
       return
     }
@@ -608,7 +587,7 @@
       pendingSay = null
       void applyNaturalLanguageEdit(thought.id, said)
     }
-    scheduleEcho(thought)
+    stored = { thoughtId: thought.id, text: thought.normalizedText }
   }
 
   /* ————— the chosen thread (existing project assign endpoint) ————— */
@@ -764,7 +743,6 @@
     return () => {
       unsub()
       window.removeEventListener('keydown', onKey)
-      if (echoTimer !== null) clearTimeout(echoTimer)
       clearReading()
     }
   })
@@ -834,8 +812,8 @@
 
   {#if kept}
     <!-- the capture's process, as its own strip: it survives the next reading and the
-         next words, and only the linked state fades (a failure stays until the next
-         capture). Categorization, saving and indexing stay visible — never a flash. -->
+         next words and stays in its final state (linked or failed) until the next capture
+         replaces it. Categorization, saving and indexing stay visible — never a flash. -->
     <div class="mt-8 max-w-[540px]" data-testid="capture-kept-strip">
       <CaptureKept
         {...kept}
@@ -843,28 +821,28 @@
         onkeptchange={(next) => {
           if (kept) kept = { ...kept, ...next }
         }}
-        oneditingchange={(editing) => (keptEditing = editing)}
       />
     </div>
   {/if}
 
   <div>
-    {#if echo}
-      <!-- an older thought this one rhymes with; it opens the thought page -->
-      <a
-        class="group block max-w-[540px] mt-[72px] text-left no-underline animate-[echo-settle_0.9s_var(--ease)_both] motion-reduce:[animation:none]"
-        data-testid="capture-echo"
-        href={thoughtHref(echo.thoughtId)}
+    {#if stored}
+      <!-- the thought as stored; it opens the thought page once it has an id -->
+      <svelte:element
+        this={stored.thoughtId ? 'a' : 'div'}
+        class="group block max-w-[540px] mt-10 text-left no-underline animate-[echo-settle_0.9s_var(--ease)_both] motion-reduce:[animation:none]"
+        data-testid="capture-stored"
+        href={stored.thoughtId ? thoughtHref(stored.thoughtId) : undefined}
       >
         <span
           class="flex items-center gap-2 font-mesh text-sm text-ink-3 before:content-[''] before:size-[5px] before:rounded-full before:bg-signal"
-          >{m.capture_echo_label()}</span
+          >{m.capture_stored_label()}</span
         >
         <span
-          class="block mt-2 pl-3.5 font-you text-[18px] leading-[1.45] text-ink-3 transition-colors duration-[400ms] ease-settle pointer-fine:group-hover:text-ink"
-          >“{echo.text}”</span
+          class="block mt-2 pl-3.5 font-you text-[18px] leading-[1.45] text-ink-2 transition-colors duration-[400ms] ease-settle pointer-fine:group-hover:text-ink"
+          >“{stored.text}”</span
         >
-      </a>
+      </svelte:element>
     {/if}
   </div>
 
@@ -927,7 +905,7 @@
   oninput={onFieldInput}
   onkeydown={onFieldKeydown}
   ontranscript={(text) => {
-    // the writer sends right after this: the transcript joins what was typed first
+    // review before send: the transcript joins what was typed and waits in the field
     raw = appendVoiceTranscript(raw, text)
     onFieldInput()
   }}

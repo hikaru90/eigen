@@ -1,7 +1,7 @@
 <script lang="ts">
   import CornerDownLeft from '@lucide/svelte/icons/corner-down-left'
   import Square from '@lucide/svelte/icons/square'
-  import { onDestroy, type Snippet } from 'svelte'
+  import { onDestroy, tick, type Snippet } from 'svelte'
   import { transcribeVoiceClip } from '$lib/capture/transcribe-audio'
   import { voiceFailureMessage } from '$lib/capture/voice-failure-message'
   import {
@@ -21,9 +21,9 @@
    * and, once there are words, send beside it — so a second recording can follow the first;
    * while `busy` with an `onstop`, it holds Stop. Small page controls go in `above`, a quiet row over the field.
    * Voice: tapping the mic turns the field into a voice-message bar (waveform, timer, discard,
-   * send); Send transcribes the whole clip once, appends it through `ontranscript` (the page
-   * puts it into `value`) and then sends straight away through the same submit as a typed
-   * message. A failed clip stays in the bar with Retry / Discard (docs/planning/feature-voice-message-stt.md).
+   * send); Send transcribes the whole clip once and hands the text to `ontranscript` (the page
+   * appends it to `value`). Nothing is sent: the field takes focus so the words can be edited,
+   * sent with the normal send button, or cleared. A failed clip stays in the bar with Retry / Discard (docs/planning/feature-voice-message-stt.md).
    * On a keyboard Enter submits and Shift+Enter is a newline; on touch (coarse pointer) Enter
    * is always a newline and the send button sends. With `busyLabel`, `busy` lays a veil with
    * that label over the field and locks it, so nothing is sent twice. The send action sits
@@ -136,14 +136,20 @@
     onstart: () => onvoicestart?.(),
     ontranscript: (text) => {
       ontranscript?.(text)
-      // the transcript is in `value` now: send it as if it had been typed (no gesture left, so no haptic)
-      if (canSend) onsubmit()
+      // review before send: the words sit in the field, the caret in it; the send button is the user's
+      void tick().then(() => input?.focus())
     },
     onerror: (failure) => onvoiceerror?.(voiceFailureMessage(failure)),
   })
 
   function discardVoice(): void {
     voiceSession.discard()
+  }
+
+  /** Cancel / discard taps: haptic in the gesture, then drop the message. */
+  function discardVoiceByTap(): void {
+    hapticPress()
+    discardVoice()
   }
 
   onDestroy(() => voiceSession.destroy())
@@ -241,11 +247,14 @@
       <VoiceMessageBar
         view={voice}
         onsend={() => {
-          hapticPress() // the tap is the gesture; the send after the transcript has none
+          hapticPress()
           void voiceSession.send()
         }}
-        ondiscard={discardVoice}
-        onretry={() => void voiceSession.retry()}
+        ondiscard={discardVoiceByTap}
+        onretry={() => {
+          hapticPress()
+          void voiceSession.retry()
+        }}
       />
     {:else}
       <!-- the action slot: centred with one line of text, on the last line once it wraps -->
@@ -270,7 +279,10 @@
             disabled={disabled || busy}
             starting={voice.phase === 'starting'}
             class="size-9 rounded-full bg-ink text-paper pointer-fine:hover:bg-ink pointer-fine:hover:text-paper disabled:opacity-40"
-            onclick={() => void voiceSession.start()}
+            onclick={() => {
+              hapticPress() // synchronously in the tap, before the session awaits the permission prompt
+              void voiceSession.start()
+            }}
           />
         {/if}
         {#if showSend}

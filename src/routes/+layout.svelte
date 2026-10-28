@@ -27,7 +27,7 @@
   import { swipeNavTarget, swipeStartsInOwnGesture } from '$lib/components/chrome/swipe-nav'
   import InstallPromptToast from '$lib/components/install-prompt-toast.svelte'
   import type { AuthorLayerMeta } from '$lib/graph/graph-author-layers'
-  import { hapticPress } from '$lib/haptics'
+  import { hapticPress, installButtonHaptics } from '$lib/haptics'
   import { m } from '$lib/paraglide/messages.js'
   import { themeColorMetas, type LookPreference } from '$lib/pwa/theme-color'
   import { getLocale, setLocale } from '$lib/paraglide/runtime'
@@ -182,6 +182,7 @@
   }
 
   onMount(() => {
+    const stopButtonHaptics = installButtonHaptics()
     syncPostHogIdentity()
     const layoutUser = (page.data as { user?: { id: string } | null }).user
     if (layoutUser) {
@@ -267,6 +268,7 @@
     media.addEventListener('change', handleChange)
     window.addEventListener('theme-preference-change', handlePreferenceChange)
     return () => {
+      stopButtonHaptics()
       stopPushNavigation()
       stopInstallStore?.()
       stopInstallStore = null

@@ -22,6 +22,8 @@ export const VOICE_AUDIO_BITS_PER_SECOND = 32_000
  * bar clips the oldest on the left, so a wide desktop field fills and a narrow one just scrolls.
  */
 export const WAVEFORM_BARS = 160
+/** How often the "Transcribing… 0:12" counter is refreshed while the upload waits. */
+export const TRANSCRIBING_TICK_MS = 250
 /** How often the mic level is read for the waveform and the timer. */
 export const WAVEFORM_INTERVAL_MS = 80
 
@@ -60,6 +62,8 @@ export type VoiceMessageView = {
   elapsedMs: number
   /** The last {@link WAVEFORM_BARS} mic levels (0–1), oldest first. */
   levels: readonly number[]
+  /** How long the upload has been waiting for its transcript (0 outside `transcribing`). */
+  transcribingElapsedMs: number
   /** Set only in the `failed` phase. */
   failure: VoiceFailure | null
 }
@@ -147,6 +151,7 @@ export const IDLE_VOICE_VIEW: VoiceMessageView = {
   phase: 'idle',
   elapsedMs: 0,
   levels: SILENT_LEVELS,
+  transcribingElapsedMs: 0,
   failure: null,
 }
 
@@ -175,6 +180,7 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
   let samples: Uint8Array<ArrayBuffer> | null = null
   let tickTimer: ReturnType<typeof setInterval> | null = null
   let capTimer: ReturnType<typeof setTimeout> | null = null
+  let waitTimer: ReturnType<typeof setInterval> | null = null
 
   function emit(next: Partial<VoiceMessageView>): void {
     view = { ...view, ...next }
@@ -182,6 +188,7 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
   }
 
   function goIdle(): void {
+    stopWaitTimer()
     levels = [...SILENT_LEVELS]
     view = IDLE_VOICE_VIEW
     if (!silent) options.onchange?.(view)
@@ -194,6 +201,11 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
     if (capTimer !== null) clearTimeout(capTimer)
     tickTimer = null
     capTimer = null
+  }
+
+  function stopWaitTimer(): void {
+    if (waitTimer !== null) clearInterval(waitTimer)
+    waitTimer = null
   }
 
   function closeAudioContext(): void {
@@ -300,6 +312,7 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
 
   function fail(failure: VoiceFailure): void {
     stopTimers()
+    stopWaitTimer()
     closeAudioContext()
     releaseMicrophone()
     emit({ phase: 'failed', failure })
@@ -310,7 +323,14 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
     if (!clip) return
     const controller = new AbortController()
     upload = controller
-    emit({ phase: 'transcribing', failure: null })
+    // the wait is shown live, ticked by the session's own timer (the server may retry 3 × 60 s)
+    const waitStart = deps.now()
+    stopWaitTimer()
+    waitTimer = setInterval(
+      () => emit({ transcribingElapsedMs: deps.now() - waitStart }),
+      TRANSCRIBING_TICK_MS,
+    )
+    emit({ phase: 'transcribing', transcribingElapsedMs: 0, failure: null })
     let transcript: string
     try {
       transcript = await options.transcribe(clip, controller.signal)
@@ -331,6 +351,7 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
     }
     if (forEpoch !== epoch) return
     upload = null
+    stopWaitTimer()
     const text = transcript.trim()
     if (!text) {
       fail({ reason: 'empty', retryable: true })

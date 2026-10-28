@@ -737,7 +737,7 @@
   onsubmit={() => void send()}
   oninput={handleInput}
   ontranscript={(text) => {
-    // the writer asks right after this: the transcript joins what was typed first
+    // review before send: the transcript joins what was typed and waits in the field
     syncChatDraft(appendVoiceTranscript(input, text))
   }}
   onvoiceerror={(message) => {

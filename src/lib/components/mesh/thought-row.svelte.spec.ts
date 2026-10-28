@@ -29,6 +29,12 @@ const related = [
 const follows = (a: Element, b: Element) =>
   Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
 
+/** Component specs load no Tailwind; give the clamp class its real effect so overflow can be measured. */
+const clampStyle = document.createElement('style')
+clampStyle.textContent =
+  '.line-clamp-3{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}'
+document.head.appendChild(clampStyle)
+
 describe('thought-row.svelte', () => {
   it('shows the words and the time without any click, and has no chevron or unfold', async () => {
     render(ThoughtRow, { ...baseProps })
@@ -45,6 +51,37 @@ describe('thought-row.svelte', () => {
     expect(words.className).toContain('line-clamp-3')
     expect(words.querySelector('time')).toBeNull()
     expect(words.className).not.toContain('border-l')
+  })
+
+  it('long words start clamped and tap open in place, then clamp again', async () => {
+    render(ThoughtRow, { ...baseProps, text: 'long '.repeat(400) })
+    const words = page.getByTestId('thought-row-text').element() as HTMLElement
+    const toggle = page.getByTestId('thought-row-words')
+    await expect.element(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(words.className).toContain('line-clamp-3')
+
+    await toggle.click()
+    await expect.element(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(words.className).not.toContain('line-clamp-3')
+
+    await toggle.click()
+    await expect.element(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(words.className).toContain('line-clamp-3')
+  })
+
+  it('short words are not tappable', async () => {
+    render(ThoughtRow, { ...baseProps })
+    const toggle = page.getByTestId('thought-row-words').element()
+    expect(toggle.getAttribute('role')).toBeNull()
+    expect(toggle.hasAttribute('aria-expanded')).toBe(false)
+  })
+
+  it('the to-do tick does not expand the words', async () => {
+    const ontoggle = vi.fn()
+    render(ThoughtRow, { ...baseProps, text: 'long '.repeat(400), showTick: true, tickLabel: 'Done', ontoggle })
+    await page.getByRole('button', { name: 'Done' }).click()
+    expect(ontoggle).toHaveBeenCalledOnce()
+    await expect.element(page.getByTestId('thought-row-words')).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('puts the pill line (with the bar) after the words paragraph, time pill first, not a superscript', async () => {

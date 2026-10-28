@@ -13,8 +13,8 @@
   /**
    * The voice-message bar: what the writer's field becomes while a voice message exists.
    * Recording: discard, a live scrolling waveform, the timer against the 5-minute cap, send.
-   * Transcribing: the frozen waveform behind a working mesh and "Transcribing…" — nothing to
-   * press. Failed: the plain error with Retry (when the clip is still in memory) and Discard.
+   * Transcribing: the frozen waveform behind a working mesh and "Transcribing… m:ss" (the wait,
+   * live) with Cancel, which drops the clip and sends nothing. Failed: the plain error with Retry (when the clip is still in memory) and Discard.
    * Presentational only: the session (`$lib/capture/voice-message`) owns every decision.
    */
   type Props = {
@@ -113,10 +113,19 @@
       data-testid="voice-status"
     >
       <MeshSpinner size={20} working />
-      <span>{m.voice_transcribing()}</span>
+      <span>{m.voice_transcribing()} <span class="tabular-nums" data-testid="voice-transcribing-timer">{formatVoiceTimer(view.transcribingElapsedMs)}</span></span>
     </div>
     {@render waveform(true)}
-    {@render timer()}
+    <button
+      type="button"
+      class="{roundButton} bg-transparent text-ink-3 pointer-fine:hover:text-ink"
+      aria-label={m.voice_cancel()}
+      title={m.voice_cancel()}
+      data-testid="voice-cancel"
+      onclick={ondiscard}
+    >
+      <X size={18} strokeWidth={1.75} aria-hidden="true" />
+    </button>
   {:else if failure}
     <p
       class="m-0 flex-1 min-w-0 pl-3 font-mesh text-[15px] leading-5 text-clay"

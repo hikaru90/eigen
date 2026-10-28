@@ -45,6 +45,8 @@ function hapticChannel(): HapticChannel {
   return 'none'
 }
 
+let lastPulseAt = 0
+
 let switchLabel: { click(): void } | null = null
 
 /** The hidden iOS switch: a label wrapping the input, so a label click toggles it. */
@@ -75,6 +77,7 @@ function switchTick(): boolean {
 
 /** One pulse on whichever channel exists; the switch tick has one strength. */
 function vibrate(value: number | number[]): boolean {
+  lastPulseAt = Date.now()
   const channel = hapticChannel()
   if (channel === 'switch') return switchTick()
   if (channel === 'none') return false
@@ -182,4 +185,26 @@ export function hapticError(pattern: number[] = [30, 60, 30]): boolean {
  */
 export function isVibrationSupported(): boolean {
   return canVibrate()
+}
+
+const BUTTON_SELECTOR = 'button, [role="button"], a[data-slot="button"]'
+/** A click whose handler already pulsed within this window gets no second pulse. */
+const DEDUPE_MS = 120
+
+/**
+ * One haptic pulse for every button tap, app-wide: a bubble-phase click listener on the
+ * document. Handlers that already call hapticPress/hapticConfirm/hapticError run first
+ * (target before document), so the recent-pulse check keeps a click to a single pulse.
+ * Disabled buttons do nothing. Returns the cleanup.
+ */
+export function installButtonHaptics(target: Document = document): () => void {
+  const onClick = (event: Event) => {
+    const el = (event.target as Element | null)?.closest?.(BUTTON_SELECTOR)
+    if (!el) return
+    if ((el as HTMLButtonElement).disabled || el.getAttribute('aria-disabled') === 'true') return
+    if (Date.now() - lastPulseAt < DEDUPE_MS) return
+    hapticPress()
+  }
+  target.addEventListener('click', onClick)
+  return () => target.removeEventListener('click', onClick)
 }
