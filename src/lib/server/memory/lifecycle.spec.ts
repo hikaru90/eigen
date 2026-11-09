@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeThoughtGraphArtifacts, upsertMentionEdge, upsertThoughtNode } from '$lib/server/graph/age'
 import { resolveLifecycleTarget, setThoughtLifecycleStatus } from './lifecycle'
 
 const THOUGHT_ID = '11111111-2222-4333-8444-555555555555'
@@ -29,6 +30,7 @@ vi.mock('$lib/server/crypto/tenant-encryption', () => ({
 vi.mock('$lib/server/graph/age', () => ({
   removeThoughtGraphArtifacts: vi.fn(),
   upsertThoughtNode: vi.fn(),
+  upsertMentionEdge: vi.fn(),
 }))
 
 vi.mock('$lib/server/memory/project-next-action', () => ({
@@ -125,5 +127,70 @@ describe('lifecycle service', () => {
     expect(mocks.updateCalls[0]).toMatchObject({
       lifecycleStatus: 'completed',
     })
+  })
+
+  describe('reopen restores the graph edges of the thought', () => {
+    const ENTITY_A = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const ENTITY_B = 'bbbbbbbb-0000-4000-8000-000000000002'
+    const existingRow = {
+      id: THOUGHT_ID,
+      userId: 'u1',
+      normalizedText: 'Buy milk',
+      metadata: {},
+      category: 'task',
+    }
+
+    it('re-creates one mention edge per thought_entity row when a thought goes back to open', async () => {
+      chainSelect([
+        [existingRow],
+        [], // child temporal events
+        [{ author: 'user', authorLabel: null, authorKeyId: null }],
+        [{ entityId: ENTITY_A }, { entityId: ENTITY_B }],
+      ])
+      const result = await setThoughtLifecycleStatus('u1', THOUGHT_ID, 'open')
+      expect(result.ok).toBe(true)
+      expect(upsertThoughtNode).toHaveBeenCalledTimes(1)
+      expect(upsertMentionEdge).toHaveBeenCalledTimes(2)
+      expect(upsertMentionEdge).toHaveBeenCalledWith({
+        userId: 'u1',
+        thoughtId: THOUGHT_ID,
+        entityId: ENTITY_A,
+      })
+      expect(upsertMentionEdge).toHaveBeenCalledWith({
+        userId: 'u1',
+        thoughtId: THOUGHT_ID,
+        entityId: ENTITY_B,
+      })
+    })
+
+    it('restores the anchor node before the edges, so the edges attach to the Thought node', async () => {
+      chainSelect([
+        [existingRow],
+        [],
+        [{ author: 'user', authorLabel: null, authorKeyId: null }],
+        [{ entityId: ENTITY_A }],
+      ])
+      await setThoughtLifecycleStatus('u1', THOUGHT_ID, 'open')
+      const nodeOrder = vi.mocked(upsertThoughtNode).mock.invocationCallOrder[0]
+      const edgeOrder = vi.mocked(upsertMentionEdge).mock.invocationCallOrder[0]
+      expect(nodeOrder).toBeLessThan(edgeOrder)
+    })
+
+    it('a thought with no thought_entity rows gets its anchor node and no edges', async () => {
+      chainSelect([[existingRow], [], [{ author: 'user', authorLabel: null, authorKeyId: null }], []])
+      await setThoughtLifecycleStatus('u1', THOUGHT_ID, 'open')
+      expect(upsertThoughtNode).toHaveBeenCalledTimes(1)
+      expect(upsertMentionEdge).not.toHaveBeenCalled()
+    })
+
+    it.each(['completed', 'archived'] as const)(
+      'going to %s removes the graph artifacts and creates no edges',
+      async (status) => {
+        chainSelect([[existingRow], [], []])
+        await setThoughtLifecycleStatus('u1', THOUGHT_ID, status)
+        expect(removeThoughtGraphArtifacts).toHaveBeenCalledTimes(1)
+        expect(upsertMentionEdge).not.toHaveBeenCalled()
+      },
+    )
   })
 })

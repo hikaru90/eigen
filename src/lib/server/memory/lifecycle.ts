@@ -2,8 +2,12 @@ import { and, eq } from 'drizzle-orm'
 import { loadThoughtCaptureResult } from '$lib/server/capture/capture-result'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
-import { temporalEvent, thought, type LifecycleStatus } from '$lib/server/db/schema'
-import { removeThoughtGraphArtifacts, upsertThoughtNode } from '$lib/server/graph/age'
+import { temporalEvent, thought, thoughtEntity, type LifecycleStatus } from '$lib/server/db/schema'
+import {
+  removeThoughtGraphArtifacts,
+  upsertMentionEdge,
+  upsertThoughtNode,
+} from '$lib/server/graph/age'
 import { graphAuthorProperty } from '$lib/server/memory/authorship'
 import {
   cancelReminderSchedulesForEvent,
@@ -71,7 +75,10 @@ export async function resolveLifecycleTarget(
   return null
 }
 
-/** Archived/completed thoughts leave the AGE graph; reopen restores the anchor node only. */
+/**
+ * Archived/completed thoughts leave the AGE graph (node and edges); reopen restores the anchor
+ * node and re-creates the mention edges from the thought's `thought_entity` rows.
+ */
 async function applyThoughtGraphForLifecycleStatus(input: {
   userId: string
   thoughtId: string
@@ -114,6 +121,18 @@ async function applyThoughtGraphForLifecycleStatus(input: {
       authorKeyId: authorshipRow?.authorKeyId ?? null,
     }),
   })
+
+  const entityRows = await getDb()
+    .select({ entityId: thoughtEntity.entityId })
+    .from(thoughtEntity)
+    .where(and(eq(thoughtEntity.userId, input.userId), eq(thoughtEntity.thoughtId, input.thoughtId)))
+  for (const row of entityRows) {
+    await upsertMentionEdge({
+      userId: input.userId,
+      thoughtId: input.thoughtId,
+      entityId: row.entityId,
+    })
+  }
 }
 
 async function cascadeLifecycleToChildEvents(
