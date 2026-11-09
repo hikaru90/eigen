@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, lt } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, lt, sql } from 'drizzle-orm'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
@@ -233,9 +233,12 @@ export async function buildNowCardRows(input: {
 }
 
 /**
- * One insert statement for the whole deck. The unique key (user, day, deck, position) makes
- * the first writer win: a parallel request that stored first leaves its rows, and the rows
- * read back are the stored deck, not necessarily the one passed in.
+ * Writes the whole deck, or nothing when a deck with this number exists. The transaction
+ * takes an advisory lock on (user, day, deck number) first, so two parallel requests are
+ * serialised: the first inserts, the second finds rows and inserts nothing. Decks of
+ * different lengths therefore never mix. The lock rides the request's reserved connection,
+ * which already carries the RLS role and `app.current_user_id` (see `getDb()`); `tx` is that
+ * same connection. The rows read back are the stored deck, not necessarily the one passed in.
  */
 export async function writeNowDeck(
   userId: string,
@@ -246,7 +249,24 @@ export async function writeNowDeck(
 ): Promise<StoredNowCard[]> {
   const rows = await buildNowCardRows({ userId, day, deckNumber, drafts, candidatesOmitted })
   const db = getDb()
-  await db.insert(nowCard).values(rows).onConflictDoNothing()
+  await db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${`${TABLE}:${userId}:${day}:${deckNumber}`}))`,
+    )
+    const [existing] = await tx
+      .select({ id: nowCard.id })
+      .from(nowCard)
+      .where(
+        and(
+          eq(nowCard.userId, userId),
+          eq(nowCard.localDay, day),
+          eq(nowCard.deckNumber, deckNumber),
+        ),
+      )
+      .limit(1)
+    if (existing) return
+    await tx.insert(nowCard).values(rows)
+  })
   return db
     .select(STORED_COLUMNS)
     .from(nowCard)

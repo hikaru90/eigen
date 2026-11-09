@@ -348,36 +348,119 @@ describe('buildNowCardRows (NOW-8)', () => {
   })
 })
 
-describe('writeNowDeck (first writer wins)', () => {
+describe('writeNowDeck (one deck per number)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     encryptMock.mockImplementation(async () => 'enc')
   })
 
-  it('inserts the whole deck in one statement with onConflictDoNothing, then serves the stored deck', async () => {
-    const values = vi.fn()
-    const onConflictDoNothing = vi.fn().mockResolvedValue(undefined)
-    values.mockReturnValue({ onConflictDoNothing })
-    const storedRows = [{ ...stored(9, 'sort'), kind: 'sort' }]
-    getDbMock.mockReturnValue({
-      insert: () => ({ values }),
-      select: () => {
-        const chain: Record<string, unknown> = {
-          from: () => chain,
-          where: () => chain,
-          orderBy: () => chain,
-          then: (resolve: (v: unknown) => unknown) => resolve(storedRows),
+  /**
+   * In-memory stand-in for the deck rows with Postgres semantics that matter here: the
+   * advisory lock serialises transactions per key until the transaction ends, the unique key
+   * (deck, position) skips conflicting rows, and every await yields so an unlocked
+   * check-then-insert would interleave.
+   */
+  function fakeDeckDb() {
+    const rows: Array<Record<string, unknown>> = []
+    const locks = new Map<string, Promise<void>>()
+    const lockKeys: string[] = []
+    const yieldTick = () => new Promise((r) => setTimeout(r, 0))
+    let txCount = 0
+
+    const readChain = (result: () => unknown[]) => {
+      const chain: Record<string, unknown> = {
+        from: () => chain,
+        where: () => chain,
+        orderBy: () => chain,
+        limit: async () => {
+          await yieldTick()
+          return result().slice(0, 1)
+        },
+        then: (resolve: (v: unknown) => unknown) => resolve(result()),
+      }
+      return chain
+    }
+
+    const db = {
+      select: () => readChain(() => [...rows].sort((a, b) => Number(a.position) - Number(b.position))),
+      transaction: async (cb: (tx: unknown) => Promise<unknown>) => {
+        txCount++
+        let release!: () => void
+        const held: string[] = []
+        const tx = {
+          execute: async (query: unknown) => {
+            const q = new PgDialect().sqlToQuery(query as never)
+            expect(q.sql).toContain('pg_advisory_xact_lock(hashtext(')
+            const key = String(q.params[0])
+            lockKeys.push(key)
+            while (locks.has(key)) await locks.get(key)
+            locks.set(
+              key,
+              new Promise<void>((r) => {
+                release = () => {
+                  locks.delete(key)
+                  r()
+                }
+              }),
+            )
+            held.push(key)
+            return []
+          },
+          select: () => readChain(() => rows),
+          insert: () => ({
+            values: async (batch: Array<Record<string, unknown>>) => {
+              await yieldTick()
+              for (const row of batch) {
+                if (rows.some((r) => r.deckNumber === row.deckNumber && r.position === row.position)) {
+                  throw new Error('duplicate key value violates unique constraint')
+                }
+                rows.push({ ...row, id: `id-${rows.length}`, status: 'pending' })
+              }
+            },
+          }),
         }
-        return chain
+        try {
+          return await cb(tx)
+        } finally {
+          if (held.length) release()
+        }
       },
-    })
+    }
+    getDbMock.mockReturnValue(db)
+    return { rows, lockKeys, txCount: () => txCount }
+  }
 
-    const result = await writeNowDeck('u1', '2026-11-09', 1, drafts, 0)
+  const deckOf = (n: number): NowDeckDraft[] =>
+    Array.from({ length: n }, (_, i) => ({ ...drafts[0], thoughtId: `th-${n}-${i}` }))
 
-    expect(values).toHaveBeenCalledTimes(1)
-    expect(values.mock.calls[0][0]).toHaveLength(3)
-    expect(onConflictDoNothing).toHaveBeenCalledTimes(1)
-    expect(result).toEqual(storedRows)
+  it('two concurrent writes of different lengths for one deck number end with exactly one deck', async () => {
+    const store = fakeDeckDb()
+
+    const [a, b] = await Promise.all([
+      writeNowDeck('u1', '2026-11-09', 1, deckOf(5), 0),
+      writeNowDeck('u1', '2026-11-09', 1, deckOf(2), 0),
+    ])
+
+    const lengths = new Set(store.rows.map((r) => String(r.targetThoughtId).split('-')[1]))
+    expect(lengths.size).toBe(1) // all rows come from one deck, never a mix
+    expect(store.rows.length === 5 || store.rows.length === 2).toBe(true)
+    expect(a).toHaveLength(store.rows.length)
+    expect(b).toHaveLength(store.rows.length) // both callers serve the stored deck
+    expect(store.lockKeys).toEqual(['now_card:u1:2026-11-09:1', 'now_card:u1:2026-11-09:1'])
+  })
+
+  it('does not insert when the deck number already has rows, and serves them', async () => {
+    const store = fakeDeckDb()
+    await writeNowDeck('u1', '2026-11-09', 1, deckOf(3), 0)
+    const again = await writeNowDeck('u1', '2026-11-09', 1, deckOf(4), 0)
+    expect(store.rows).toHaveLength(3)
+    expect(again).toHaveLength(3)
+  })
+
+  it('runs the whole write inside one transaction', async () => {
+    const store = fakeDeckDb()
+    await writeNowDeck('u1', '2026-11-09', 1, deckOf(2), 0)
+    expect(store.txCount()).toBe(1)
   })
 })
 
