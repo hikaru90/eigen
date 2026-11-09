@@ -175,10 +175,16 @@ The defaults below were approved on 2026-11-09. The spec assumes them.
 - **NOW-11 Now card on `/mesh/yarn`.**
   - A component at the top of the Yarn page, above History and the list. There is no `/mesh/now`
     page or tab. Tabs, `/mesh` redirect and `BOTTOM_NAV_HREFS.mesh` are unchanged.
-  - Look, set by the operator on the mockup (2026-11-09): flat, with no background, border or shadow;
-    white space above and below is what makes it read as a block. A small label "Quick questions" /
-    "Kurze Fragen" sits above it. The instruction is large, in the user's voice font (`font-you`). The
-    answers are underlined text links, not pills, with the first one slightly stronger.
+  - Look, set by the operator on the mockup (2026-11-09): the card has no background fill and no
+    shadow. Text uses the theme's ink tokens. Lime `#D2FF03` from the operator's reference image is the
+    only accent: a thin lime border in the dark theme (thin ink border in the light theme, where lime
+    would not show), rounded corners, white space around it. A small label "Lightning questions" /
+    "Blitzfragen" sits at the top inside it, led by a minimal thin-stroke black lightning bolt on a
+    small lime circle (decorative, hidden from screen readers). The instruction is large, in the
+    user's voice font (`font-you`). The answers are underlined text links with no background at all;
+    the first one is simply stronger ink. History sits close under the card with the card's horizontal
+    padding, so its text lines up with the card's content, and clear space separates it from the
+    "Captured thoughts" label. The rest of the app keeps its palette.
   - It fetches once on mount, so Yarn's load and instant tab switching are not slowed down by the
     LLM. Each answer posts and renders the card in the response. No `$effect`.
   - While a deck is written the card says so in one line; the list below is usable meanwhile.
