@@ -1,6 +1,7 @@
 <script lang="ts">
   import CornerDownLeft from '@lucide/svelte/icons/corner-down-left'
   import Square from '@lucide/svelte/icons/square'
+  import X from '@lucide/svelte/icons/x'
   import { onDestroy, tick, type Snippet } from 'svelte'
   import { transcribeVoiceClip } from '$lib/capture/transcribe-audio'
   import { voiceFailureMessage } from '$lib/capture/voice-failure-message'
@@ -11,9 +12,11 @@
   } from '$lib/capture/voice-message'
   import MeshSpinner from '$lib/components/brand/mesh-spinner.svelte'
   import { portal } from '$lib/components/chrome/portal'
+  import { Button } from '$lib/components/ui/button'
   import VoiceInputButton from '$lib/components/voice-input-button.svelte'
   import VoiceMessageBar from '$lib/components/voice-message-bar.svelte'
   import { hapticPress } from '$lib/haptics'
+  import { m } from '$lib/paraglide/messages.js'
 
   /**
    * The one writer (Ask, Capture, Contribute): a wide glass pill docked above the bottom
@@ -102,12 +105,22 @@
   const stopping = $derived(busy && !!onstop)
   const showMic = $derived(!stopping && hasVoice)
   const showSend = $derived(!stopping && (!hasVoice || hasText))
+  /** One rule: words in an editable field (typed or transcribed). The voice bar, busy and disabled hide it. */
+  const showClear = $derived(hasText && !disabled && !busy)
   const canSend = $derived(hasText && !disabled && !busy && !submitDisabled)
   const veiled = $derived(busy && !!busyLabel)
   /** The text wraps past one line: the action drops to the bottom. Set by `trackLines`. */
   let multiline = $state(false)
 
   export function focus(): void {
+    input?.focus()
+  }
+
+  /** Empties the field the way the user would, so the page's own input path resets what hangs off the text. */
+  function clearField(): void {
+    hapticPress()
+    value = ''
+    oninput?.(new Event('input'))
     input?.focus()
   }
 
@@ -273,6 +286,20 @@
           >
             <Square size={12} strokeWidth={2} aria-hidden="true" />
           </button>
+        {/if}
+        {#if showClear}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            class="size-9 text-ink-3 pointer-fine:hover:text-ink"
+            aria-label={m.writer_clear()}
+            title={m.writer_clear()}
+            data-testid="writer-clear"
+            onclick={clearField}
+          >
+            <X size={16} strokeWidth={1.75} aria-hidden="true" />
+          </Button>
         {/if}
         {#if showMic}
           <VoiceInputButton

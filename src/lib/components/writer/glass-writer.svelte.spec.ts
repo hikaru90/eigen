@@ -87,6 +87,50 @@ describe('glass-writer.svelte', () => {
     expect(onstop).toHaveBeenCalledTimes(1)
   })
 
+  it('clear button: only with text, tap empties the field, focuses it, tells the page and submits nothing', async () => {
+    const onsubmit = vi.fn()
+    const oninput = vi.fn()
+    render(GlassWriter, { ...base, onsubmit, oninput })
+    await expect.element(page.getByTestId('writer-clear')).not.toBeInTheDocument()
+    await userEvent.type(page.getByTestId('writer-input'), 'a long transcript')
+    const clear = page.getByTestId('writer-clear')
+    await expect.element(clear).toBeInTheDocument()
+    await expect.element(clear).toHaveAttribute('aria-label', 'Clear text')
+    await expect.element(clear).toHaveAttribute('title', 'Clear text')
+    oninput.mockClear()
+    await clear.click()
+    await expect.element(page.getByTestId('writer-input')).toHaveValue('')
+    await expect.poll(() => document.activeElement?.getAttribute('data-testid')).toBe('writer-input')
+    // the page hears it through the field's own input path, with the field already empty
+    expect(oninput).toHaveBeenCalledTimes(1)
+    expect(onsubmit).not.toHaveBeenCalled()
+    await expect.element(page.getByTestId('writer-clear')).not.toBeInTheDocument()
+  })
+
+  it('clear button is hidden for whitespace-only text', async () => {
+    render(GlassWriter, { ...base, value: '   ', onsubmit: () => {} })
+    await expect.element(page.getByTestId('writer-clear')).not.toBeInTheDocument()
+  })
+
+  it('clear button is hidden while busy', async () => {
+    render(GlassWriter, { ...base, value: 'words', busy: true, onsubmit: () => {} })
+    await expect.element(page.getByTestId('writer-clear')).not.toBeInTheDocument()
+  })
+
+  it('clear button is hidden while disabled', async () => {
+    render(GlassWriter, { ...base, value: 'words', disabled: true, onsubmit: () => {} })
+    await expect.element(page.getByTestId('writer-clear')).not.toBeInTheDocument()
+  })
+
+  it('clear button sits in the action slot, before send', async () => {
+    render(GlassWriter, { ...base, value: 'words', onsubmit: () => {} })
+    const slot = page.getByTestId('glass-writer-slot').element() as HTMLElement
+    const clear = page.getByTestId('writer-clear').element() as HTMLElement
+    const send = page.getByTestId('writer-send').element() as HTMLElement
+    expect(slot.contains(clear)).toBe(true)
+    expect(clear.getBoundingClientRect().right).toBeLessThanOrEqual(send.getBoundingClientRect().left)
+  })
+
   it('publishes its docked height for page padding', async () => {
     render(GlassWriter, { ...base, onsubmit: () => {} })
     await expect
@@ -197,6 +241,22 @@ describe('glass-writer.svelte voice message', () => {
     await page.getByTestId('writer-send').click()
     expect(onsubmitted).toHaveBeenCalledExactlyOnceWith('Buy milk and eggs')
     for (const track of doubles.stream.tracks) expect(track.stop).toHaveBeenCalled()
+  })
+
+  it('clears a transcript that landed from voice, unsent', async () => {
+    fetchMock.mockImplementation(async () => transcriptResponse('a very long transcript'))
+    const onsubmitted = vi.fn()
+    render(VoiceHarness, { initial: 'start', onsubmitted })
+    // no clear button while the voice bar replaces the field
+    await startRecording()
+    await expect.element(page.getByTestId('writer-clear')).not.toBeInTheDocument()
+    recorder().emitChunk([1])
+    await page.getByTestId('voice-send').click()
+    await expect.element(page.getByTestId('writer-input')).toHaveValue('start a very long transcript')
+    await page.getByTestId('writer-clear').click()
+    await expect.element(page.getByTestId('writer-input')).toHaveValue('')
+    await expect.element(page.getByTestId('writer-clear')).not.toBeInTheDocument()
+    expect(onsubmitted).not.toHaveBeenCalled()
   })
 
   it('puts the transcript alone in the field when nothing was typed, unsent', async () => {

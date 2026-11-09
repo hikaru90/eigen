@@ -525,6 +525,7 @@
   "ask_proposal_missing": "I couldn't draft thoughts to keep from this message, so nothing was proposed.",
   "ask_store_missing": "I couldn't store the proposal, so nothing was stored.",
   "voice_start": "Start voice input",
+  "writer_clear": "Clear text",
   "voice_message_label": "Voice message",
   "voice_discard": "Discard recording",
   "voice_send": "Send voice message",

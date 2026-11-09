@@ -525,6 +525,7 @@
   "ask_proposal_missing": "Ich konnte aus dieser Nachricht keine Gedanken zum Behalten entwerfen, deshalb wurde nichts vorgeschlagen.",
   "ask_store_missing": "Ich konnte den Vorschlag nicht speichern, deshalb wurde nichts gespeichert.",
   "voice_start": "Spracheingabe starten",
+  "writer_clear": "Text löschen",
   "voice_message_label": "Sprachnachricht",
   "voice_discard": "Aufnahme verwerfen",
   "voice_send": "Sprachnachricht senden",
