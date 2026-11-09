@@ -28,17 +28,9 @@
 }
 
 @font-face {
-  font-family: 'Averia Libre';
-  src: url('../lib/assets/fonts/averia-libre-latin-400-normal.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: block;
-}
-
-@font-face {
-  font-family: 'Averia Libre';
-  src: url('../lib/assets/fonts/averia-libre-latin-700-normal.woff2') format('woff2');
-  font-weight: 700;
+  font-family: 'Geist Serif';
+  src: url('../lib/assets/fonts/geist-serif-latin-variable-normal.woff2') format('woff2');
+  font-weight: 100 900;
   font-style: normal;
   font-display: block;
 }
@@ -53,7 +45,7 @@
     /* ——— ei tokens (docs/planning/ei-redesign.md; ~/+Code/ei/styles.css :root) ———
        Paper and ink. One signal colour, used only when the mesh is at work.
        Geist Mono is your voice (--font-you); Inter is the mesh's (--font-mesh);
-       Averia Libre is the display voice (--font-display) — wordmark and titles.
+       Geist Serif is the display voice (--font-display) — wordmark and titles.
        Contrast (WCAG AA): ink-2 ≥ 7:1, ink-3 ≥ 4.5:1 on paper, paper-2 and raised.
        ink-4 and line are decorative only — never for text. */
     --paper: #e8ede5;
@@ -644,7 +636,7 @@ html.pwa-standalone::before {
 
 @theme inline {
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --font-display: 'Averia Libre', 'Trebuchet MS', ui-serif, Georgia, serif;
+  --font-display: 'Geist Serif', ui-serif, Georgia, serif;
   --font-you: var(--font-you);
   --font-mesh: var(--font-mesh);
   --ease-settle: var(--ease);

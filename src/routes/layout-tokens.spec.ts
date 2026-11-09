@@ -204,3 +204,21 @@ describe('existing mechanisms preserved', () => {
     expect(html).toMatch(/<meta name="theme-color" content="#141c16" media="\(prefers-color-scheme: dark\)"/)
   })
 })
+
+describe('display font is Geist Serif', () => {
+  it('--font-display leads with Geist Serif', () => {
+    expect(readLayoutCss()).toContain(
+      "--font-display: 'Geist Serif', ui-serif, Georgia, serif;"
+    )
+  })
+
+  it('layout.css declares a Geist Serif @font-face', () => {
+    expect(readLayoutCss()).toMatch(/@font-face\s*\{\s*font-family:\s*'Geist Serif'/)
+  })
+
+  it('layout.css and +layout.svelte no longer mention Averia', () => {
+    expect(readLayoutCss()).not.toMatch(/averia/i)
+    const layoutSvelte = readFileSync(join(process.cwd(), 'src/routes/+layout.svelte'), 'utf8')
+    expect(layoutSvelte).not.toMatch(/averia/i)
+  })
+})

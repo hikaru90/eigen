@@ -12,9 +12,8 @@
     capturePageview,
   } from '$lib/analytics/posthog-client'
   import favicon from '$lib/assets/favicon.png'
-  import averia400 from '$lib/assets/fonts/averia-libre-latin-400-normal.woff2?url'
-  import averia700 from '$lib/assets/fonts/averia-libre-latin-700-normal.woff2?url'
   import geistMono400 from '$lib/assets/fonts/geist-mono-latin-400-normal.woff2?url'
+  import geistSerif from '$lib/assets/fonts/geist-serif-latin-variable-normal.woff2?url'
   import inter400 from '$lib/assets/fonts/inter-latin-400-normal.woff2?url'
   import inter500 from '$lib/assets/fonts/inter-latin-500-normal.woff2?url'
   import { startCaptureQueueRunner } from '$lib/capture/queue'
@@ -300,7 +299,7 @@
   <title>{documentTitle}</title>
   <link rel="icon" href={favicon} />
   <!-- every face the first paint uses, fetched with the document so text never reflows on swap -->
-  {#each [inter400, inter500, geistMono400, averia400, averia700] as font (font)}
+  {#each [inter400, inter500, geistMono400, geistSerif] as font (font)}
     <link rel="preload" href={font} as="font" type="font/woff2" crossorigin="anonymous" />
   {/each}
 </svelte:head>
