@@ -1,3 +1,5 @@
+import { PgDialect } from 'drizzle-orm/pg-core'
+import { drizzle } from 'drizzle-orm/postgres-js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
@@ -51,19 +53,49 @@ function orphanRow(overrides: Record<string, unknown> = {}) {
   }
 }
 
-/** Chainable select fake: select().from().where().orderBy().limit() → rows. */
+/**
+ * Select fake: the outer thought select (the one with `category`) returns `rows`
+ * through select().from().where().orderBy().limit(); the sub-selects are real
+ * (connectionless) drizzle builders so their joins build as in production.
+ */
 function makeSelectChain(rows: unknown[]) {
   const limit = vi.fn(async () => rows)
+  const real = drizzle.mock()
   getDbMock.mockReturnValue({
-    select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          orderBy: vi.fn(() => ({ limit })),
-        })),
-      })),
-    })),
+    select: (fields: Record<string, unknown>) =>
+      'category' in fields
+        ? { from: () => ({ where: () => ({ orderBy: () => ({ limit }) }) }) }
+        : real.select(fields as never),
   })
   return { limit }
+}
+
+/**
+ * Real query builders (no connection) for the sub-selects, a fake only for the
+ * outer thought select; returns the rendered WHERE of that outer select.
+ */
+function captureOrphanWhereSql(): () => { sql: string; params: unknown[] } {
+  const real = drizzle.mock()
+  let captured: unknown
+  getDbMock.mockReturnValue({
+    select: (fields: Record<string, unknown>) => {
+      if ('category' in fields) {
+        return {
+          from: () => ({
+            where: (cond: unknown) => {
+              captured = cond
+              return { orderBy: () => ({ limit: async () => [] }) }
+            },
+          }),
+        }
+      }
+      return real.select(fields as never)
+    },
+  })
+  return () => {
+    const q = new PgDialect().sqlToQuery(captured as never)
+    return { sql: q.sql, params: q.params }
+  }
 }
 
 describe('loadOpenThreads', () => {
@@ -126,6 +158,25 @@ describe('loadOpenThreads', () => {
     expect(decryptTenantValueMock).toHaveBeenCalledWith(
       expect.objectContaining({ userId: 'u1', column: 'normalized_text', ciphertext: 'enc:crypto boom research' }),
     )
+  })
+
+  it('a task with project membership is not loose even without a sequence row (NOW-AC18)', async () => {
+    listProjectsForUserMock.mockResolvedValue([])
+    const rendered = captureOrphanWhereSql()
+
+    await loadOpenThreads('u1')
+
+    const { sql: text, params } = rendered()
+    // Sequence rows still exclude a thought...
+    expect(text).toMatch(/"thought"\."id" not in \(select "thought_id" from "project_task_sequence"/i)
+    // ...and so does membership: thought_entity joined to a project entity.
+    expect(text).toMatch(/"thought"\."id" not in \(select "thought_entity"\."thought_id" from "thought_entity"/i)
+    expect(text).toMatch(/inner join "canonical_entity"/i)
+    expect(text).toMatch(/"canonical_entity"\."project_status" is not null/i)
+    // The existing membership definition: manual + project sources, never plain ingest mentions.
+    expect(text).toMatch(/"thought_entity"\."source" in \(\$\d+, \$\d+\)/i)
+    expect(params).toEqual(expect.arrayContaining(['manual', 'project']))
+    expect(params).not.toContain('ingest')
   })
 
   it('truncates long first lines deterministically', () => {

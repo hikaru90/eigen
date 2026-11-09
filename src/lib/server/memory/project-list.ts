@@ -47,7 +47,9 @@ export type ProjectStalledSignal = { reason: ProjectStalledReason } | null
 /**
  * Deterministic stalled-project signal for agents and the projects UI.
  * Active projects only; first match wins in severity order:
- * overdue deadline → overdue open milestone → open tasks with no next action.
+ * overdue deadline → overdue open milestone → no next action. An active project
+ * with no next action is stalled whatever its open-task count: a project with
+ * nothing left to do and nothing marked next is exactly the GTD failure.
  */
 export function computeStalledSignal(input: {
   status: ProjectStatus
@@ -71,7 +73,7 @@ export function computeStalledSignal(input: {
     const due = asTime(milestone.targetDate)
     if (due !== null && due < now.getTime()) return { reason: 'milestone_overdue' }
   }
-  if (input.openTaskCount > 0 && input.nextAction == null) return { reason: 'no_next_action' }
+  if (input.nextAction == null) return { reason: 'no_next_action' }
   return null
 }
 

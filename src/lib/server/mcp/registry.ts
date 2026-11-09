@@ -341,7 +341,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   {
     name: 'open_threads',
     description:
-      'One reliability sweep over everything currently open: active projects with a stalled signal (overdue deadline, overdue milestone, or open tasks but no next action) plus orphan open task/goal thoughts that are linked to NO project waterfall, oldest first. Use for daily digests, weekly reviews, and "what has open threads?" questions.',
+      'One reliability sweep over everything currently open: active projects with a stalled signal (overdue deadline, overdue milestone, or no next action, even when the project has no open tasks) plus loose open task/goal thoughts that belong to NO project (no waterfall row and no project membership), oldest first. Use for daily digests, weekly reviews, and "what has open threads?" questions.',
     inputSchema: {
       type: 'object',
       properties: {

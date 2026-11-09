@@ -474,7 +474,7 @@
   "summary_stalled_none": "Nothing stalled.",
   "summary_stalled_overdue_deadline": "Deadline passed",
   "summary_stalled_overdue_milestone": "Milestone overdue",
-  "summary_stalled_no_next_action": "Open tasks, no next action",
+  "summary_stalled_no_next_action": "No next action",
   "summary_unthreaded": "Needs a thread",
   "summary_unthreaded_none": "Every open task belongs to a thread.",
   "summary_unthreaded_more": "{count} in total",

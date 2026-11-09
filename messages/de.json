@@ -474,7 +474,7 @@
   "summary_stalled_none": "Nichts hängt.",
   "summary_stalled_overdue_deadline": "Frist verpasst",
   "summary_stalled_overdue_milestone": "Meilenstein überfällig",
-  "summary_stalled_no_next_action": "Offene Aufgaben, kein nächster Schritt",
+  "summary_stalled_no_next_action": "Kein nächster Schritt",
   "summary_unthreaded": "Braucht einen Thread",
   "summary_unthreaded_none": "Jede offene Aufgabe gehört zu einem Thread.",
   "summary_unthreaded_more": "{count} insgesamt",

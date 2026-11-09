@@ -64,7 +64,7 @@ export type DailyDigestProjectActivity = {
 
 /**
  * The daily summary (operator brief, 2026-10-24): what is running (projects), what is
- * stuck (stalled threads), what still needs a thread (open tasks on no project), and
+ * stuck (stalled threads), what still needs a thread (open tasks that belong to no project), and
  * what each agent captured — the part that is otherwise invisible. Yesterday's task
  * numbers stay, as information.
  */

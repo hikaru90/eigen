@@ -85,7 +85,7 @@
   /** The one line of "where it stands" the catalog knows: the next action, in your words. */
   function summaryOf(thread: Thread): string | null {
     if (thread.nextActionSummary) return thread.nextActionSummary
-    if (thread.openTaskCount > 0) return m.graph_timeline_project_no_next_action()
+    if (thread.status === 'active') return m.graph_timeline_project_no_next_action()
     return null
   }
 

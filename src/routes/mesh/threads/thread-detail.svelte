@@ -198,7 +198,7 @@
         >
           {standing.nextActionSummary}
         </p>
-      {:else if standing.openTaskCount > 0}
+      {:else if standing.status === 'active'}
         <p class="max-w-[600px] m-0 text-[19px] leading-[1.5] tracking-[-0.014em]">
           {m.graph_timeline_project_no_next_action()}
         </p>

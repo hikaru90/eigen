@@ -775,7 +775,8 @@ export async function runListProjectsTool(context: McpToolContext, args: unknown
 
 /**
  * One reliability sweep: stalled active projects + orphan open task/goal
- * thoughts in no waterfall. The daily-digest/weekly-review entry point.
+ * thoughts that belong to no project (no waterfall row, no membership). The
+ * daily-digest/weekly-review entry point.
  */
 export async function runOpenThreadsTool(context: McpToolContext, args: unknown) {
   const body = asObject(args)

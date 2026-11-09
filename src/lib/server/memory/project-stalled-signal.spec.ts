@@ -65,10 +65,37 @@ describe('computeStalledSignal', () => {
     ).toBeNull()
   })
 
-  it('null when openTaskCount is zero even without a next action', () => {
+  it('no_next_action for an active project with zero open tasks and no next action (NOW-AC17)', () => {
     const now = new Date('2026-10-06T12:00:00Z')
     expect(
       computeStalledSignal({ ...BASE, nextAction: null, openTaskCount: 0, now }),
+    ).toEqual({ reason: 'no_next_action' })
+  })
+
+  it('null for a someday project with zero open tasks and no next action (NOW-AC17)', () => {
+    const now = new Date('2026-10-06T12:00:00Z')
+    expect(
+      computeStalledSignal({ ...BASE, status: 'someday', nextAction: null, openTaskCount: 0, now }),
     ).toBeNull()
+  })
+
+  it('null for a completed project with zero open tasks and no next action', () => {
+    const now = new Date('2026-10-06T12:00:00Z')
+    expect(
+      computeStalledSignal({ ...BASE, status: 'completed', nextAction: null, openTaskCount: 0, now }),
+    ).toBeNull()
+  })
+
+  it('deadline_overdue still outranks no_next_action when there are no open tasks', () => {
+    const now = new Date('2026-10-06T12:00:00Z')
+    expect(
+      computeStalledSignal({
+        ...BASE,
+        nextAction: null,
+        openTaskCount: 0,
+        targetDate: '2026-09-01T00:00:00Z',
+        now,
+      }),
+    ).toEqual({ reason: 'deadline_overdue' })
   })
 })
