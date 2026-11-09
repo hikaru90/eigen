@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte'
+  import { goto } from '$app/navigation'
   import { base } from '$app/paths'
   import { resolve } from '$app/paths'
   import { offlineStatus } from '$lib/offline/offline-status.svelte'
@@ -181,6 +182,10 @@
               note = null
               timer = undefined
             }, UNDO_MS)
+          }
+          // Too big (NOW-9): Ask opens with this card's task, sent once. The card was just saved.
+          if (answer === 'too_big') {
+            await goto(resolve(`/chat?breakdown=${encodeURIComponent(card.id)}` as '/chat'))
           }
         }
         return

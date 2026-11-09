@@ -1,10 +1,11 @@
 import type { PageServerLoad } from './$types'
-import { redirect } from '@sveltejs/kit'
+import { error, redirect } from '@sveltejs/kit'
 import { sessionMessagesToChatEntries } from '$lib/chat/normalize-messages'
 import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits'
 import { getWalletSnapshot } from '$lib/server/billing/wallet'
 import { loadAskSuggestions } from '$lib/server/chat/ask-suggestions'
 import { listChatSessions, loadChatSession } from '$lib/server/chat/chat-sessions'
+import { loadBreakdownTask } from '$lib/server/mesh/now-breakdown'
 import { checkCaptureAllowed } from '$lib/server/onboarding/capture-gate'
 
 export const load: PageServerLoad = async (event) => {
@@ -14,7 +15,12 @@ export const load: PageServerLoad = async (event) => {
 
   const userId = event.locals.user.id
   // The open conversation lives in the URL, so the page renders whole on the server.
-  const sessionId = event.url.searchParams.get('session')?.trim() || null
+  // `?breakdown=<cardId>` (Lightning questions, Too big) starts a NEW conversation: the page
+  // sends the task once on mount, so an open `?session` is not rendered next to it.
+  const breakdownCardId = event.url.searchParams.get('breakdown')?.trim() || null
+  const breakdownTask = breakdownCardId ? await loadBreakdownTask(userId, breakdownCardId) : null
+  if (breakdownCardId && breakdownTask === null) throw error(404, 'Card not found')
+  const sessionId = breakdownCardId ? null : event.url.searchParams.get('session')?.trim() || null
   const [gate, wallet, sessions, active, suggestions] = await Promise.all([
     checkCaptureAllowed(userId),
     getWalletSnapshot(userId),
@@ -32,5 +38,6 @@ export const load: PageServerLoad = async (event) => {
     activeSessionId: active?.session.id ?? null,
     messages: active ? sessionMessagesToChatEntries(active.messages) : [],
     suggestions,
+    breakdownTask,
   }
 }

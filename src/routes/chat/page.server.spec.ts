@@ -6,12 +6,14 @@ const {
   listChatSessionsMock,
   loadChatSessionMock,
   loadAskSuggestionsMock,
+  loadBreakdownTaskMock,
 } = vi.hoisted(() => ({
   checkCaptureAllowedMock: vi.fn(),
   getWalletSnapshotMock: vi.fn(),
   listChatSessionsMock: vi.fn(),
   loadChatSessionMock: vi.fn(),
   loadAskSuggestionsMock: vi.fn(),
+  loadBreakdownTaskMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/onboarding/capture-gate', () => ({
@@ -26,6 +28,9 @@ vi.mock('$lib/server/chat/chat-sessions', () => ({
 }))
 vi.mock('$lib/server/chat/ask-suggestions', () => ({
   loadAskSuggestions: loadAskSuggestionsMock,
+}))
+vi.mock('$lib/server/mesh/now-breakdown', () => ({
+  loadBreakdownTask: loadBreakdownTaskMock,
 }))
 
 import { MIN_CAPTURE_PIPELINE_CREDITS } from '$lib/server/billing/credits'
@@ -45,6 +50,7 @@ describe('chat page server load', () => {
     loadAskSuggestionsMock.mockResolvedValue([
       { thoughtId: 't1', question: 'When did I want to plant tomatoes?' },
     ])
+    loadBreakdownTaskMock.mockResolvedValue('Send the form to the accountant.')
   })
 
   const event = (search = '') =>
@@ -105,5 +111,34 @@ describe('chat page server load', () => {
 
   it('redirects to a blank Ask when ?session names no session', async () => {
     await expect(load(event('?session=gone'))).rejects.toMatchObject({ status: 303, location: '/chat' })
+  })
+
+  describe('?breakdown (Lightning questions, Too big; NOW-9)', () => {
+    const CARD = '3f1c2a54-7d0e-4b8a-9c11-2e5f6a7b8c9d'
+
+    it('returns the card\'s task text as breakdownTask, loaded for the signed-in user', async () => {
+      const result = await load(event(`?breakdown=${CARD}`))
+      expect(loadBreakdownTaskMock).toHaveBeenCalledWith('u1', CARD)
+      expect(result.breakdownTask).toBe('Send the form to the accountant.')
+      expect(result.activeSessionId).toBeNull()
+    })
+
+    it('is 404 when the card is not theirs or has no thought target', async () => {
+      loadBreakdownTaskMock.mockResolvedValue(null)
+      await expect(load(event(`?breakdown=${CARD}`))).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('has no breakdownTask and loads nothing without the parameter', async () => {
+      const result = await load(event())
+      expect(result.breakdownTask).toBeNull()
+      expect(loadBreakdownTaskMock).not.toHaveBeenCalled()
+    })
+
+    it('starts a new conversation: an open ?session is not rendered next to it', async () => {
+      const result = await load(event(`?breakdown=${CARD}&session=s1`))
+      expect(loadChatSessionMock).not.toHaveBeenCalled()
+      expect(result.activeSessionId).toBeNull()
+      expect(result.messages).toEqual([])
+    })
   })
 })

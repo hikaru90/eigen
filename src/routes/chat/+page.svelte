@@ -38,6 +38,7 @@
   import { startLogoWork, stopLogoWork } from '$lib/stores/brand-pulse.svelte'
   import { chatSidebar } from '$lib/stores/chat-sidebar.svelte'
   import { pageInputDrafts } from '$lib/stores/page-input-drafts.svelte'
+  import { startBreakdown } from './breakdown-start'
   import {
     shouldApplyLoadedSessionMessages,
   } from './chat-session-lifecycle'
@@ -575,6 +576,28 @@
         briefingBootstrapped = true
         void sendStreaming('', { bootstrap: true })
       }
+    } else if (data.breakdownTask) {
+      // "Too big" on a Lightning question: a new conversation with one ordinary message. The URL
+      // loses `breakdown` first, so a reload cannot send it twice. Ask's propose -> confirm rules
+      // apply as to any message.
+      void startBreakdown(data.breakdownTask, {
+        message: (task) => m.ask_breakdown_message({ task }),
+        startNewConversation: () => {
+          messagesLoadEpoch += 1
+          activeSessionId = null
+          messages = []
+        },
+        clearUrl: () => setSessionUrl(null),
+        appendUserMessage,
+        send: async (text) => {
+          startLogoWork()
+          try {
+            await sendStreaming(text)
+          } finally {
+            stopLogoWork()
+          }
+        },
+      })
     } else if (messages.length > 0) {
       scrollToBottom()
     }

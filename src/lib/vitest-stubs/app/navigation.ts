@@ -7,10 +7,15 @@
  */
 export async function invalidateAll(): Promise<void> {}
 
+/** Every `goto` target, so a spec can assert where a component navigated to. */
+export const gotoCalls: string[] = []
+
 export async function goto(
-  _url: string,
+  url: string | URL,
   _opts?: { invalidateAll?: boolean; replaceState?: boolean; noRedirect?: boolean },
-): Promise<void> {}
+): Promise<void> {
+  gotoCalls.push(String(url))
+}
 
 export function afterNavigate(fn: (navigation: unknown) => void): void {
   void fn

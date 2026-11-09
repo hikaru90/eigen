@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-svelte'
 import { page } from 'vitest/browser'
 import { offlineStatus } from '$lib/offline/offline-status.svelte'
+import { gotoCalls } from '$lib/vitest-stubs/app/navigation'
 import NowCard from './now-card.svelte'
 
 /** The Lightning questions card (feature-mesh-now.md NOW-11), with the Now API stubbed. */
@@ -224,7 +225,8 @@ describe('now-card.svelte answers', () => {
     expect(bodyOf(posts()[0])).toEqual({ answer: 'something_else', text: 'Book the site visit' })
   })
 
-  it('Too big just posts and moves on', async () => {
+  it('Too big posts, then opens Ask with that card (NOW-9, AC5)', async () => {
+    gotoCalls.length = 0
     fetchMock
       .mockResolvedValueOnce(reply(200, cardState('c1', 'do')))
       .mockResolvedValueOnce(reply(200, { state: 'clear', undo: null }))
@@ -233,8 +235,36 @@ describe('now-card.svelte answers', () => {
 
     await page.getByRole('button', { name: 'Too big' }).click()
 
-    await expect.element(page.getByText('Nothing needs you right now')).toBeInTheDocument()
+    await vi.waitFor(() => expect(gotoCalls).toEqual(['/chat?breakdown=c1']))
     expect(bodyOf(posts()[0])).toEqual({ answer: 'too_big' })
+  })
+
+  it('a failed Too big does not open Ask', async () => {
+    gotoCalls.length = 0
+    fetchMock
+      .mockResolvedValueOnce(reply(200, cardState('c1', 'do')))
+      .mockResolvedValueOnce(reply(400, { error: 'nope' }))
+    render(NowCard)
+    await expect.element(page.getByText('Text of c1')).toBeInTheDocument()
+
+    await page.getByRole('button', { name: 'Too big' }).click()
+
+    await expect.element(page.getByText('nope')).toBeInTheDocument()
+    expect(gotoCalls).toEqual([])
+  })
+
+  it('other answers never navigate', async () => {
+    gotoCalls.length = 0
+    fetchMock
+      .mockResolvedValueOnce(reply(200, cardState('c1', 'do')))
+      .mockResolvedValueOnce(reply(200, { state: 'clear', undo: null }))
+    render(NowCard)
+    await expect.element(page.getByText('Text of c1')).toBeInTheDocument()
+
+    await page.getByRole('button', { name: 'Not now' }).click()
+
+    await expect.element(page.getByText('Nothing needs you right now')).toBeInTheDocument()
+    expect(gotoCalls).toEqual([])
   })
 
   it('400 shows the server message inline and keeps the card', async () => {

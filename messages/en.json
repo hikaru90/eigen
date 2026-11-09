@@ -415,6 +415,7 @@
   "ask_loading_session": "Opening the conversation",
   "ask_try": "Try asking",
   "ask_new_chat": "New chat",
+  "ask_breakdown_message": "Help me break this down into a few small first steps: {task}",
   "yarn_search": "Search",
   "yarn_empty": "Nothing here yet. Set a thought down on Capture.",
   "yarn_no_matches": "No matches",
