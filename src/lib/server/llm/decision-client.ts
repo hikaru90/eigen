@@ -36,6 +36,9 @@ export type DecisionShadowConfig = {
  * capture review's check of what the chat model wrote (§4) and the label of
  * the kind of mistake a 👎 reason describes (§6, docs/planning/capture-feedback.md).
  * They have no chat-judge counterpart, so they are NOT enforceable kinds.
+ * `transcript_check` judges a speech-to-text transcript (is it real dictation or an artefact of
+ * recognition on silence/noise; surface `transcribe`, docs/planning/feature-voice-message-stt.md §8);
+ * like capture_worthy it runs on every clip, not gated by DECISION_ENFORCE_KINDS.
  */
 export type DecisionKind =
   | 'category'
@@ -54,6 +57,7 @@ export type DecisionKind =
   | 'salience_band'
   | 'capture_worthy'
   | 'proposal_reply'
+  | 'transcript_check'
   | 'capture_audit'
   | 'capture_reason'
 
@@ -88,6 +92,7 @@ const ENFORCEABLE_KINDS = [
   'salience_band',
   'capture_worthy',
   'proposal_reply',
+  'transcript_check',
 ] as const
 
 export type EnforceableDecisionKind = (typeof ENFORCEABLE_KINDS)[number]

@@ -11,7 +11,8 @@ level, uploads each piece and joins the texts. That design breaks in several way
 
 - On iOS the `AudioContext` is created after `await getUserMedia` (outside the tap), can stay
   suspended and read flat silence (WebKit 180522) → every piece is judged silent and skipped →
-  "No speech detected". The level gate also drops quiet speech everywhere.
+  "No speech detected". The level gate also drops quiet speech everywhere. (The silence check
+  that exists now reads the finished clip, not the live meter — see §8.)
 - Restarting `MediaRecorder` per piece loses audio at the cut; iOS 26.0–26.1 truncate the end of
   MP4 recordings (WebKit 299164) — every piece loses its tail. The forced 10 s cut splits words.
 - Short pieces make the ASR model invent text (Spanish "Ahora.", Chinese) and lose the context
@@ -42,8 +43,9 @@ no mic today and stays without one.
   only**. MIME preference: `audio/webm;codecs=opus` → `audio/mp4` → recorder default;
   `audioBitsPerSecond: 32000`. `getUserMedia` fresh per tap; all tracks stopped when the clip ends.
 - VM-3 **Waveform is display only.** The `AudioContext` is created and `resume()`d synchronously in
-  the tap handler (before any `await`). The level never decides what is uploaded — there is no
-  silence gate. A suspended context only means a flat waveform; the recording still works.
+  the tap handler (before any `await`). The live level never decides what is uploaded (the
+  old live-meter silence gate is gone; the check of the finished clip in §8 reads decoded samples).
+  A suspended context only means a flat waveform; the recording still works.
 - VM-4 **Send.** Stops the recorder, shows a transcribing state (the frozen waveform with a working
   indicator, "Transcribing… m:ss" counting the wait live, and a **Cancel** button that aborts the upload
   and sends nothing; field locked), uploads the whole clip once to
@@ -56,6 +58,8 @@ no mic today and stays without one.
   **Retry** and **Discard**. 402 shows the billing message. Nothing is submitted. Leaving the page
   drops the clip (no persistence by design).
 - VM-7 **Empty transcript** → "No speech detected"; nothing is submitted; Retry/Discard as in VM-6.
+  A clip the browser check (§8) judged silent shows the same message with **no Retry** (nothing was
+  uploaded and the same clip would be judged the same way); the clip is dropped.
 - VM-8 **Length cap.** 5 minutes, visible in the timer; at the cap the clip is sent as if Send was
   tapped.
 - VM-9 **One model.** `qwen/qwen3-asr-0.6b` is fixed in code (back to 0.6B on 2026-10-28: 1.7B transcription hung or was slow); the `LLM_MODEL_STT` override is removed.
@@ -98,8 +102,8 @@ storage or server), changing provider or model, a mic for the Mesh inline editor
   submitted, and Retry uploads the same clip again.
 - AC-5 Given a 402, then the billing message shows and nothing is submitted.
 - AC-6 Given an empty transcript, then "No speech detected" shows and nothing is submitted.
-- AC-7 Given very quiet speech (level below any threshold), then the clip is still uploaded — no
-  level gate exists.
+- AC-7 Given quiet speech (a flat live meter, or soft speech above the §8 threshold), then the
+  clip is still uploaded — the live meter never gates the upload.
 - AC-8 Given 5 minutes of recording, then the clip is sent automatically.
 - AC-9 Given a clip, then the server makes one transcription call (≤ 3 attempts) with
   `qwen/qwen3-asr-0.6b` and writes one usage-log entry; no audio is written to the DB, logs or
@@ -125,3 +129,54 @@ storage or server), changing provider or model, a mic for the Mesh inline editor
 - Audio is never stored; only the transcript.
 - One process: OpenRouter `qwen/qwen3-asr-0.6b`.
 - Every mic surface (Capture, Ask, Contribute).
+
+## 8. Silence never becomes text (operator, 2026-11-09)
+
+Requirement: when nothing was said, nothing is written — in particular never Korean, Chinese or
+Japanese characters. Cause: `qwen/qwen3-asr-0.6b` (kept, VM-9) invents text on quiet audio and any
+non-empty transcript went into the field. Two layers; **no** filter by Unicode script, regex,
+word list or any other string rule (AGENTS.md "LLM as judge") — that would also break someone who
+really dictates in those languages.
+
+**Layer 1 — audio check in the browser** (`src/lib/capture/clip-speech.ts`, called by
+`voice-message.ts` on Send, and on Retry of a clip that was never checked, before `uploadClip`):
+
+- The FINISHED clip is decoded (`OfflineAudioContext.decodeAudioData`, resampled to 22.05 kHz, so
+  it does not depend on the live `AudioContext` that stays suspended on iOS) and the RMS of 20 ms
+  frames is read from the real samples (channels averaged).
+- The clip passes when the frames at or above `VOICED_RMS_THRESHOLD` (0.005, about -46 dBFS) add up
+  to at least `MIN_VOICED_MS` (160 ms = 8 frames, not necessarily contiguous). A minimum voiced
+  duration, not one peak: a click or a bump is shorter. Constants are conservative (wrongly
+  dropping real speech is worse than letting noise through to Layer 2) and **uncalibrated on real
+  devices** — they come from typical levels, not measurements.
+- A clip with no speech-level sound is **not uploaded**: phase `failed`, reason `empty`,
+  `retryable: false`, the clip dropped, nothing written; the bar shows "No speech detected" with a
+  dismiss button and no Retry. The "transcribing" state shows during the (short) decode.
+- If decoding itself fails (unsupported codec, no `OfflineAudioContext`), the clip cannot be
+  judged: it is uploaded, `console.warn` says why, and Layer 2 still applies.
+- A request that fails after the check is retried without checking the clip again.
+
+**Layer 2 — LLM judge on the server** (`src/lib/server/llm/stt-judge.ts`, called by
+`POST /api/capture/transcribe` after a non-empty transcript):
+
+- One enforced Decisions question (`runEnforcedBoundedDecisions`, surface `transcribe`, kind
+  `transcript_check`, choices `dictation` | `artefact`), `state` = the user's known languages
+  (`user_preference.preferred_language` and `preferred_ui_locale`; no row → the state says no
+  language is on record) plus the transcript. The question: plausibly real dictation by this user,
+  or an artefact of recognition on silence/noise (foreign-script fragments the user does not use,
+  repeated syllables, subtitle-credit phrases)? A user who really dictates in Korean, Chinese or
+  Japanese passes when those are among their languages.
+- `artefact` → `200 { transcript: "" }` (the client shows "No speech detected"); `dictation` →
+  the transcript. An empty transcript is not judged (no call).
+- The call is retried up to exactly 3 times; then the endpoint answers the existing `502
+  Transcription failed` and the clip stays retryable — never a silent pass. The transcript is
+  only in the request `state`: not in the log rows, the activity row or any log line.
+- Evidence and cost: one `decision_shadow_log` row and one `activity_call_log` row per Decisions
+  call, provider-reported cost, like every other enforced kind. Requires the decision-model config
+  (`DECISION_SHADOW_ENABLED=true`); without it the judge throws and Send answers 502.
+
+Acceptance: Given a clip with no speech-level sound, then nothing is uploaded and nothing is
+written. Given a click only, same. Given speech, then it is uploaded. Given an undecodable clip,
+then it is uploaded with a warning. Given the model answers an artefact, then the field gets
+nothing. Given a failed judge, then 502 and Retry.
+

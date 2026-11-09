@@ -67,6 +67,7 @@ export type DecisionShadowSurface =
   | 'resolution'
   | 'delete_gate'
   | 'chat_turn'
+  | 'transcribe'
   | 'capture_review'
 
 /** The mode answer for the content-split decision. */
@@ -1028,6 +1029,8 @@ async function recordRows(
     // Ask turn kinds — bounded whole-question decisions with no chat-judge primary.
     capture_worthy: undefined,
     proposal_reply: undefined,
+    // Speech-to-text transcript check (stt-judge.ts) — bounded whole-question decision, no chat primary.
+    transcript_check: undefined,
     // Jev-only review calls (runCaptureAudit, runCaptureReasonLabel) — never part of the generic shadow.
     capture_audit: undefined,
     capture_reason: undefined,

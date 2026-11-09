@@ -4,12 +4,16 @@
  * One tap records one clip: a single MediaRecorder with a 1 s timeslice, the chunks held in
  * memory only. Send stops the recorder and uploads the WHOLE clip once; the transcript comes
  * back as one piece of text. The level meter is display only: it never decides what is
- * uploaded (there is no silence gate), and a flat meter (a suspended AudioContext) does not
- * stop the recording.
+ * uploaded, and a flat meter (a suspended AudioContext) does not stop the recording.
+ *
+ * Before the upload the FINISHED clip is decoded and checked for speech-level sound
+ * (`clip-speech.ts`, Layer 1 of "silence never becomes text"): a clip with none is not
+ * uploaded. That check reads decoded samples, never the live meter.
  *
  * The session is a plain state machine with injected browser APIs, so it runs without a
  * browser in unit tests. The writer turns its views into UI; nothing here knows about Svelte.
  */
+import { clipHasSpeechLevelSound, decodeClip, type DecodedClip } from './clip-speech'
 
 /** VM-8: a clip is sent automatically at this length. */
 export const VOICE_MESSAGE_MAX_MS = 5 * 60 * 1000
@@ -39,7 +43,7 @@ export type VoiceFailureReason =
   | 'recorder'
   /** The browser ended the recording by itself (a call, an unplugged mic). */
   | 'interrupted'
-  /** The clip was transcribed to nothing. */
+  /** The clip held no speech-level sound (never uploaded) or was transcribed to nothing. */
   | 'empty'
   /** The transcribe request failed. */
   | 'request'
@@ -75,6 +79,8 @@ export type VoiceMessageDeps = {
   isTypeSupported: (mimeType: string) => boolean
   /** `null` where there is no AudioContext: the waveform stays flat, the recording works. */
   createAudioContext: () => AudioContext | null
+  /** Decodes the finished clip to samples; rejects when the codec cannot be decoded. */
+  decodeClip: (clip: Blob) => Promise<DecodedClip>
   now: () => number
 }
 
@@ -114,6 +120,7 @@ function browserDeps(): VoiceMessageDeps {
     createRecorder: (stream, options) => new MediaRecorder(stream, options),
     isTypeSupported: (mimeType) => MediaRecorder.isTypeSupported(mimeType),
     createAudioContext: () => (typeof AudioContext === 'undefined' ? null : new AudioContext()),
+    decodeClip,
     now: () => performance.now(),
   }
 }
@@ -170,6 +177,8 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
   let chunks: Blob[] = []
   /** The assembled clip, kept in memory until it is transcribed or discarded. */
   let clip: Blob | null = null
+  /** The clip passed the audio check (or could not be decoded); a Retry does not check it again. */
+  let clipChecked = false
   let micOpen = false
   let startedAt = 0
   let levels: number[] = [...SILENT_LEVELS]
@@ -319,6 +328,38 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
     if (!silent) options.onerror?.(failure)
   }
 
+  /**
+   * Layer 1: whether the finished clip holds speech-level sound. A clip the browser cannot
+   * decode (unsupported codec) cannot be judged, so it counts as sound: it is uploaded and a
+   * warning is logged — Layer 2 on the server still judges what comes back.
+   */
+  async function clipHasSound(blob: Blob): Promise<boolean> {
+    try {
+      return clipHasSpeechLevelSound(await deps.decodeClip(blob))
+    } catch (err) {
+      console.warn('voice clip could not be decoded for the audio check; uploading it unchecked', err)
+      return true
+    }
+  }
+
+  /** The audio check (once per clip), then the upload. */
+  async function checkAndUploadClip(forEpoch: number): Promise<void> {
+    if (!clip) return
+    if (!clipChecked) {
+      emit({ phase: 'transcribing', transcribingElapsedMs: 0, failure: null })
+      const sound = await clipHasSound(clip)
+      if (forEpoch !== epoch) return
+      if (!sound) {
+        // nothing to say: the clip is dropped, so there is nothing to retry
+        clip = null
+        fail({ reason: 'empty', retryable: false })
+        return
+      }
+      clipChecked = true
+    }
+    await uploadClip(forEpoch)
+  }
+
   async function uploadClip(forEpoch: number): Promise<void> {
     if (!clip) return
     const controller = new AbortController()
@@ -404,6 +445,7 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
     recorder = current
     chunks = []
     clip = null
+    clipChecked = false
     current.ondataavailable = (event) => {
       if (event.data.size > 0) chunks.push(event.data)
     }
@@ -418,6 +460,7 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
       if (view.phase !== 'recording') return
       detachRecorder()
       clip = assembleClip(current)
+      clipChecked = false
       fail({ reason: 'interrupted', retryable: clip !== null })
     }
     current.start(VOICE_TIMESLICE_MS)
@@ -449,16 +492,17 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
     if (mine !== epoch) return
     releaseMicrophone()
     clip = assembleClip(current)
+    clipChecked = false
     if (!clip) {
       fail({ reason: 'recorder', retryable: false })
       return
     }
-    await uploadClip(mine)
+    await checkAndUploadClip(mine)
   }
 
   async function retry(): Promise<void> {
     if (view.phase !== 'failed' || !view.failure?.retryable || !clip) return
-    await uploadClip(epoch)
+    await checkAndUploadClip(epoch)
   }
 
   function discard(): void {
@@ -469,6 +513,7 @@ export function createVoiceMessageSession(options: VoiceMessageOptions): VoiceMe
     teardownCapture()
     chunks = []
     clip = null
+    clipChecked = false
     goIdle()
   }
 

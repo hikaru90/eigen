@@ -360,7 +360,7 @@ describe('glass-writer.svelte voice message', () => {
     expect(onsubmitted).not.toHaveBeenCalled()
   })
 
-  it('AC-7: a clip of flat silence is still uploaded: there is no level gate', async () => {
+  it('AC-7: a flat live meter never blocks the upload (the fake bytes cannot be decoded, so the clip goes up unchecked)', async () => {
     fetchMock.mockImplementation(async () => transcriptResponse('whispered'))
     const onsubmitted = vi.fn()
     render(VoiceHarness, { onsubmitted })

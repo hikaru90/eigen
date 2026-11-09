@@ -3,6 +3,7 @@ import { error, json } from '@sveltejs/kit'
 import { insufficientCreditsPayload, isInsufficientCreditsError } from '$lib/server/billing/insufficient-credits'
 import { STT_CLIP_MAX_AUDIO_BYTES, sttFormatFromMime } from '$lib/server/llm/stt-audio'
 import { transcribeAudio } from '$lib/server/llm/stt-client'
+import { judgeTranscript, loadUserSpeechLanguages } from '$lib/server/llm/stt-judge'
 import { readAudioUpload } from '../audio-upload'
 
 /** What the client is told when the provider failed all its attempts; the cause stays in the log. */
@@ -13,6 +14,12 @@ const TRANSCRIBE_FAILED_MESSAGE = 'Transcription failed'
  * clip exactly once; the provider call retries up to 3 times in one layer
  * (`llmCreateTranscription`), and one clip is one usage-log/billing entry. The audio is
  * never stored and never logged — only the transcript leaves this handler.
+ *
+ * Silence never becomes text: a non-empty transcript is then judged by the Decisions model
+ * (Layer 2, `stt-judge.ts`) with the user's known languages. An artefact of recognition on
+ * silence or noise answers `""`, which the client shows as "no speech". A failed judge (after
+ * its own 3 attempts) is a 502 like any failed transcription — the clip stays retryable, the
+ * text is never passed through unjudged.
  * Response: `200 { transcript }` (`""` = no speech); `400` empty / oversize / unsupported;
  * `401`; `402` billing; `502` when the provider still failed.
  */
@@ -27,7 +34,13 @@ export const POST: RequestHandler = async (event) => {
       userId: user.id,
       audio: { bytes: audio.bytes, format: audio.format },
     })
-    return json({ transcript })
+    if (transcript === '') return json({ transcript })
+    const verdict = await judgeTranscript({
+      userId: user.id,
+      transcript,
+      languages: await loadUserSpeechLanguages(user.id),
+    })
+    return json({ transcript: verdict === 'artefact' ? '' : transcript })
   } catch (err) {
     if (isInsufficientCreditsError(err)) {
       return json(insufficientCreditsPayload(err), { status: 402 })

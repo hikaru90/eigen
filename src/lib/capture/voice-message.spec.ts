@@ -5,6 +5,7 @@ import {
   fakeStream,
   micSignal,
 } from '$lib/test/voice-doubles'
+import { CLIP_DECODE_SAMPLE_RATE, type DecodedClip } from './clip-speech'
 import { TranscribeRequestError } from './transcribe-audio'
 import {
   createVoiceMessageSession,
@@ -24,7 +25,17 @@ import {
  * transcribed or discarded. Everything below runs on fakes — no mic, no network.
  */
 
-function setup(options?: { transcribe?: (clip: Blob, signal: AbortSignal) => Promise<string> }) {
+/** Decoded samples of a clip with speech-level sound (a 1 s tone at RMS 0.1). */
+function speechClip(): DecodedClip {
+  const samples = new Float32Array(CLIP_DECODE_SAMPLE_RATE)
+  for (let i = 0; i < samples.length; i++) samples[i] = 0.14 * Math.sin(i / 10)
+  return { channels: [samples], sampleRate: CLIP_DECODE_SAMPLE_RATE }
+}
+
+function setup(options?: {
+  transcribe?: (clip: Blob, signal: AbortSignal) => Promise<string>
+  decodeClip?: (clip: Blob) => Promise<DecodedClip>
+}) {
   const log: string[] = []
   const stream = fakeStream()
   const getUserMedia = vi.fn(async () => {
@@ -32,6 +43,7 @@ function setup(options?: { transcribe?: (clip: Blob, signal: AbortSignal) => Pro
     return stream
   })
   const transcribe = vi.fn(options?.transcribe ?? (async () => 'hello world'))
+  const decodeClip = vi.fn(options?.decodeClip ?? (async () => speechClip()))
   const views: VoiceMessageView[] = []
   const events = {
     onchange: vi.fn((view: VoiceMessageView) => views.push(view)),
@@ -51,10 +63,11 @@ function setup(options?: { transcribe?: (clip: Blob, signal: AbortSignal) => Pro
         log.push('audioContext')
         return new FakeAudioContext() as unknown as AudioContext
       },
+      decodeClip,
       now: () => Date.now(),
     },
   })
-  return { session, stream, getUserMedia, transcribe, events, views, log }
+  return { session, stream, getUserMedia, transcribe, decodeClip, events, views, log }
 }
 
 function recorder(index = 0): FakeMediaRecorder {
@@ -225,7 +238,7 @@ describe('voice message session', () => {
       expect(session.view().elapsedMs).toBeLessThanOrEqual(7_100)
     })
 
-    it('uploads a clip of very quiet speech: there is no level gate (AC-7)', async () => {
+    it('uploads a clip whose decoded audio holds speech even though the live meter read flat (AC-7)', async () => {
       const { session, transcribe } = setup()
       await session.start()
       // flat silence the whole time, like a suspended iOS AudioContext reads
@@ -641,5 +654,148 @@ describe('formatVoiceTimer', () => {
 
   it('never goes negative', () => {
     expect(formatVoiceTimer(-5)).toBe('0:00')
+  })
+})
+
+describe('silence never becomes text — Layer 1, the audio check before upload', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    FakeMediaRecorder.reset()
+    FakeAudioContext.reset()
+    micSignal.loud = false
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  const frames = (ms: number, level: number): Float32Array =>
+    new Float32Array(Math.round((ms / 1000) * CLIP_DECODE_SAMPLE_RATE)).fill(level)
+
+  const decoded = (samples: Float32Array): DecodedClip => ({
+    channels: [samples],
+    sampleRate: CLIP_DECODE_SAMPLE_RATE,
+  })
+
+  async function recordAndSend(s: ReturnType<typeof setup>) {
+    await s.session.start()
+    recorder().emitChunk([1, 2])
+    await s.session.send()
+  }
+
+  it('a silent clip is not uploaded: failed "empty", nothing written, no retry offered', async () => {
+    const s = setup({ decodeClip: async () => decoded(frames(3000, 0)) })
+    await recordAndSend(s)
+    expect(s.transcribe).not.toHaveBeenCalled()
+    expect(s.decodeClip).toHaveBeenCalledTimes(1)
+    expect(s.session.view().phase).toBe('failed')
+    expect(s.session.view().failure).toEqual({ reason: 'empty', retryable: false })
+    expect(s.events.onerror).toHaveBeenCalledTimes(1)
+    expect(s.events.ontranscript).not.toHaveBeenCalled()
+  })
+
+  it('a clip judged silent cannot be retried: retry does nothing and uploads nothing', async () => {
+    const s = setup({ decodeClip: async () => decoded(frames(3000, 0)) })
+    await recordAndSend(s)
+    await s.session.retry()
+    expect(s.transcribe).not.toHaveBeenCalled()
+    expect(s.session.view().phase).toBe('failed')
+    s.session.discard()
+    expect(s.session.view().phase).toBe('idle')
+  })
+
+  it('a click-only clip (one short loud burst) is not uploaded', async () => {
+    const click = frames(40, 0.9)
+    const samples = new Float32Array(CLIP_DECODE_SAMPLE_RATE * 2)
+    samples.set(click, CLIP_DECODE_SAMPLE_RATE)
+    const s = setup({ decodeClip: async () => decoded(samples) })
+    await recordAndSend(s)
+    expect(s.transcribe).not.toHaveBeenCalled()
+    expect(s.session.view().failure).toMatchObject({ reason: 'empty', retryable: false })
+  })
+
+  it('a speech-level clip is uploaded as usual', async () => {
+    const s = setup({ decodeClip: async () => decoded(frames(1000, 0.05)) })
+    await recordAndSend(s)
+    expect(s.transcribe).toHaveBeenCalledTimes(1)
+    expect(s.events.ontranscript).toHaveBeenCalledWith('hello world')
+  })
+
+  it('judges the finished clip itself: the decoder gets the assembled blob', async () => {
+    const s = setup()
+    await recordAndSend(s)
+    expect(s.decodeClip.mock.calls[0]![0]).toBe(s.transcribe.mock.calls[0]![0])
+  })
+
+  it('a suspended AudioContext / flat live meter does not affect the check', async () => {
+    micSignal.loud = false // the meter reads flat the whole time
+    const s = setup({ decodeClip: async () => decoded(frames(1000, 0.05)) })
+    await s.session.start()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(s.session.view().levels.every((level) => level === 0)).toBe(true)
+    recorder().emitChunk([1, 2])
+    await s.session.send()
+    expect(s.transcribe).toHaveBeenCalledTimes(1)
+  })
+
+  it('a loud live meter does not rescue a silent clip either', async () => {
+    micSignal.loud = true
+    const s = setup({ decodeClip: async () => decoded(frames(3000, 0)) })
+    await recordAndSend(s)
+    expect(s.transcribe).not.toHaveBeenCalled()
+  })
+
+  it('when the clip cannot be decoded it cannot be judged: it is uploaded and a warning logged', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const s = setup({
+      decodeClip: async () => {
+        throw new Error('EncodingError: unsupported codec')
+      },
+    })
+    await recordAndSend(s)
+    expect(s.transcribe).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalled()
+    expect(s.events.ontranscript).toHaveBeenCalledWith('hello world')
+  })
+
+  it('shows the transcribing state while the clip is being checked, and Cancel stops it', async () => {
+    let decide: (clip: DecodedClip) => void = () => {}
+    const s = setup({ decodeClip: () => new Promise<DecodedClip>((r) => (decide = r)) })
+    await s.session.start()
+    recorder().emitChunk([1])
+    const sending = s.session.send()
+    await flush()
+    expect(s.session.view().phase).toBe('transcribing')
+    s.session.discard()
+    decide(decoded(frames(1000, 0.05)))
+    await sending
+    expect(s.transcribe).not.toHaveBeenCalled()
+    expect(s.session.view().phase).toBe('idle')
+  })
+
+  it('a failed request is retried without checking the clip again', async () => {
+    const transcribe = vi
+      .fn<(clip: Blob, signal: AbortSignal) => Promise<string>>()
+      .mockRejectedValueOnce(new TranscribeRequestError(502, 'Transcription failed'))
+      .mockResolvedValueOnce('second try')
+    const s = setup({ transcribe })
+    await recordAndSend(s)
+    expect(s.session.view().failure).toMatchObject({ reason: 'request', retryable: true })
+    await s.session.retry()
+    expect(s.decodeClip).toHaveBeenCalledTimes(1)
+    expect(transcribe).toHaveBeenCalledTimes(2)
+  })
+
+  it('an interrupted clip is checked when it is retried (it was never judged)', async () => {
+    const s = setup({ decodeClip: async () => decoded(frames(3000, 0)) })
+    await s.session.start()
+    recorder().emitChunk([1, 2])
+    recorder().interrupt()
+    expect(s.session.view().failure).toMatchObject({ reason: 'interrupted', retryable: true })
+    await s.session.retry()
+    expect(s.decodeClip).toHaveBeenCalledTimes(1)
+    expect(s.transcribe).not.toHaveBeenCalled()
+    expect(s.session.view().failure).toEqual({ reason: 'empty', retryable: false })
   })
 })

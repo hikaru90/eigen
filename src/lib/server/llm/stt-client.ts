@@ -6,7 +6,11 @@ import { llmCreateTranscription } from './llm-client'
  * Safari `m4a` uploads and pass the workspace ZDR guardrail. Qwen3 ASR 0.6B: the operator chose
  * it again on 2026-10-28 because `qwen/qwen3-asr-1.7b` (tried 2026-10-24) hung or was slow on
  * transcription. Known trade-off from earlier use: 0.6B ignored the `language` hint and could
- * invent text on quiet audio; it has no translate task, so speech is transcribed verbatim.
+ * invent text on quiet audio (foreign-script fragments, repeated syllables, credit phrases); it
+ * has no translate task, so speech is transcribed verbatim. Nothing here filters that text:
+ * silence is stopped before the upload by the browser's audio check (`capture/clip-speech.ts`)
+ * and what still gets through is judged by an LLM (`stt-judge.ts`) — never by a script range,
+ * regex or word list. See docs/planning/feature-voice-message-stt.md §8.
  */
 export const STT_MODEL = 'qwen/qwen3-asr-0.6b'
 

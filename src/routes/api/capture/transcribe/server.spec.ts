@@ -2,8 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { STT_CLIP_MAX_AUDIO_BYTES } from '$lib/server/llm/stt-audio'
 import { POST } from './+server'
 
-const { transcribeAudioMock } = vi.hoisted(() => ({
+const { transcribeAudioMock, judgeTranscriptMock, loadLanguagesMock } = vi.hoisted(() => ({
   transcribeAudioMock: vi.fn(),
+  judgeTranscriptMock: vi.fn(),
+  loadLanguagesMock: vi.fn(),
+}))
+
+vi.mock('$lib/server/llm/stt-judge', () => ({
+  judgeTranscript: judgeTranscriptMock,
+  loadUserSpeechLanguages: loadLanguagesMock,
 }))
 
 vi.mock('$lib/server/llm/stt-client', () => ({
@@ -25,6 +32,10 @@ function call(request: unknown, user: { id: string } | null = { id: 'u1' }) {
 describe('POST /api/capture/transcribe', () => {
   beforeEach(() => {
     transcribeAudioMock.mockReset()
+    judgeTranscriptMock.mockReset()
+    judgeTranscriptMock.mockResolvedValue('dictation')
+    loadLanguagesMock.mockReset()
+    loadLanguagesMock.mockResolvedValue({ writing: 'de', ui: 'en' })
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
@@ -122,5 +133,68 @@ describe('POST /api/capture/transcribe', () => {
         expect(JSON.stringify(arg) ?? '').not.toMatch(/"bytes"|"audio"/)
       }
     }
+  })
+
+  describe('Layer 2: the transcript judge (silence never becomes text)', () => {
+    it('returns the transcript when the judge says it is real dictation', async () => {
+      transcribeAudioMock.mockResolvedValue('Ich muss Milch kaufen')
+      const res = await call(audioRequest(12))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ transcript: 'Ich muss Milch kaufen' })
+      expect(judgeTranscriptMock).toHaveBeenCalledWith({
+        userId: 'u1',
+        transcript: 'Ich muss Milch kaufen',
+        languages: { writing: 'de', ui: 'en' },
+      })
+    })
+
+    it('returns "" when the judge says the transcript is an artefact', async () => {
+      transcribeAudioMock.mockResolvedValue('시청해 주셔서 감사합니다')
+      judgeTranscriptMock.mockResolvedValue('artefact')
+      const res = await call(audioRequest(12))
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ transcript: '' })
+    })
+
+    it('does not call the judge when nothing was recognised', async () => {
+      transcribeAudioMock.mockResolvedValue('')
+      const res = await call(audioRequest(12))
+      expect(await res.json()).toEqual({ transcript: '' })
+      expect(judgeTranscriptMock).not.toHaveBeenCalled()
+    })
+
+    it('a failed judge is a 502 (retryable), never a silent pass', async () => {
+      transcribeAudioMock.mockResolvedValue('some text')
+      judgeTranscriptMock.mockRejectedValue(new Error('decision call failed'))
+      const res = await call(audioRequest(12))
+      expect(res.status).toBe(502)
+      const body = (await res.json()) as { error: string; transcript?: string }
+      expect(body.error).toBe('Transcription failed')
+      expect(body.transcript).toBeUndefined()
+    })
+
+    it('failing to read the user\'s languages is a 502 too, with no judge call', async () => {
+      transcribeAudioMock.mockResolvedValue('some text')
+      loadLanguagesMock.mockRejectedValue(new Error('db down'))
+      const res = await call(audioRequest(12))
+      expect(res.status).toBe(502)
+      expect(judgeTranscriptMock).not.toHaveBeenCalled()
+    })
+
+    it('does not log the transcript when the judge fails', async () => {
+      transcribeAudioMock.mockResolvedValue('PRIVATE-SPEECH')
+      judgeTranscriptMock.mockRejectedValue(new Error('decision call failed'))
+      await call(audioRequest(12))
+      expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain('PRIVATE-SPEECH')
+    })
+
+    it('a 402 from the transcription still answers 402 and never reaches the judge', async () => {
+      transcribeAudioMock.mockRejectedValue(
+        Object.assign(new Error('Insufficient credits'), { name: 'InsufficientCreditsError' }),
+      )
+      const res = await call(audioRequest(12))
+      expect(res.status).toBe(402)
+      expect(judgeTranscriptMock).not.toHaveBeenCalled()
+    })
   })
 })
