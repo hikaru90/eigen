@@ -80,6 +80,38 @@ describe('sendTransactionalEmail', () => {
     })
   })
 
+  it('sends templateId and variables instead of subject/html for the template variant', async () => {
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify({ emailId: 'em_3' }), { status: 200 }),
+    )
+
+    await sendTransactionalEmail(
+      {
+        OWLERY_API_KEY: 'us_test',
+        OWLERY_BASE_URL: 'https://owlery.example',
+        OWLERY_EMAIL_FROM: 'hello@eigenmesh.xyz',
+      },
+      {
+        to: 'user@example.com',
+        templateId: 'tpl_1',
+        variables: { title: 'T', summary: 'S', url: 'https://x.example/summary' },
+        text: 'plain',
+      },
+      fetchImpl as unknown as typeof fetch,
+    )
+
+    const body = JSON.parse((fetchImpl.mock.calls[0][1] as RequestInit).body as string)
+    expect(body).toEqual({
+      to: 'user@example.com',
+      from: 'hello@eigenmesh.xyz',
+      templateId: 'tpl_1',
+      variables: { title: 'T', summary: 'S', url: 'https://x.example/summary' },
+      text: 'plain',
+    })
+    expect(body).not.toHaveProperty('subject')
+    expect(body).not.toHaveProperty('html')
+  })
+
   it('includes replyTo when provided', async () => {
     const fetchImpl = vi.fn(
       async () => new Response(JSON.stringify({ emailId: 'em_2' }), { status: 200 }),

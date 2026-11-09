@@ -8,15 +8,24 @@ import {
   type DailyDigestAgent,
 } from '$lib/server/memory/daily-summary'
 import { loadOpenThreads, snippetForOpenThread } from '$lib/server/memory/open-threads'
+import {
+  computeProjectActivity,
+  DIGEST_WINDOW_MS,
+  loadProjectSnapshots,
+  loadProjectWindowActivity,
+} from '$lib/server/memory/daily-digest-projects'
 import { listProjects } from '$lib/server/memory/project-list'
 import { listTemporalEventsForUser } from '$lib/server/memory/temporal-event-list'
 import { loadYarnThoughts } from '$lib/server/mesh/yarn-list'
 
 const RECENT_PER_SECTION = 5
-const AGENT_WINDOW_MS = 24 * 60 * 60 * 1000
 
-/** Thoughts one agent layer captured since `since` (exact count, not capped by a page). */
-async function countAgentCaptures(userId: string, authorLayerKey: string, since: Date): Promise<number> {
+/** Thoughts one author layer (the user or an agent) captured since `since` (exact count, not capped by a page). */
+async function countCapturesByLayer(
+  userId: string,
+  authorLayerKey: string,
+  since: Date,
+): Promise<number> {
   const authorCondition = resolveAuthorSqlCondition(
     { author: thought.author, authorKeyId: thought.authorKeyId, authorLabel: thought.authorLabel },
     { authorLayerKey },
@@ -36,12 +45,12 @@ async function countAgentCaptures(userId: string, authorLayerKey: string, since:
 }
 
 async function loadAgentActivity(userId: string, now: Date): Promise<DailyDigestAgent[]> {
-  const since = new Date(now.getTime() - AGENT_WINDOW_MS)
+  const since = new Date(now.getTime() - DIGEST_WINDOW_MS)
   const layers = (await listAuthorLayersForUser(userId)).filter((layer) => layer.kind === 'agent')
   const agents = await Promise.all(
     layers.map(async (layer): Promise<DailyDigestAgent> => {
       const [captured, latest] = await Promise.all([
-        countAgentCaptures(userId, layer.key, since),
+        countCapturesByLayer(userId, layer.key, since),
         loadYarnThoughts(userId, { authorLayerKey: layer.key }),
       ])
       const recent = latest
@@ -65,38 +74,62 @@ export async function loadDailyDigest(
   timeZone: string,
   now = new Date(),
 ): Promise<DailyDigest> {
-  const [{ items: openItems }, { items: allItems }, projects, openThreads, agents] =
-    await Promise.all([
-      listTemporalEventsForUser({ userId, status: 'open', range: 'all', includeTasks: true }),
-      listTemporalEventsForUser({ userId, status: 'all', range: 'all', includeTasks: true }),
-      listProjects(userId, { kind: 'user' }),
-      loadOpenThreads(userId, { authorScope: 'user' }),
-      loadAgentActivity(userId, now),
-    ])
+  const [
+    { items: openItems },
+    { items: allItems },
+    projects,
+    openThreads,
+    agents,
+    thoughtsFiled,
+    windowActivity,
+    snapshot,
+  ] = await Promise.all([
+    listTemporalEventsForUser({ userId, status: 'open', range: 'all', includeTasks: true }),
+    listTemporalEventsForUser({ userId, status: 'all', range: 'all', includeTasks: true }),
+    listProjects(userId, { kind: 'user' }),
+    loadOpenThreads(userId, { authorScope: 'user' }),
+    loadAgentActivity(userId, now),
+    countCapturesByLayer(userId, 'user', new Date(now.getTime() - DIGEST_WINDOW_MS)),
+    loadProjectWindowActivity(userId, now),
+    loadProjectSnapshots(userId),
+  ])
 
   const orphans = openThreads.orphanThreads
+  const yesterday = computeYesterdayStats(openItems, allItems, timeZone, now)
+  const activeProjects = projects
+    .filter((project) => project.status === 'active')
+    .map((project) => ({
+      entityId: project.entityId,
+      label: project.label,
+      nextAction: project.nextAction?.summary ?? null,
+    }))
+  const stalled = openThreads.stalledProjects.flatMap((project) =>
+    project.stalled
+      ? [{ entityId: project.entityId, label: project.label, reason: project.stalled.reason }]
+      : [],
+  )
+  const unthreaded = {
+    count: orphans.length,
+    // loadOpenThreads lists oldest first; the summary shows the newest
+    recent: orphans
+      .slice(-RECENT_PER_SECTION)
+      .reverse()
+      .map((orphan) => ({ thoughtId: orphan.thoughtId, snippet: orphan.snippet })),
+  }
   return {
-    yesterday: computeYesterdayStats(openItems, allItems, timeZone, now),
-    projects: projects
-      .filter((project) => project.status === 'active')
-      .map((project) => ({
-        entityId: project.entityId,
-        label: project.label,
-        nextAction: project.nextAction?.summary ?? null,
-      })),
-    stalled: openThreads.stalledProjects.flatMap((project) =>
-      project.stalled
-        ? [{ entityId: project.entityId, label: project.label, reason: project.stalled.reason }]
-        : [],
-    ),
-    unthreaded: {
-      count: orphans.length,
-      // loadOpenThreads lists oldest first; the summary shows the newest
-      recent: orphans
-        .slice(-RECENT_PER_SECTION)
-        .reverse()
-        .map((orphan) => ({ thoughtId: orphan.thoughtId, snippet: orphan.snippet })),
-    },
+    yesterday,
+    thoughtsFiled,
+    tasksDone: yesterday.completed,
+    projects: activeProjects,
+    projectActivity: computeProjectActivity({
+      projects: activeProjects,
+      stalled,
+      unthreaded,
+      window: windowActivity,
+      snapshot,
+    }),
+    stalled,
+    unthreaded,
     agents,
   }
 }

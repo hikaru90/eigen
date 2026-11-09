@@ -25,6 +25,43 @@ export type DailyDigestAgent = {
   recent: DailyDigestSnippet[]
 }
 
+/** One project's activity in the last 24 hours; `score` = newThoughts + tasksDone. */
+export type DailyDigestMostActive = {
+  entityId: string
+  label: string
+  newThoughts: number
+  tasksDone: number
+  score: number
+}
+
+export type DailyDigestProjectChange =
+  | { kind: 'tasks_done'; count: number }
+  | { kind: 'thoughts_linked'; count: number }
+  | { kind: 'milestone_added'; label: string }
+  | { kind: 'milestone_changed'; label: string }
+  | { kind: 'next_action_changed'; from: string | null; to: string | null }
+
+export type DailyDigestProjectChanges = {
+  entityId: string
+  label: string
+  items: DailyDigestProjectChange[]
+}
+
+/** Project movement in the 24 hours before the digest, for the email and /summary. */
+export type DailyDigestProjectActivity = {
+  /** Top 3 active projects by score, score 0 excluded. */
+  mostActive: DailyDigestMostActive[]
+  /** Only projects with at least one change. */
+  changes: DailyDigestProjectChanges[]
+  needCleanup: {
+    stalled: DailyDigestStalled[]
+    /** Active projects with no next action that are not already listed as stalled. */
+    noNextAction: { entityId: string; label: string }[]
+    overdueTasks: { entityId: string; label: string; count: number }[]
+    unthreaded: { count: number; recent: DailyDigestSnippet[] }
+  }
+}
+
 /**
  * The daily summary (operator brief, 2026-10-24): what is running (projects), what is
  * stuck (stalled threads), what still needs a thread (open tasks on no project), and
@@ -33,7 +70,12 @@ export type DailyDigestAgent = {
  */
 export type DailyDigest = {
   yesterday: YesterdayStats
+  /** The user's own thoughts filed in the last 24 hours. */
+  thoughtsFiled: number
+  /** Same value as `yesterday.completed` — one definition of "tasks done". */
+  tasksDone: number
   projects: DailyDigestProject[]
+  projectActivity: DailyDigestProjectActivity
   stalled: DailyDigestStalled[]
   unthreaded: { count: number; recent: DailyDigestSnippet[] }
   agents: DailyDigestAgent[]
@@ -73,7 +115,9 @@ export function dailyDigestPush(digest: DailyDigest): DailySummaryPush {
       : `Agents: ${digest.agents.map((a) => `${a.label} ${a.count}`).join(', ')}`,
   ].join(' · ')
   const info = [
-    yesterday.completed === 0 ? 'no tasks done' : `${plural(yesterday.completed, 'task', 'tasks')} done`,
+    yesterday.completed === 0
+      ? 'no tasks done'
+      : `${plural(yesterday.completed, 'task', 'tasks')} done`,
     yesterday.overdue === 0 ? 'nothing overdue' : `${yesterday.overdue} overdue`,
     yesterday.dueToday === 0 ? 'nothing due today' : `${yesterday.dueToday} due today`,
   ].join(', ')

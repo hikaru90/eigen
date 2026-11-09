@@ -1,13 +1,28 @@
 import { type OwleryEnv, resolveOwleryMailConfig } from './config'
 
-export type SendTransactionalEmailInput = {
+type TransactionalEmailBase = {
   to: string
-  subject: string
-  html: string
   text: string
   /** Optional Reply-To so inbox replies reach the submitter. */
   replyTo?: string
 }
+
+/** Inline content: the caller supplies subject and HTML. */
+export type InlineEmailInput = TransactionalEmailBase & {
+  subject: string
+  html: string
+}
+
+/**
+ * Owlery template: subject and HTML come from the template; `{{key}}` is replaced
+ * from `variables` without HTML escaping, so the caller must escape values.
+ */
+export type TemplateEmailInput = TransactionalEmailBase & {
+  templateId: string
+  variables: Record<string, string>
+}
+
+export type SendTransactionalEmailInput = InlineEmailInput | TemplateEmailInput
 
 /**
  * Sends one transactional email via Owlery REST (`POST /api/v1/emails`).
@@ -35,8 +50,9 @@ export async function sendTransactionalEmail(
     body: JSON.stringify({
       to: input.to,
       from: config.from,
-      subject: input.subject,
-      html: input.html,
+      ...('templateId' in input
+        ? { templateId: input.templateId, variables: input.variables }
+        : { subject: input.subject, html: input.html }),
       text: input.text,
       ...(input.replyTo ? { replyTo: input.replyTo } : {}),
     }),

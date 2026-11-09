@@ -1,14 +1,14 @@
 import { eq } from 'drizzle-orm'
 import { getDb, withDbUser } from '$lib/server/db'
 import { pushSubscription, userPreference } from '$lib/server/db/schema'
-import {
-  buildDailySummaryPreviewForUser,
-  evaluateDailySummaryDispatch,
-} from '$lib/server/memory/daily-summary-visibility'
+import { loadDailyDigest } from '$lib/server/memory/daily-digest'
+import { recordDigestProjectSnapshots } from '$lib/server/memory/daily-digest-projects'
+import { dailyDigestPush } from '$lib/server/memory/daily-summary'
+import { evaluateDailySummaryDispatch } from '$lib/server/memory/daily-summary-visibility'
 import { listDailySummaryCandidates } from '$lib/server/memory/notification-dispatch-admin'
 import { localDayKey } from '$lib/server/memory/timeline-today-server'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
-import { queueNotificationEmail } from '$lib/server/notify/notification-email'
+import { queueDigestEmail } from '$lib/server/notify/notification-email'
 import { sendPushToUser } from '$lib/server/push/send'
 
 export type DispatchDailySummariesResult = {
@@ -62,7 +62,8 @@ export async function dispatchDueDailySummaries(
         return
       }
 
-      const push = await buildDailySummaryPreviewForUser(row.userId, now)
+      const digest = await loadDailyDigest(row.userId, timeZone, now)
+      const push = dailyDigestPush(digest)
 
       try {
         const pushResult = await sendPushToUser(row.userId, {
@@ -74,12 +75,16 @@ export async function dispatchDueDailySummaries(
         if (pushResult.sent < 1) {
           throw new Error('Push delivery failed: no device accepted the notification')
         }
-        await queueNotificationEmail(row.userId, {
-          title: push.title,
-          body: push.body,
-          url: push.url,
-          tag: `daily-summary-${todayKey}`,
-        })
+        await queueDigestEmail(
+          row.userId,
+          {
+            title: push.title,
+            body: push.body,
+            url: push.url,
+            tag: `daily-summary-${todayKey}`,
+          },
+          digest,
+        )
         await getDb()
           .update(userPreference)
           .set({
@@ -89,6 +94,17 @@ export async function dispatchDueDailySummaries(
           })
           .where(eq(userPreference.userId, row.userId))
         result.sent += 1
+        // The digest is out; remember the next actions so tomorrow's can report changes.
+        // A failure here must not turn a delivered digest into a failed one (which
+        // would resend it), so it is logged loudly instead.
+        try {
+          await recordDigestProjectSnapshots(row.userId, digest.projects, now)
+        } catch (snapshotErr) {
+          console.error('[daily-summary-dispatch] project snapshot write failed', {
+            userId: row.userId,
+            message: snapshotErr instanceof Error ? snapshotErr.message : String(snapshotErr),
+          })
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         console.error('[daily-summary-dispatch] push failed', {

@@ -7,7 +7,9 @@ const {
   getDbMock,
   tzMock,
   evaluateMock,
-  previewMock,
+  loadDigestMock,
+  pushLineMock,
+  snapshotMock,
   sendPushMock,
   localDayKeyMock,
   queueEmailMock,
@@ -17,7 +19,9 @@ const {
   getDbMock: vi.fn(),
   tzMock: vi.fn(),
   evaluateMock: vi.fn(),
-  previewMock: vi.fn(),
+  loadDigestMock: vi.fn(),
+  pushLineMock: vi.fn(),
+  snapshotMock: vi.fn(),
   sendPushMock: vi.fn(),
   localDayKeyMock: vi.fn(() => '2026-01-01'),
   queueEmailMock: vi.fn(),
@@ -38,8 +42,13 @@ vi.mock('$lib/server/memory/user-timezone', () => ({
 
 vi.mock('$lib/server/memory/daily-summary-visibility', () => ({
   evaluateDailySummaryDispatch: evaluateMock,
-  buildDailySummaryPreviewForUser: previewMock,
 }))
+
+vi.mock('$lib/server/memory/daily-digest', () => ({ loadDailyDigest: loadDigestMock }))
+vi.mock('$lib/server/memory/daily-digest-projects', () => ({
+  recordDigestProjectSnapshots: snapshotMock,
+}))
+vi.mock('$lib/server/memory/daily-summary', () => ({ dailyDigestPush: pushLineMock }))
 
 vi.mock('$lib/server/memory/timeline-today-server', () => ({
   localDayKey: localDayKeyMock,
@@ -50,8 +59,10 @@ vi.mock('$lib/server/push/send', () => ({
 }))
 
 vi.mock('$lib/server/notify/notification-email', () => ({
-  queueNotificationEmail: queueEmailMock,
+  queueDigestEmail: queueEmailMock,
 }))
+
+const DIGEST = { projects: [{ entityId: 'p1', label: 'One', nextAction: 'Do X' }] }
 
 describe('dispatchDueDailySummaries', () => {
   const updateWhere = vi.fn(async () => undefined)
@@ -65,7 +76,9 @@ describe('dispatchDueDailySummaries', () => {
     })
     tzMock.mockResolvedValue('UTC')
     localDayKeyMock.mockReturnValue('2026-01-01')
-    previewMock.mockResolvedValue({
+    loadDigestMock.mockResolvedValue(DIGEST)
+    snapshotMock.mockResolvedValue(undefined)
+    pushLineMock.mockReturnValue({
       title: 'Daily',
       body: 'Summary',
       url: '/memory/timeline',
@@ -139,8 +152,46 @@ describe('dispatchDueDailySummaries', () => {
         body: 'Summary',
         url: '/memory/timeline',
       }),
+      DIGEST,
     )
     expect(update).toHaveBeenCalled()
+  })
+
+  it('records the project snapshot after the digest went out', async () => {
+    listCandidatesMock.mockResolvedValue([
+      {
+        userId: 'u1',
+        dailySummaryMinutesLocal: 480,
+        lastDailySummaryLocalDate: null,
+        lastDailySummaryDispatchError: null,
+      },
+    ])
+    const at = new Date('2026-01-01T08:00:00.000Z')
+    await dispatchDueDailySummaries(at)
+    expect(snapshotMock).toHaveBeenCalledWith('u1', DIGEST.projects, at)
+    expect(queueEmailMock.mock.invocationCallOrder[0]).toBeLessThan(
+      snapshotMock.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('does not fail a delivered digest when the snapshot write fails (logged, not resent)', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    listCandidatesMock.mockResolvedValue([
+      {
+        userId: 'u1',
+        dailySummaryMinutesLocal: 480,
+        lastDailySummaryLocalDate: null,
+        lastDailySummaryDispatchError: null,
+      },
+    ])
+    snapshotMock.mockRejectedValue(new Error('db down'))
+    const result = await dispatchDueDailySummaries(new Date('2026-01-01T08:00:00.000Z'))
+    expect(result).toMatchObject({ sent: 1, failed: 0 })
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('snapshot write failed'),
+      expect.objectContaining({ message: 'db down' }),
+    )
+    errSpy.mockRestore()
   })
 
   it('marks failed when no device accepts push', async () => {
@@ -157,6 +208,7 @@ describe('dispatchDueDailySummaries', () => {
     const result = await dispatchDueDailySummaries(new Date('2026-01-01T08:00:00.000Z'))
     expect(result.failed).toBe(1)
     expect(queueEmailMock).not.toHaveBeenCalled()
+    expect(snapshotMock).not.toHaveBeenCalled()
     errSpy.mockRestore()
   })
 })

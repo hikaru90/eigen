@@ -596,6 +596,13 @@
       "when": 1792920240000,
       "tag": "0084_capture_reflection_prompt",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1792920300000,
+      "tag": "0085_daily_digest_project_snapshot",
+      "breakpoints": true
     }
   ]
 }

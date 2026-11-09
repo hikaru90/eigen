@@ -2139,3 +2139,22 @@ export const captureReflectionPrompt = pgTable(
   },
   (t) => [primaryKey({ name: 'capture_reflection_prompt_pk', columns: [t.userId, t.day] })],
 )
+
+/**
+ * The next action each active project had when the last daily digest went out; the
+ * next digest compares against it to report "next action changed". RLS: own rows only.
+ */
+export const dailyDigestProjectSnapshot = pgTable(
+  'daily_digest_project_snapshot',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    projectEntityId: uuid('project_entity_id')
+      .notNull()
+      .references(() => canonicalEntity.id, { onDelete: 'cascade' }),
+    nextActionSummary: text('next_action_summary'),
+    recordedAt: timestamp('recorded_at').defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.projectEntityId], name: 'daily_digest_project_snapshot_pk' })],
+)

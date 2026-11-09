@@ -125,6 +125,13 @@ describe('computeYesterdayStats', () => {
 describe('dailyDigestPush', () => {
   const digest = (over: Partial<DailyDigest> = {}): DailyDigest => ({
     yesterday: { completed: 1, overdue: 0, dueToday: 2 },
+    thoughtsFiled: 0,
+    tasksDone: 1,
+    projectActivity: {
+      mostActive: [],
+      changes: [],
+      needCleanup: { stalled: [], noNextAction: [], overdueTasks: [], unthreaded: { count: 0, recent: [] } },
+    },
     projects: [
       { entityId: 'p1', label: 'Eigenmesh', nextAction: 'Ship rewards' },
       { entityId: 'p2', label: 'Hydra buoy', nextAction: null },
