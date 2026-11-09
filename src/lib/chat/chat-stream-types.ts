@@ -61,6 +61,8 @@ export const CHAT_TOOL_COPY: Record<string, ChatToolVisual> = {
   },
   get_capture_review: { title: 'Reading a capture review', category: 'memory', icon: 'list' },
   rate_capture: { title: 'Rating a capture', category: 'write', icon: 'pencil' },
+  get_now_cards: { title: 'Reading your next steps', category: 'memory', icon: 'list' },
+  answer_now_card: { title: 'Answering a next step', category: 'write', icon: 'pencil' },
   list_projects: { title: 'Listing projects', category: 'memory', icon: 'list' },
   open_threads: { title: 'Sweeping open threads', category: 'memory', icon: 'list' },
   get_project_timeline: { title: 'Opening project timeline', category: 'memory', icon: 'list' },

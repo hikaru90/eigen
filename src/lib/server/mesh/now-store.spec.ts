@@ -22,6 +22,7 @@ import {
   loadOtherActiveProjects,
   NOW_DECKS_PER_DAY,
   resolveNow,
+  resolveNowDeck,
   writeNowDeck,
   type NowCardPayload,
   type NowStoreDeps,
@@ -324,6 +325,91 @@ describe('resolveNow (NOW-7)', () => {
     const result = await resolveNow(deps)
 
     expect(result).toMatchObject({ state: 'card', card: { id: 'c5', kind: 'sort' }, remaining: 1 })
+  })
+})
+
+describe('resolveNowDeck (NOW-13, the whole pending deck for agents)', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('returns every pending card of the deck in order, with no LLM call and no candidate query', async () => {
+    const deps = makeDeps({
+      readToday: vi.fn().mockResolvedValue({
+        deckCount: 1,
+        pending: [stored(2, 'unblock'), stored(3, 'file'), stored(4, 'do')],
+      }),
+    })
+
+    const result = await resolveNowDeck(deps)
+
+    expect(deps.generate).not.toHaveBeenCalled()
+    expect(deps.loadCandidates).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ state: 'cards', candidatesOmitted: 12 })
+    if (result.state !== 'cards') throw new Error('expected cards')
+    expect(result.cards.map((c) => [c.id, c.kind, c.text])).toEqual([
+      ['c2', 'unblock', 'Text 2'],
+      ['c3', 'file', 'Text 3'],
+      ['c4', 'do', 'Text 4'],
+    ])
+    expect(result.cards[0]).toMatchObject({
+      suggestedStep: 'Book the site visit',
+      answers: ['yes', 'something_else', 'someday', 'finished'],
+    })
+  })
+
+  it('drops every stale card, not just the first, and marks each superseded', async () => {
+    const deps = makeDeps({
+      readToday: vi.fn().mockResolvedValue({
+        deckCount: 1,
+        pending: [stored(1), stored(2), stored(3)],
+      }),
+      isStale: vi.fn(async (card: StoredNowCard) => card.id !== 'c2'),
+    })
+
+    const result = await resolveNowDeck(deps)
+
+    expect(deps.markSuperseded.mock.calls.map(([id]) => id)).toEqual(['c1', 'c3'])
+    expect(result.state === 'cards' && result.cards.map((c) => c.id)).toEqual(['c2'])
+  })
+
+  it('NOW-7: with no deck today and candidates, writes one deck and returns all its cards', async () => {
+    const deps = makeDeps()
+    const result = await resolveNowDeck(deps)
+    expect(deps.generate).toHaveBeenCalledTimes(1)
+    expect(deps.writeDeck).toHaveBeenCalledWith(1, drafts, 12)
+    expect(result.state === 'cards' && result.cards.map((c) => c.id)).toEqual(['c1', 'c2', 'c3'])
+  })
+
+  it('writes the next deck when every pending card turned out stale', async () => {
+    const deps = makeDeps({
+      readToday: vi.fn().mockResolvedValue({ deckCount: 1, pending: [stored(9)] }),
+      isStale: vi.fn(async (card: StoredNowCard) => card.id === 'c9'),
+    })
+    const result = await resolveNowDeck(deps)
+    expect(deps.writeDeck).toHaveBeenCalledWith(2, drafts, 12)
+    expect(result.state).toBe('cards')
+  })
+
+  it('clear: no candidates, no LLM call', async () => {
+    const deps = makeDeps({
+      loadCandidates: vi.fn().mockResolvedValue({ thoughts: [], projects: [], candidatesOmitted: 0 }),
+    })
+    await expect(resolveNowDeck(deps)).resolves.toEqual({ state: 'clear' })
+    expect(deps.generate).not.toHaveBeenCalled()
+  })
+
+  it('limit: three decks today and none pending, no candidate query, no LLM call', async () => {
+    const deps = makeDeps({
+      readToday: vi.fn().mockResolvedValue({ deckCount: NOW_DECKS_PER_DAY, pending: [] }),
+    })
+    await expect(resolveNowDeck(deps)).resolves.toEqual({ state: 'limit' })
+    expect(deps.loadCandidates).not.toHaveBeenCalled()
+    expect(deps.generate).not.toHaveBeenCalled()
+  })
+
+  it('a generation failure reaches the caller and stores nothing', async () => {
+    const deps = makeDeps({ generate: vi.fn().mockRejectedValue(new Error('The model failed 3 times')) })
+    await expect(resolveNowDeck(deps)).rejects.toThrow('The model failed 3 times')
+    expect(deps.writeDeck).not.toHaveBeenCalled()
   })
 })
 

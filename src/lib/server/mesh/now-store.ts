@@ -116,6 +116,32 @@ async function view(deps: NowStoreDeps, card: StoredNowCard, remaining: number):
   }
 }
 
+/** The pending deck an agent reads: every fresh card in order (NOW-13). */
+export type NowDeckState =
+  | { state: 'cards'; cards: NowCardView[]; candidatesOmitted: number }
+  | { state: 'clear' }
+  | { state: 'limit' }
+
+/**
+ * No fresh pending card is left: write the next deck when the rules allow it (NOW-7), or say why
+ * not. Shared by the card and the deck reads so both follow the same rules.
+ */
+async function writeNextDeck(
+  deps: NowStoreDeps,
+  deckCount: number,
+): Promise<StoredNowCard[] | { state: 'clear' } | { state: 'limit' }> {
+  if (deckCount >= NOW_DECKS_PER_DAY) return { state: 'limit' }
+  const candidates = await deps.loadCandidates()
+  if (candidates.thoughts.length + candidates.projects.length === 0) return { state: 'clear' }
+
+  const drafts = await deps.generate(await deps.loadContext(candidates))
+  const stored = await deps.writeDeck(deckCount + 1, drafts, candidates.candidatesOmitted)
+  if (stored.length === 0) {
+    throw new Error('Your next steps were written but could not be read back. Please try again.')
+  }
+  return stored
+}
+
 export async function resolveNow(deps: NowStoreDeps): Promise<NowState> {
   await deps.expireEarlier()
   const today = await deps.readToday()
@@ -131,16 +157,36 @@ export async function resolveNow(deps: NowStoreDeps): Promise<NowState> {
     return view(deps, card, pending.length - 1)
   }
 
-  if (today.deckCount >= NOW_DECKS_PER_DAY) return { state: 'limit' }
-  const candidates = await deps.loadCandidates()
-  if (candidates.thoughts.length + candidates.projects.length === 0) return { state: 'clear' }
+  const next = await writeNextDeck(deps, today.deckCount)
+  if (!Array.isArray(next)) return next
+  return view(deps, next[0], next.length - 1)
+}
 
-  const drafts = await deps.generate(await deps.loadContext(candidates))
-  const stored = await deps.writeDeck(today.deckCount + 1, drafts, candidates.candidatesOmitted)
-  if (stored.length === 0) {
-    throw new Error('Your next steps were written but could not be read back. Please try again.')
+/** Like `resolveNow`, but returns the whole pending deck in order instead of its first card. */
+export async function resolveNowDeck(deps: NowStoreDeps): Promise<NowDeckState> {
+  await deps.expireEarlier()
+  const today = await deps.readToday()
+
+  const fresh: StoredNowCard[] = []
+  for (const card of today.pending) {
+    if (await deps.isStale(card)) await deps.markSuperseded(card.id)
+    else fresh.push(card)
   }
-  return view(deps, stored[0], stored.length - 1)
+
+  let cards = fresh
+  if (cards.length === 0) {
+    const next = await writeNextDeck(deps, today.deckCount)
+    if (!Array.isArray(next)) return next
+    cards = next
+  }
+
+  const views = await Promise.all(cards.map((card) => view(deps, card, 0)))
+  const shown = views.flatMap((v) => (v.state === 'card' ? [v] : []))
+  return {
+    state: 'cards',
+    cards: shown.map((v) => v.card),
+    candidatesOmitted: shown[0]?.candidatesOmitted ?? 0,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -371,10 +417,8 @@ async function loadContext(
   }
 }
 
-/** The card to show on Yarn right now, writing a new deck when the rules allow it. */
-export async function loadNowCard(userId: string, now: Date = new Date()): Promise<NowState> {
-  const day = localDayKey(now.toISOString(), await getUserPreferredTimezone(userId))
-  return resolveNow({
+function buildStoreDeps(userId: string, now: Date, day: string): NowStoreDeps {
+  return {
     expireEarlier: () => expireEarlierNowCards(userId, day),
     readToday: () => readToday(userId, day),
     isStale: (card) => isNowCardStale(userId, card),
@@ -400,5 +444,17 @@ export async function loadNowCard(userId: string, now: Date = new Date()): Promi
       ) as NowCardPayload,
     resolveProject: (card) => resolveProject(userId, card),
     otherProjects: (card) => loadOtherActiveProjects(userId, card.targetProjectEntityId),
-  })
+  }
+}
+
+/** The card to show on Yarn right now, writing a new deck when the rules allow it. */
+export async function loadNowCard(userId: string, now: Date = new Date()): Promise<NowState> {
+  const day = localDayKey(now.toISOString(), await getUserPreferredTimezone(userId))
+  return resolveNow(buildStoreDeps(userId, now, day))
+}
+
+/** Every pending card of the current deck, writing a new deck when the rules allow it (MCP `get_now_cards`). */
+export async function loadNowDeck(userId: string, now: Date = new Date()): Promise<NowDeckState> {
+  const day = localDayKey(now.toISOString(), await getUserPreferredTimezone(userId))
+  return resolveNowDeck(buildStoreDeps(userId, now, day))
 }

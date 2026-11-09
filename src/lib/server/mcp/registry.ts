@@ -7,6 +7,7 @@ import {
   runVoteIdeaTool,
 } from '$lib/server/mcp/board-tools'
 import { runGetCaptureReviewTool, runRateCaptureTool } from '$lib/server/mcp/capture-review-tools'
+import { runAnswerNowCardTool, runGetNowCardsTool } from '$lib/server/mcp/now-tools'
 import {
   runAnswerQuestionTool,
   runAppendTextFileTool,
@@ -65,6 +66,8 @@ const MCP_CLIENT_TOOL_NAMES = new Set([
   'delete_thoughts_by_request',
   'get_capture_review',
   'rate_capture',
+  'get_now_cards',
+  'answer_now_card',
   'list_projects',
   'open_threads',
   'get_project_timeline',
@@ -313,6 +316,50 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"thought_id": "string (required) — UUID", "verdict": "up|down (required)", "reason": "string (optional, only with down, max 2000 chars) — what was wrong; applied as an edit"}',
     handler: runRateCaptureTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('rate_capture'),
+    exposeInChat: false,
+  },
+  {
+    name: 'get_now_cards',
+    description:
+      "The user's Lightning questions: every pending card of today's current deck, in order, writing a new deck first when the daily rules allow it (at most 3 decks a day). Each card has id, kind (do, sort, file, unblock), text, why, suggestedStep (unblock only), project, the answers it offers and, for file cards, otherProjects. state is cards, or clear (nothing needs the user right now) or limit (today's decks are used up); both come with a note and no cards. Use it when the user asks what to do next and answer with one of the cards, choosing by what they say about their situation. Never invent another task.",
+    inputSchema: {
+      type: 'object',
+      properties: {},
+      additionalProperties: false,
+    },
+    agentArgumentSchema: '{}',
+    handler: runGetNowCardsTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('get_now_cards'),
+  },
+  {
+    name: 'answer_now_card',
+    description:
+      'Answer one Lightning question card, from get_now_cards. The answers depend on the card kind: do: done, not_now, too_big; sort: done, drop, keep; file: yes, other_project, not_a_task; unblock: yes, something_else, someday, finished. other_project needs project_entity_id (an active project, from the card\'s otherProjects); something_else needs text (the next step, at most 500 characters); no other answer takes either. Each answer applies the same change as in the app (complete or archive the thought, file it under a project, set a next action, change the project status). Returns what was answered and the next card, if any. An answer cannot be undone over MCP.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        card_id: { type: 'string', description: 'UUID of the card, from get_now_cards.' },
+        answer: {
+          type: 'string',
+          description:
+            'One of the card\'s answers: done, not_now, too_big, drop, keep, yes, other_project, not_a_task, something_else, someday, finished.',
+        },
+        project_entity_id: {
+          type: 'string',
+          description: 'Only with other_project: UUID of the active project to file the thought under.',
+        },
+        text: {
+          type: 'string',
+          description: 'Only with something_else: the next step to save (at most 500 characters).',
+        },
+      },
+      required: ['card_id', 'answer'],
+      additionalProperties: false,
+    },
+    agentArgumentSchema:
+      '{"card_id": "string (required) — UUID", "answer": "string (required) — one of the card\'s answers", "project_entity_id": "string (only with other_project) — UUID", "text": "string (only with something_else, max 500 chars)"}',
+    handler: runAnswerNowCardTool,
+    exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('answer_now_card'),
     exposeInChat: false,
   },
   {
@@ -876,6 +923,8 @@ export const MCP_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name)
  * the user confirmed. Capturing belongs to the Capture surface and to HTTP MCP clients, both of
  * which keep capture_thought. The shared board and the capture review tools (get_capture_review,
  * rate_capture) are HTTP MCP only: the vote in the app lives in the Capture strip and the Mesh row.
+ * get_now_cards is in Ask (its picker for "what should I do?"); answer_now_card is HTTP MCP only,
+ * because cards are answered on Yarn, not from Ask.
  */
 export const CHAT_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.filter(
   (t) => t.exposeInChat !== false,

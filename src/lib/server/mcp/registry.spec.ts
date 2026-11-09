@@ -31,6 +31,9 @@ const BOARD_TOOLS = ['list_board', 'share_idea', 'vote_idea', 'forget_idea'] as 
 /** Capture feedback C3 (capture-feedback.md §7): HTTP MCP only, never the in-app Ask agent. */
 const CAPTURE_REVIEW_TOOLS = ['get_capture_review', 'rate_capture'] as const
 
+/** Lightning questions (feature-mesh-now.md NOW-13): over MCP; Ask reads the cards, never answers them. */
+const NOW_TOOLS = ['get_now_cards', 'answer_now_card'] as const
+
 /** Ask proposes thoughts (feature-ask-proposes-thoughts.md AP-2/AP-4): in-app Ask only. */
 const ASK_PROPOSAL_TOOLS = ['propose_thoughts', 'store_thoughts'] as const
 
@@ -54,6 +57,7 @@ describe('MCP tool registry exposure', () => {
       'delete_thought',
       'delete_thoughts_by_request',
       ...CAPTURE_REVIEW_TOOLS,
+      ...NOW_TOOLS,
       'list_projects',
       'open_threads',
       'get_project_timeline',
@@ -78,6 +82,7 @@ describe('MCP tool registry exposure', () => {
       'delete_thought',
       'delete_thoughts_by_request',
       ...CAPTURE_REVIEW_TOOLS,
+      ...NOW_TOOLS,
       'list_projects',
       'open_threads',
       'get_project_timeline',
@@ -176,11 +181,48 @@ describe('MCP tool registry exposure', () => {
     })
   })
 
+  it('offers the Now tools to HTTP MCP clients; Ask gets get_now_cards (its picker) but not answer_now_card', () => {
+    for (const name of NOW_TOOLS) {
+      const def = MCP_TOOL_DEFINITIONS.find((t) => t.name === name)
+      expect(def, name).toBeDefined()
+      expect(def?.exposeInMcp).toBe(true)
+      expect(isAgentTool(name)).toBe(true)
+      expect(isMcpExposedTool(name)).toBe(true)
+      expect(MCP_CLIENT_EXPOSED_TOOL_NAMES).toContain(name)
+    }
+    expect(MCP_TOOL_DEFINITIONS.find((t) => t.name === 'get_now_cards')?.exposeInChat).not.toBe(false)
+    expect(MCP_TOOL_DEFINITIONS.find((t) => t.name === 'answer_now_card')?.exposeInChat).toBe(false)
+    expect(isChatAgentTool('get_now_cards')).toBe(true)
+    expect(isChatAgentTool('answer_now_card')).toBe(false)
+    const block = buildChatAgentToolDescriptionBlock()
+    expect(block).toContain('get_now_cards')
+    expect(block).not.toContain('answer_now_card')
+  })
+
+  it('describes the Now tools: the cards, the answers per kind, and what an answer needs', () => {
+    const get = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'get_now_cards')
+    expect(get?.description).toMatch(/pending card/i)
+    expect(get?.description).toMatch(/clear/i)
+    expect(get?.description).toMatch(/limit/i)
+    expect(get?.inputSchema).toMatchObject({ type: 'object', additionalProperties: false })
+
+    const answer = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'answer_now_card')
+    expect(answer?.description).toMatch(/answers/i)
+    expect(answer?.description).toMatch(/other_project/)
+    expect(answer?.description).toMatch(/something_else/)
+    expect(answer?.inputSchema).toMatchObject({
+      type: 'object',
+      required: ['card_id', 'answer'],
+      additionalProperties: false,
+    })
+  })
+
   it('keeps a tool out of the in-app agent only through the explicit exposeInChat flag', () => {
     const flagged = MCP_TOOL_DEFINITIONS.filter((t) => t.exposeInChat === false).map((t) => t.name)
     expect(flagged).toEqual([
       'capture_thought',
       ...CAPTURE_REVIEW_TOOLS,
+      'answer_now_card',
       ...BOARD_TOOLS,
       'update_idea',
     ])

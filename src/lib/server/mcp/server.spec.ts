@@ -64,6 +64,8 @@ describe('createMcpServer', () => {
       'delete_thoughts_by_request',
       'get_capture_review',
       'rate_capture',
+      'get_now_cards',
+      'answer_now_card',
       'list_projects',
       'open_threads',
       'get_project_timeline',

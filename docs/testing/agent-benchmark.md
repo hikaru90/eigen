@@ -64,6 +64,39 @@ answer already carries the verdict, so a read after it is verification, not part
 
 Neither tool is offered to the in-app Ask agent (`exposeInChat: false`); the test-drive asserts it.
 
+## The Now (Lightning questions) test-drive
+
+Plan: [`docs/planning/feature-mesh-now.md`](../planning/feature-mesh-now.md) §7 (NOW-10, NOW-13).
+Automated in `src/lib/server/mcp/now-test-drive.spec.ts` (a real MCP client and server over an
+in-memory transport; the real deck and answer decisions over in-memory stores; the deck writer
+and every write are fakes; no network).
+
+**Budget: 2 calls.** `get_now_cards` → `answer_now_card`. The answer already carries the next card,
+so a read after it is verification, not part of the budget.
+
+1. `get_now_cards` (no arguments) → `{ state: "cards", cards: [...], candidatesOmitted }`: every
+   pending card of the current deck in order, each with `id`, `kind`, `text`, `why`,
+   `suggestedStep` (unblock only), `project`, `answers` and (file cards) `otherProjects`. The first
+   read of a day writes the deck (one LLM call); later reads return the same deck with no LLM call.
+   `{ state: "clear" }` and `{ state: "limit" }` come with a note and no cards.
+2. `answer_now_card { card_id, answer }` → `{ answered: { cardId, answer }, next }`. The answers per
+   kind: do `done | not_now | too_big`; sort `done | drop | keep`; file `yes | other_project |
+   not_a_task`; unblock `yes | something_else | someday | finished`. `other_project` needs
+   `project_entity_id`, `something_else` needs `text`.
+3. **Cleanup:** `delete_thought` on a step an `unblock` answer captured (`retrieve_thoughts` finds
+   it); `edit_project { status: "active" }` to undo `someday`. Verified by `retrieve_thoughts`,
+   `list_projects` and `get_now_cards`. An answer has no Undo over MCP.
+4. **Negative probes** (each fails loud with the constraint, and changes nothing): an answer the
+   card kind does not offer (`answer must be one of: …`, also `too_big` on a `file` card);
+   `other_project` without `project_entity_id` (`project_entity_id is required for
+   other_project`); a `project_entity_id` that is not a uuid or comes with another answer; a
+   `card_id` that is not a uuid (`card_id must be a uuid`); an unknown argument (`Unknown argument:
+   … Allowed: …`); an unknown or another user's card (`Card not found`); a second answer to the
+   same card (`This card was already answered`).
+
+`get_now_cards` is offered to the in-app Ask agent (it is Ask's picker for "what should I do?");
+`answer_now_card` is not (`exposeInChat: false`). The test-drive asserts both.
+
 ## Regression watchlist (agent-trust data quality)
 
 These data defects break agent trust even when tools behave; check them when
