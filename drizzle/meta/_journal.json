@@ -603,6 +603,13 @@
       "when": 1792920300000,
       "tag": "0085_daily_digest_project_snapshot",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792920360000,
+      "tag": "0086_now_card",
+      "breakpoints": true
     }
   ]
 }

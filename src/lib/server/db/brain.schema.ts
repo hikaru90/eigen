@@ -179,7 +179,7 @@ export const enrichQueueStatusEnum = [
 export type EnrichQueueStatus = (typeof enrichQueueStatusEnum)[number]
 
 /** `ask`: stored from Ask after the user confirmed a proposal (text column, no DB constraint). */
-export const captureSourceEnum = ['mcp', 'ui', 'api', 'eval', 'agent', 'ask'] as const
+export const captureSourceEnum = ['mcp', 'ui', 'api', 'eval', 'agent', 'ask', 'now'] as const
 export type CaptureSource = (typeof captureSourceEnum)[number]
 
 /** Who authored a memory row — human user or a connected agent. */
@@ -2157,4 +2157,51 @@ export const dailyDigestProjectSnapshot = pgTable(
     recordedAt: timestamp('recorded_at').defaultNow().notNull(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.projectEntityId], name: 'daily_digest_project_snapshot_pk' })],
+)
+
+export const nowCardKindValues = ['do', 'sort', 'file', 'unblock'] as const
+export type NowCardKind = (typeof nowCardKindValues)[number]
+export const nowCardStatusValues = ['pending', 'answered', 'superseded', 'expired'] as const
+export type NowCardStatus = (typeof nowCardStatusValues)[number]
+
+/**
+ * Cards of the Now decks on Yarn (docs/planning/feature-mesh-now.md, NOW-8). One row per
+ * card; `payload_encrypted` holds text, why, suggestedStep and notTaskCategory under the
+ * tenant envelope. The unique key makes the first writer of a deck win. RLS: own rows only.
+ */
+export const nowCard = pgTable(
+  'now_card',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    localDay: text('local_day').notNull(),
+    deckNumber: integer('deck_number').notNull(),
+    position: integer('position').notNull(),
+    kind: text('kind', { enum: nowCardKindValues }).notNull(),
+    targetThoughtId: uuid('target_thought_id').references(() => thought.id, {
+      onDelete: 'cascade',
+    }),
+    targetProjectEntityId: uuid('target_project_entity_id').references(() => canonicalEntity.id, {
+      onDelete: 'cascade',
+    }),
+    payloadEncrypted: text('payload_encrypted').notNull(),
+    status: text('status', { enum: nowCardStatusValues }).notNull().default('pending'),
+    answer: text('answer'),
+    undoStateEncrypted: text('undo_state_encrypted'),
+    hiddenUntil: timestamp('hidden_until'),
+    answeredAt: timestamp('answered_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('now_card_user_day_deck_position_uidx').on(
+      t.userId,
+      t.localDay,
+      t.deckNumber,
+      t.position,
+    ),
+    index('now_card_user_status_idx').on(t.userId, t.status),
+    index('now_card_user_target_thought_idx').on(t.userId, t.targetThoughtId),
+  ],
 )
