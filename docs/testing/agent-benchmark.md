@@ -95,7 +95,7 @@ so a read after it is verification, not part of the budget.
    same card (`This card was already answered`).
 
 `get_now_cards` is offered to the in-app Ask agent (it is Ask's picker for "what should I do?");
-`answer_now_card` is not (`exposeInChat: false`). The test-drive asserts both.
+`answer_now_card` is too, like every MCP tool; Ask answers a card only on the user's explicit request. The test-drive asserts both are offered.
 
 ## Regression watchlist (agent-trust data quality)
 

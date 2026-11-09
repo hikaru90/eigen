@@ -712,17 +712,20 @@ describe('agentChat', () => {
     expect(AGENT_SYSTEM_PROMPT).toMatch(/never say they are saved/i)
   })
 
-  it('system prompt sends "what should I do?" to get_now_cards and keeps cards unanswerable from Ask (NOW-10)', () => {
+  it('system prompt sends "what should I do?" to get_now_cards and answers a card only when the user says so (NOW-10)', () => {
     expect(AGENT_SYSTEM_PROMPT).toContain('get_now_cards')
     expect(AGENT_SYSTEM_PROMPT).toMatch(/what to do next/i)
     expect(AGENT_SYSTEM_PROMPT).toMatch(/answer with one of those cards/i)
     expect(AGENT_SYSTEM_PROMPT).toMatch(/never invent a different task/i)
-    expect(AGENT_SYSTEM_PROMPT).toMatch(/never answer a card from here/i)
+    expect(AGENT_SYSTEM_PROMPT).not.toMatch(/never answer a card from here/i)
+    expect(AGENT_SYSTEM_PROMPT).toMatch(/answer_now_card only when the user explicitly says so/i)
+    expect(AGENT_SYSTEM_PROMPT).toMatch(/never answer a card on your own initiative/i)
+    expect(AGENT_SYSTEM_PROMPT).toMatch(/card id from get_now_cards/i)
     // the card picker is not a memory question: the rule comes before "any question: answer_question"
     expect(AGENT_SYSTEM_PROMPT.indexOf('get_now_cards')).toBeLessThan(
       AGENT_SYSTEM_PROMPT.indexOf('Any other question (how/what/when/who/why'),
     )
-    expect(AGENT_SYSTEM_PROMPT).not.toContain('answer_now_card')
+    expect(AGENT_SYSTEM_PROMPT).toContain('answer_now_card')
   })
 
   it('creates a text note via create_text_file when the model chooses it', async () => {

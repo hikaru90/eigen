@@ -168,7 +168,8 @@ The defaults below were approved on 2026-11-09. The spec assumes them.
 
 - **NOW-10 One picker.** `get_now_cards` (NOW-13) is exposed in chat, and Ask's prompt tells it to
   answer "what should I do?" from those cards. The user's situation ("20 minutes, tired") chooses
-  among them. Ask cannot answer cards in this version.
+  among them. `answer_now_card` is also available in Ask, like every MCP tool, and Ask answers a card
+  only when the user explicitly says so ("mark the bike one done"), never on its own initiative.
 
 **UI**
 
@@ -229,7 +230,7 @@ The defaults below were approved on 2026-11-09. The spec assumes them.
 
 - **NOW-13 MCP tools.** `get_now_cards` returns pending cards, writing a deck if NOW-7 allows; also
   exposed in chat. `answer_now_card { card_id, answer, project_entity_id?, text? }` applies NOW-2;
-  `exposeInChat: false`. Budget in §7.
+  available in Ask too, answered only on the user's explicit request. Budget in §7.
 
 ### Out of scope, in planned order
 
@@ -238,7 +239,6 @@ The defaults below were approved on 2026-11-09. The spec assumes them.
 2. Task-level waiting-for and someday. Until then Keep and Not now carry these items.
 3. Weekly review as a deck of the same cards.
 4. Agent work reports no longer stored as open tasks. Until then they surface as `sort` cards.
-5. Ask answering cards through the propose/confirm guard.
 
 Also not here: creating a project from a card (`file` only targets existing projects, so the GTD
 judge rule is untouched), energy or context filters (tasks have no such data), a card refresh
@@ -362,7 +362,7 @@ again while the list stays usable, search hides and restores the card, offline l
   status, verified by `get_now_cards` and `list_projects`.
 - Negative probes, each failing with the constraint: unknown `answer`; `answer: "too_big"` on a
   `file` card; `project_entity_id` missing on Other project; non-uuid `card_id`; an unknown argument.
-- `answer_now_card` not offered in Ask is asserted.
+- `answer_now_card` offered in Ask like every MCP tool is asserted.
 - Add a "Now" section to `docs/testing/agent-benchmark.md`. Automated in
   `src/lib/server/mcp/now-test-drive.spec.ts`.
 

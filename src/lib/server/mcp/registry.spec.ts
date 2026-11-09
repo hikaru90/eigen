@@ -181,7 +181,7 @@ describe('MCP tool registry exposure', () => {
     })
   })
 
-  it('offers the Now tools to HTTP MCP clients; Ask gets get_now_cards (its picker) but not answer_now_card', () => {
+  it('offers both Now tools to HTTP MCP clients and to Ask, like every MCP tool', () => {
     for (const name of NOW_TOOLS) {
       const def = MCP_TOOL_DEFINITIONS.find((t) => t.name === name)
       expect(def, name).toBeDefined()
@@ -191,12 +191,12 @@ describe('MCP tool registry exposure', () => {
       expect(MCP_CLIENT_EXPOSED_TOOL_NAMES).toContain(name)
     }
     expect(MCP_TOOL_DEFINITIONS.find((t) => t.name === 'get_now_cards')?.exposeInChat).not.toBe(false)
-    expect(MCP_TOOL_DEFINITIONS.find((t) => t.name === 'answer_now_card')?.exposeInChat).toBe(false)
+    expect(MCP_TOOL_DEFINITIONS.find((t) => t.name === 'answer_now_card')?.exposeInChat).not.toBe(false)
     expect(isChatAgentTool('get_now_cards')).toBe(true)
-    expect(isChatAgentTool('answer_now_card')).toBe(false)
+    expect(isChatAgentTool('answer_now_card')).toBe(true)
     const block = buildChatAgentToolDescriptionBlock()
     expect(block).toContain('get_now_cards')
-    expect(block).not.toContain('answer_now_card')
+    expect(block).toContain('answer_now_card')
   })
 
   it('describes the Now tools: the cards, the answers per kind, and what an answer needs', () => {
@@ -222,7 +222,6 @@ describe('MCP tool registry exposure', () => {
     expect(flagged).toEqual([
       'capture_thought',
       ...CAPTURE_REVIEW_TOOLS,
-      'answer_now_card',
       ...BOARD_TOOLS,
       'update_idea',
     ])

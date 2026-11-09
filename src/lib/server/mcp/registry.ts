@@ -360,7 +360,6 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"card_id": "string (required) — UUID", "answer": "string (required) — one of the card\'s answers", "project_entity_id": "string (only with other_project) — UUID", "text": "string (only with something_else, max 500 chars)"}',
     handler: runAnswerNowCardTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('answer_now_card'),
-    exposeInChat: false,
   },
   {
     name: 'list_projects',
@@ -923,8 +922,8 @@ export const MCP_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name)
  * the user confirmed. Capturing belongs to the Capture surface and to HTTP MCP clients, both of
  * which keep capture_thought. The shared board and the capture review tools (get_capture_review,
  * rate_capture) are HTTP MCP only: the vote in the app lives in the Capture strip and the Mesh row.
- * get_now_cards is in Ask (its picker for "what should I do?"); answer_now_card is HTTP MCP only,
- * because cards are answered on Yarn, not from Ask.
+ * get_now_cards and answer_now_card are both in Ask like every MCP tool; Ask answers a card only
+ * when the user says so (system prompt rule in agent-loop.ts).
  */
 export const CHAT_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.filter(
   (t) => t.exposeInChat !== false,

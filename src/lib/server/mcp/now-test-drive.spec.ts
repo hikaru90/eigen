@@ -771,8 +771,8 @@ describe('Now test-drive: the tools an MCP client is offered', () => {
     await agent.close()
   })
 
-  it('Ask gets get_now_cards (its picker) but never answer_now_card: cards are not answered from Ask', () => {
+  it('Ask has both Now tools: get_now_cards (its picker) and answer_now_card, like every MCP tool', () => {
     expect(CHAT_AGENT_TOOL_NAMES).toContain('get_now_cards')
-    expect(CHAT_AGENT_TOOL_NAMES).not.toContain('answer_now_card')
+    expect(CHAT_AGENT_TOOL_NAMES).toContain('answer_now_card')
   })
 })

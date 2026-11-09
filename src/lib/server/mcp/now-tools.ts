@@ -6,8 +6,8 @@ import { strictToolArgs } from '$lib/server/validation/mcp-args'
 
 /**
  * Lightning questions over MCP (docs/planning/feature-mesh-now.md, NOW-10 and NOW-13).
- * `get_now_cards` is also Ask's picker for "what should I do?" (it reads, never answers);
- * `answer_now_card` is HTTP MCP only (`exposeInChat: false`).
+ * Both tools are also in Ask, like every MCP tool: `get_now_cards` is Ask's picker for "what
+ * should I do?"; `answer_now_card` is used only when the user explicitly answers a card there.
  *
  * Budget (docs/testing/agent-benchmark.md): get_now_cards → answer_now_card, 2 calls. Arguments
  * are checked at the boundary before any DB or LLM work: unknown keys, a card_id that is not a
