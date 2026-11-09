@@ -2,10 +2,12 @@
   import type { PageData } from './$types'
   import { onMount } from 'svelte'
   import { base } from '$app/paths'
+  import { relativeDayLabel } from '$lib/chat/relative-day'
   import { thoughtHref } from '$lib/chat/thought-href'
+  import NowCard from '$lib/components/mesh/now-card.svelte'
+  import NowHistoryCard from '$lib/components/mesh/now-history-card.svelte'
   import ThoughtInlineEditor from '$lib/components/mesh/thought-inline-editor.svelte'
   import ThoughtRow from '$lib/components/mesh/thought-row.svelte'
-  import { relativeDayLabel } from '$lib/chat/relative-day'
   import { hapticConfirm } from '$lib/haptics'
   import {
     groupThoughtsByDay,
@@ -59,6 +61,9 @@
   /** Tick overrides applied after a successful PATCH, keyed by thought id. */
   let tickStatus = $state<Record<string, 'open' | 'completed'>>({})
   let tickBusyId = $state<string | null>(null)
+
+  /** The History card, so an answer or Undo on the Now card can tell it (no effect). */
+  let history = $state<{ noteAnswered: () => void; noteUndone: () => void } | null>(null)
 
   /** Live rows — SSR seed first, then whatever /api/mesh/yarn returns per view.
    *  Capturing the seed once per mount is intentional (the timeline shell does
@@ -182,9 +187,19 @@
   }
 </script>
 
+<!-- hidden, not unmounted, while searching: the cards keep their state -->
+<div class={meshSearch.open || meshSearch.query !== '' ? 'hidden' : ''}>
+  <NowCard onanswered={() => history?.noteAnswered()} onundone={() => history?.noteUndone()} />
+  <NowHistoryCard bind:this={history} count={data.nowHistoryCount} timezone={data.preferredTimezone} />
+</div>
+
+<div class="mx-auto max-w-[700px] px-8 pt-14 max-[640px]:px-[22px]">
+  <p class="m-0 font-mesh text-sm text-ink-3">{m.yarn_captured_label()}</p>
+</div>
+
 <!-- the strand: max-width column under the tabs, above the menu (ei styles.css .stream) -->
 <div
-  class="mx-auto max-w-[700px] pt-[22px] px-8 pb-[calc(var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))+160px)] max-[640px]:px-[22px]"
+  class="mx-auto max-w-[700px] pt-2 px-8 pb-[calc(var(--bottom-nav,calc(62px+env(safe-area-inset-bottom,0px)))+160px)] max-[640px]:px-[22px]"
 >
   {#each groups as group (group.label)}
     <section class="mt-[46px] first:mt-[18px]">

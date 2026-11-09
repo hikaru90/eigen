@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, lt, sql } from 'drizzle-orm'
+import { and, asc, eq, isNotNull, lt, ne, sql } from 'drizzle-orm'
 import { decryptTenantValue, encryptTenantValue } from '$lib/server/crypto/tenant-encryption'
 import { getDb } from '$lib/server/db'
 import {
@@ -61,6 +61,8 @@ export type NowCardView = {
   suggestedStep?: string
   project: { id: string; label: string } | null
   answers: string[]
+  /** `file` cards only: the active projects the thought could go to instead of the proposed one. */
+  otherProjects?: Array<{ id: string; label: string }>
 }
 
 export type NowState =
@@ -87,10 +89,16 @@ export type NowStoreDeps = {
   ) => Promise<StoredNowCard[]>
   decryptPayload: (card: StoredNowCard) => Promise<NowCardPayload>
   resolveProject: (card: StoredNowCard) => Promise<{ id: string; label: string } | null>
+  /** Active projects except the card's proposed one (asked for `file` cards only). */
+  otherProjects: (card: StoredNowCard) => Promise<Array<{ id: string; label: string }>>
 }
 
 async function view(deps: NowStoreDeps, card: StoredNowCard, remaining: number): Promise<NowState> {
-  const [payload, project] = await Promise.all([deps.decryptPayload(card), deps.resolveProject(card)])
+  const [payload, project, otherProjects] = await Promise.all([
+    deps.decryptPayload(card),
+    deps.resolveProject(card),
+    card.kind === 'file' ? deps.otherProjects(card) : Promise.resolve(null),
+  ])
   return {
     state: 'card',
     card: {
@@ -101,6 +109,7 @@ async function view(deps: NowStoreDeps, card: StoredNowCard, remaining: number):
       ...(payload.suggestedStep ? { suggestedStep: payload.suggestedStep } : {}),
       project,
       answers: [...NOW_ANSWER_KEYS[card.kind]],
+      ...(otherProjects ? { otherProjects } : {}),
     },
     remaining,
     candidatesOmitted: payload.candidatesOmitted,
@@ -313,6 +322,24 @@ async function resolveProject(
   return row ?? null
 }
 
+/** Active projects of this user other than `exceptProjectEntityId`, by label. */
+export async function loadOtherActiveProjects(
+  userId: string,
+  exceptProjectEntityId: string | null,
+): Promise<Array<{ id: string; label: string }>> {
+  return getDb()
+    .select({ id: canonicalEntity.id, label: canonicalEntity.label })
+    .from(canonicalEntity)
+    .where(
+      and(
+        eq(canonicalEntity.userId, userId),
+        eq(canonicalEntity.projectStatus, 'active'),
+        ...(exceptProjectEntityId ? [ne(canonicalEntity.id, exceptProjectEntityId)] : []),
+      ),
+    )
+    .orderBy(asc(canonicalEntity.label))
+}
+
 async function loadContext(
   userId: string,
   now: Date,
@@ -372,5 +399,6 @@ export async function loadNowCard(userId: string, now: Date = new Date()): Promi
         }),
       ) as NowCardPayload,
     resolveProject: (card) => resolveProject(userId, card),
+    otherProjects: (card) => loadOtherActiveProjects(userId, card.targetProjectEntityId),
   })
 }

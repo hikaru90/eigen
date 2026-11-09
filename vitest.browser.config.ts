@@ -83,6 +83,8 @@ export default defineConfig({
     // locator coverage land for them (`src/lib/vitest-stubs/app/*`).
     include: [
       'src/lib/components/smoke.svelte.spec.ts',
+      'src/lib/components/mesh/now-card.svelte.spec.ts',
+      'src/lib/components/mesh/now-history-card.svelte.spec.ts',
       'src/lib/components/capture-onboarding-overlay.svelte.spec.ts',
       'src/lib/components/capture-reading.svelte.spec.ts',
       'src/lib/components/brand/glyph-scramble.svelte.spec.ts',

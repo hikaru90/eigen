@@ -7,6 +7,7 @@
 export const base = ''
 export const assets = ''
 
-export function resolve(path: string): string {
-  return path
+export function resolve(path: string, params?: Record<string, string>): string {
+  if (!params) return path
+  return path.replace(/\[(\w+)\]/g, (_, key: string) => encodeURIComponent(params[key] ?? ''))
 }

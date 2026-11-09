@@ -271,7 +271,7 @@ or if it is no longer the latest answer.
 **`GET /api/mesh/now/history?before=<cursor>`**: 200 with
 
 ```json
-{ "items": [{ "cardId": "…", "kind": "do", "text": "…", "answer": "done", "answerLabel": "Marked done", "answeredAt": "…", "thoughtId": "…" }], "nextCursor": null }
+{ "items": [{ "cardId": "…", "kind": "do", "text": "…", "answer": "done", "projectLabel": null, "answeredAt": "…", "thoughtId": "…" }], "nextCursor": null }
 ```
 
 401 unauthenticated. No LLM call.

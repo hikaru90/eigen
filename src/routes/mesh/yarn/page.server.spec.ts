@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const m = vi.hoisted(() => ({
   loadYarnThoughts: vi.fn(),
+  countNowHistory: vi.fn(async () => 0),
   getUserPreferredTimezone: vi.fn(async () => 'Europe/Berlin'),
   loadThoughtKindOptions: vi.fn(async () => [{ key: 'task', name: 'Task', definition: 'To do' }]),
   ensureUserOntologySeeded: vi.fn(async () => undefined),
   loadOntologyForUser: vi.fn(async () => ({ entityKinds: [{ key: 'task', name: 'Task' }] })),
 }))
 
+vi.mock('$lib/server/mesh/now-history', () => ({ countNowHistory: m.countNowHistory }))
 vi.mock('$lib/server/mesh/yarn-list', () => ({ loadYarnThoughts: m.loadYarnThoughts }))
 vi.mock('$lib/server/memory/user-timezone', () => ({
   getUserPreferredTimezone: m.getUserPreferredTimezone,
@@ -62,8 +64,22 @@ describe('Yarn load: the vote on each row', () => {
     ])
   })
 
+  it('adds only the count of answered Now cards, not the list', async () => {
+    m.loadYarnThoughts.mockResolvedValue([])
+    m.countNowHistory.mockResolvedValue(4)
+
+    const data = (await load({ locals: { user: { id: 'u1' } } } as never)) as {
+      nowHistoryCount: number
+    }
+
+    expect(m.countNowHistory).toHaveBeenCalledWith('u1')
+    expect(data.nowHistoryCount).toBe(4)
+    expect(Object.keys(data)).not.toContain('nowHistory')
+  })
+
   it('sends anonymous users to /login before reading anything', async () => {
     await expect(load({ locals: { user: null } } as never)).rejects.toMatchObject({ status: 302 })
     expect(m.loadYarnThoughts).not.toHaveBeenCalled()
+    expect(m.countNowHistory).not.toHaveBeenCalled()
   })
 })

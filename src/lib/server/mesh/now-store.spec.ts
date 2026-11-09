@@ -19,6 +19,7 @@ import {
   buildNowCardRows,
   expireEarlierNowCards,
   isNowCardStale,
+  loadOtherActiveProjects,
   NOW_DECKS_PER_DAY,
   resolveNow,
   writeNowDeck,
@@ -116,6 +117,7 @@ function makeDeps(overrides: Partial<NowStoreDeps> = {}) {
     writeDeck: vi.fn(),
     decryptPayload: vi.fn(async (card: StoredNowCard) => payloadFor(card)),
     resolveProject: vi.fn().mockResolvedValue(null),
+    otherProjects: vi.fn().mockResolvedValue([]),
     ...overrides,
   } satisfies NowStoreDeps
   if (!overrides.writeDeck) {
@@ -206,6 +208,29 @@ describe('resolveNow (NOW-7)', () => {
     const result = await resolveNow(deps)
     expect(result).toMatchObject({ card: { project: { id: 'pr-3', label: 'Taxes' } } })
     expect(deps.resolveProject).toHaveBeenCalledWith(expect.objectContaining({ id: 'c3' }))
+  })
+
+  it('file cards carry the other active projects for the picker; other kinds do not ask for them', async () => {
+    const others = [
+      { id: 'pr-8', label: 'Hydra' },
+      { id: 'pr-9', label: 'Sewer' },
+    ]
+    const fileDeps = makeDeps({
+      readToday: vi.fn().mockResolvedValue({ deckCount: 1, pending: [stored(3, 'file')] }),
+      otherProjects: vi.fn().mockResolvedValue(others),
+    })
+    const file = await resolveNow(fileDeps)
+    expect(file).toMatchObject({ card: { kind: 'file', otherProjects: others } })
+    expect(fileDeps.otherProjects).toHaveBeenCalledWith(expect.objectContaining({ id: 'c3' }))
+
+    for (const kind of ['do', 'sort', 'unblock'] as const) {
+      const deps = makeDeps({
+        readToday: vi.fn().mockResolvedValue({ deckCount: 1, pending: [stored(1, kind)] }),
+      })
+      const result = await resolveNow(deps)
+      expect(deps.otherProjects).not.toHaveBeenCalled()
+      expect(result.state === 'card' && 'otherProjects' in result.card).toBe(false)
+    }
   })
 
   it('earlier days: pending cards of earlier local days are expired before anything is read', async () => {
@@ -540,5 +565,50 @@ describe('isNowCardStale (NOW-7 state check)', () => {
       project: [{ status: 'active', nextActionThoughtId: 'n1', nextActionLifecycle: 'completed' }],
     })
     await expect(isNowCardStale('u1', stored(2, 'unblock'))).resolves.toBe(false)
+  })
+})
+
+describe('loadOtherActiveProjects', () => {
+  it('selects only this user\'s active projects, never the proposed one, by label', async () => {
+    let where: unknown
+    let ordered = false
+    const chain: Record<string, unknown> = {
+      from: () => chain,
+      where: (cond: unknown) => {
+        where = cond
+        return chain
+      },
+      orderBy: async () => {
+        ordered = true
+        return [{ id: 'pr-8', label: 'Hydra' }]
+      },
+    }
+    getDbMock.mockReturnValue({ select: () => chain })
+
+    await expect(loadOtherActiveProjects('u1', 'pr-1')).resolves.toEqual([
+      { id: 'pr-8', label: 'Hydra' },
+    ])
+
+    const q = new PgDialect().sqlToQuery(where as never)
+    expect(q.sql).toContain('"canonical_entity"."user_id" = $')
+    expect(q.sql).toContain('"canonical_entity"."project_status" = $')
+    expect(q.sql).toContain('"canonical_entity"."id" <> $')
+    expect(q.params).toEqual(expect.arrayContaining(['u1', 'active', 'pr-1']))
+    expect(ordered).toBe(true)
+  })
+
+  it('without a proposed project there is nothing to exclude', async () => {
+    let where: unknown
+    const chain: Record<string, unknown> = {
+      from: () => chain,
+      where: (cond: unknown) => {
+        where = cond
+        return chain
+      },
+      orderBy: async () => [],
+    }
+    getDbMock.mockReturnValue({ select: () => chain })
+    await loadOtherActiveProjects('u1', null)
+    expect(new PgDialect().sqlToQuery(where as never).sql).not.toContain('<>')
   })
 })

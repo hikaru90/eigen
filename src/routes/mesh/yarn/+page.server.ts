@@ -2,6 +2,7 @@ import type { PageServerLoad } from './$types'
 import { redirect } from '@sveltejs/kit'
 import { getDb } from '$lib/server/db'
 import { getUserPreferredTimezone } from '$lib/server/memory/user-timezone'
+import { countNowHistory } from '$lib/server/mesh/now-history'
 import { loadYarnThoughts, type YarnThought } from '$lib/server/mesh/yarn-list'
 import { ensureUserOntologySeeded, loadOntologyForUser } from '$lib/server/ontology-db'
 import { loadThoughtKindOptions } from '$lib/server/thought/kind-options'
@@ -23,6 +24,8 @@ export type YarnPageData = {
   /** The type menu in an unfolded row: the active thought kinds. */
   kinds: ThoughtKindOption[]
   thoughts: YarnThought[]
+  /** Answered Now cards; the list itself is fetched when History opens. */
+  nowHistoryCount: number
 }
 
 export const load: PageServerLoad = async (event) => {
@@ -33,12 +36,13 @@ export const load: PageServerLoad = async (event) => {
   const db = getDb()
 
   // Ontology names for the kind chips (the memory hub loads it the same way).
-  const [preferredTimezone, [loadedOntology, kinds], thoughts] = await Promise.all([
+  const [preferredTimezone, [loadedOntology, kinds], thoughts, nowHistoryCount] = await Promise.all([
     getUserPreferredTimezone(userId),
     ensureUserOntologySeeded(db, userId).then(() =>
       Promise.all([loadOntologyForUser(db, userId), loadThoughtKindOptions(db, userId)]),
     ),
     loadYarnThoughts(userId, { author: 'user' }),
+    countNowHistory(userId),
   ])
   const kindLabels: Record<string, string> = {}
   for (const kind of loadedOntology.entityKinds) {
@@ -51,5 +55,6 @@ export const load: PageServerLoad = async (event) => {
     kindLabels,
     kinds,
     thoughts,
+    nowHistoryCount,
   } satisfies YarnPageData & { user: NonNullable<App.Locals['user']> }
 }
