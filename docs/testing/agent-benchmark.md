@@ -62,7 +62,7 @@ answer already carries the verdict, so a read after it is verification, not part
    a `thought_id` that is not a uuid → `thought_id must be a uuid`; an unknown or another user's
    thought → `Thought not found`; an unknown argument → `Unknown argument: … Allowed: …`.
 
-Neither tool is offered to the in-app Ask agent (`exposeInChat: false`); the test-drive asserts it.
+Both tools are also offered to the in-app Ask agent, like every registered MCP tool; the test-drive asserts it.
 
 ## The Now (Lightning questions) test-drive
 

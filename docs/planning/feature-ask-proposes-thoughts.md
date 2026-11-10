@@ -48,7 +48,7 @@ what they say about themselves is lost.
   enrichment (embedding, entities, project detection). No interpret/confirm modal — the chat
   confirmation is the confirmation.
 - AP-6 **Name stays "Ask".** Prompt rewrite: the "ask-only, never store" rule is replaced by the
-  propose → confirm rule; `capture_thought` stays unavailable in Ask (only the two new tools).
+  propose → confirm rule; Ask now exposes every MCP tool: an explicit user request to capture calls `capture_thought` directly; anything Ask judges worth keeping on its own still goes propose → confirm → store.
 
 **Out of scope:** a confirmation UI widget, auto-accept timers, storing anything without a confirm,
 a facts layer (the parked user-facts work on `benchmark-work` stays parked), MCP clients outside Ask

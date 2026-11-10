@@ -631,8 +631,8 @@ describe('capture review test-drive: the tools an MCP client is offered', () => 
     await agent.close()
   })
 
-  it('the in-app Ask agent does not have them: the vote in the app lives in two places only', () => {
-    expect(CHAT_AGENT_TOOL_NAMES).not.toContain('get_capture_review')
-    expect(CHAT_AGENT_TOOL_NAMES).not.toContain('rate_capture')
+  it('the in-app Ask agent has them like every MCP tool', () => {
+    expect(CHAT_AGENT_TOOL_NAMES).toContain('get_capture_review')
+    expect(CHAT_AGENT_TOOL_NAMES).toContain('rate_capture')
   })
 })

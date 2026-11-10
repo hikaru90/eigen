@@ -107,7 +107,7 @@ vi.mock('$lib/server/mcp/registry', () => {
     'propose_thoughts',
     'store_thoughts',
   ]
-  const CHAT_TOOLS = ALL_AGENT_TOOLS.filter((name) => name !== 'capture_thought')
+  const CHAT_TOOLS = ALL_AGENT_TOOLS
   return {
     MCP_EXPOSED_TOOL_MAP: mcpToolMap,
     MCP_TOOL_MAP: mcpToolMap,
@@ -669,46 +669,32 @@ describe('agentChat', () => {
     )
   })
 
-  it('never captures from ask: a capture_thought call is rejected and the question is answered instead', async () => {
+  it('an explicit capture request in Ask calls capture_thought directly', async () => {
     captureThoughtMock.mockResolvedValue({ thoughtId: 't-new', status: 'queued' })
-    answerQuestionMock.mockResolvedValue({
-      answer:
-        'Answer: You noted mirin for the glaze.\nEvidence:\n- mirin glaze [id=t1]\nUnknown:\n- none',
-      citations: ['t1'],
-      retrieved: [],
-      conflicts: [],
-    })
     llmChatCompletionMock
       .mockResolvedValueOnce(
-        llmJson({ tool: 'capture_thought', arguments: { raw: 'what did I note about mirin?' } }),
+        llmJson({ tool: 'capture_thought', arguments: { raw: 'remember: mirin for the glaze' } }),
       )
-      .mockResolvedValueOnce(
-        llmJson({
-          tool: 'answer_question',
-          arguments: { question: 'what did I note about mirin?' },
-        }),
-      )
+      .mockResolvedValueOnce(llmJson({ answer: 'Saved.' }))
 
     const result = await agentChat({
       userId: 'u1',
-      messages: [{ role: 'user', content: 'what did I note about mirin?' }],
+      messages: [{ role: 'user', content: 'remember: mirin for the glaze' }],
     })
 
-    // the ask loop must never store the user's question as a thought
-    expect(captureThoughtMock).not.toHaveBeenCalled()
-    expect(answerQuestionMock).toHaveBeenCalledWith(
+    expect(captureThoughtMock).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ question: 'what did I note about mirin?' }),
+      expect.objectContaining({ raw: 'remember: mirin for the glaze' }),
     )
-    expect(result.response).not.toBe('')
+    expect(result.response).toBe('Saved.')
   })
 
-  it('system prompt never offers capture_thought; it states the propose -> confirm rule (AP-6)', () => {
-    expect(AGENT_SYSTEM_PROMPT).not.toContain('capture_thought')
+  it('system prompt: explicit capture calls capture_thought; the propose -> confirm rule stays (AP-6)', () => {
+    expect(AGENT_SYSTEM_PROMPT).toContain('capture_thought')
     expect(AGENT_SYSTEM_PROMPT).not.toContain('ask-only')
     expect(AGENT_SYSTEM_PROMPT).toContain('propose_thoughts')
     expect(AGENT_SYSTEM_PROMPT).toContain('store_thoughts')
-    expect(AGENT_SYSTEM_PROMPT).toMatch(/only store_thoughts stores/i)
+    expect(AGENT_SYSTEM_PROMPT).toMatch(/only store_thoughts stores a proposal/i)
     expect(AGENT_SYSTEM_PROMPT).toMatch(/never say they are saved/i)
   })
 
@@ -1326,9 +1312,28 @@ describe('agentChat — Ask proposes thoughts, stores them on a confirmed reply'
     consoleErrorSpy.mockRestore()
   })
 
-  it('regression: capture_thought is still rejected in Ask, even on a capture_worthy turn', async () => {
+  it('a successful capture_thought satisfies the propose_thoughts requirement: no re-ask, no missing note', async () => {
     decisions('yes')
     captureThoughtMock.mockResolvedValue({ thoughtId: 't-new', status: 'queued' })
+    llmChatCompletionMock
+      .mockResolvedValueOnce(
+        llmJson({ tool: 'capture_thought', arguments: { raw: 'I started bouldering' } }),
+      )
+      .mockResolvedValueOnce(llmJson({ answer: 'Saved.' }))
+
+    const result = await agentChat(askInput('save this: I started bouldering'))
+
+    expect(captureThoughtMock).toHaveBeenCalledTimes(1)
+    expect(proposeThoughtsMock).not.toHaveBeenCalled()
+    expect(llmChatCompletionMock).toHaveBeenCalledTimes(2)
+    expect(result.response).toBe('Saved.')
+    expect(result.appendix ?? '').not.toContain(PROPOSED[0])
+    expect(result.appendix ?? '').toBe('')
+  })
+
+  it('a failed capture_thought does not satisfy the propose_thoughts requirement', async () => {
+    decisions('yes')
+    captureThoughtMock.mockRejectedValue(new Error('raw is required'))
     proposeThoughtsMock.mockResolvedValue(PROPOSAL)
     llmChatCompletionMock
       .mockResolvedValueOnce(
@@ -1341,12 +1346,7 @@ describe('agentChat — Ask proposes thoughts, stores them on a confirmed reply'
 
     const result = await agentChat(askInput('I started bouldering'))
 
-    expect(captureThoughtMock).not.toHaveBeenCalled()
-    const rejection = userMessagesOf(result).find((c) =>
-      c.includes('"capture_thought" is not available'),
-    )
-    expect(rejection).toContain('propose_thoughts')
-    expect(rejection).toContain('store_thoughts')
+    expect(proposeThoughtsMock).toHaveBeenCalledTimes(1)
     expect(result.appendix).toContain(PROPOSED[0])
   })
 

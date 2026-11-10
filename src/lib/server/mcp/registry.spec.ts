@@ -25,10 +25,10 @@ const TEXT_NOTE_TOOLS = [
   'unlink_text_file_from_thought',
 ] as const
 
-/** Multiplayer board (feature-multiplayer-board.md MB-7): HTTP MCP only, never the ask loop. */
+/** Multiplayer board (feature-multiplayer-board.md MB-7): not on the default MCP surface; Ask has them like every tool. */
 const BOARD_TOOLS = ['list_board', 'share_idea', 'vote_idea', 'forget_idea'] as const
 
-/** Capture feedback C3 (capture-feedback.md §7): HTTP MCP only, never the in-app Ask agent. */
+/** Capture feedback C3 (capture-feedback.md §7): Ask has them like every tool. */
 const CAPTURE_REVIEW_TOOLS = ['get_capture_review', 'rate_capture'] as const
 
 /** Lightning questions (feature-mesh-now.md NOW-13): over MCP; Ask reads the cards, never answers them. */
@@ -38,15 +38,15 @@ const NOW_TOOLS = ['get_now_cards', 'answer_now_card'] as const
 const ASK_PROPOSAL_TOOLS = ['propose_thoughts', 'store_thoughts'] as const
 
 describe('MCP tool registry exposure', () => {
-  it('keeps the shared board out of the ask/chat loop and the default MCP surface', () => {
+  it('keeps the shared board off the default MCP surface but in the ask/chat loop', () => {
     for (const name of BOARD_TOOLS) {
       expect(isMcpExposedTool(name)).toBe(false)
-      expect(isChatAgentTool(name)).toBe(false)
+      expect(isChatAgentTool(name)).toBe(true)
     }
     expect(MCP_BOARD_TOOL_DEFINITIONS.map((t) => t.name)).toEqual([...BOARD_TOOLS])
     expect(MCP_BOARD_ADMIN_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(['update_idea'])
     expect(isMcpExposedTool('update_idea')).toBe(false)
-    expect(isChatAgentTool('update_idea')).toBe(false)
+    expect(isChatAgentTool('update_idea')).toBe(true)
   })
 
   it('exposes memory CRUD plus project timeline tools over HTTP MCP', () => {
@@ -102,23 +102,31 @@ describe('MCP tool registry exposure', () => {
     expect(MCP_TOOL_DEFINITIONS.map((t) => t.name)).toEqual(MCP_AGENT_TOOL_NAMES)
   })
 
-  it('excludes capture_thought from the ask/chat loop — asking never captures', () => {
-    expect(CHAT_AGENT_TOOL_NAMES).not.toContain('capture_thought')
-    expect(CHAT_AGENT_TOOL_NAMES).toContain('answer_question')
-    expect(CHAT_AGENT_TOOL_NAMES).toContain('retrieve_thoughts')
-    expect(CHAT_AGENT_TOOL_NAMES).toContain('edit_thought')
-    expect(isChatAgentTool('capture_thought')).toBe(false)
+  it('gives the ask/chat loop every registered tool, including the eight once hidden', () => {
+    expect([...CHAT_AGENT_TOOL_NAMES]).toEqual(MCP_TOOL_DEFINITIONS.map((t) => t.name))
+    for (const name of [
+      'capture_thought',
+      'get_capture_review',
+      'rate_capture',
+      'share_idea',
+      'vote_idea',
+      'forget_idea',
+      'update_idea',
+      'list_board',
+    ]) {
+      expect(CHAT_AGENT_TOOL_NAMES).toContain(name)
+      expect(isChatAgentTool(name)).toBe(true)
+    }
     expect(isChatAgentTool('answer_question')).toBe(true)
-    // capture stays registered and exposed for HTTP MCP clients / the Capture surface
-    expect(isAgentTool('capture_thought')).toBe(true)
+    // exposure to HTTP MCP is a separate switch
     expect(isMcpExposedTool('capture_thought')).toBe(true)
-    // the catalog the ask model sees never offers capture
+    expect(isMcpExposedTool('update_idea')).toBe(false)
     const block = buildChatAgentToolDescriptionBlock()
-    expect(block).not.toContain('capture_thought')
+    expect(block).toContain('capture_thought')
     expect(block).toContain('answer_question')
   })
 
-  it('offers Ask exactly two ways to keep thoughts — propose and store — and keeps them off HTTP MCP', () => {
+  it('offers Ask the propose and store tools, kept off HTTP MCP', () => {
     for (const name of ASK_PROPOSAL_TOOLS) {
       expect(isAgentTool(name)).toBe(true)
       expect(isChatAgentTool(name)).toBe(true)
@@ -126,13 +134,12 @@ describe('MCP tool registry exposure', () => {
       expect(CHAT_AGENT_TOOL_NAMES).toContain(name)
       expect(MCP_CLIENT_EXPOSED_TOOL_NAMES).not.toContain(name)
     }
-    // capture_thought stays out of Ask and keeps its MCP exposure (AP-6)
-    expect(CHAT_AGENT_TOOL_NAMES).not.toContain('capture_thought')
+    // capture_thought is in Ask too (explicit user request) and keeps its MCP exposure
+    expect(CHAT_AGENT_TOOL_NAMES).toContain('capture_thought')
     expect(isMcpExposedTool('capture_thought')).toBe(true)
     const block = buildChatAgentToolDescriptionBlock()
     expect(block).toContain('propose_thoughts')
     expect(block).toContain('store_thoughts')
-    expect(block).not.toContain('capture_thought')
     const store = MCP_TOOL_DEFINITIONS.find((t) => t.name === 'store_thoughts')
     expect(store?.inputSchema).toMatchObject({ required: ['proposal_id'] })
     expect(store?.agentArgumentSchema).not.toMatch(/thoughts"\s*:/)
@@ -140,20 +147,19 @@ describe('MCP tool registry exposure', () => {
     expect(propose?.inputSchema).toMatchObject({ required: ['thoughts'] })
   })
 
-  it('offers the capture review tools to HTTP MCP clients and never to the in-app Ask agent', () => {
+  it('offers the capture review tools to HTTP MCP clients and the in-app Ask agent', () => {
     for (const name of CAPTURE_REVIEW_TOOLS) {
       const def = MCP_TOOL_DEFINITIONS.find((t) => t.name === name)
       expect(def, name).toBeDefined()
       expect(def?.exposeInMcp).toBe(true)
-      expect(def?.exposeInChat).toBe(false)
       expect(isAgentTool(name)).toBe(true)
       expect(isMcpExposedTool(name)).toBe(true)
       expect(MCP_CLIENT_EXPOSED_TOOL_NAMES).toContain(name)
-      expect(isChatAgentTool(name)).toBe(false)
-      expect(CHAT_AGENT_TOOL_NAMES).not.toContain(name)
+      expect(isChatAgentTool(name)).toBe(true)
+      expect(CHAT_AGENT_TOOL_NAMES).toContain(name)
     }
     const block = buildChatAgentToolDescriptionBlock()
-    for (const name of CAPTURE_REVIEW_TOOLS) expect(block).not.toContain(name)
+    for (const name of CAPTURE_REVIEW_TOOLS) expect(block).toContain(name)
   })
 
   it('describes the capture review tools: what they return, and that a reason is applied as an edit', () => {
@@ -190,8 +196,6 @@ describe('MCP tool registry exposure', () => {
       expect(isMcpExposedTool(name)).toBe(true)
       expect(MCP_CLIENT_EXPOSED_TOOL_NAMES).toContain(name)
     }
-    expect(MCP_TOOL_DEFINITIONS.find((t) => t.name === 'get_now_cards')?.exposeInChat).not.toBe(false)
-    expect(MCP_TOOL_DEFINITIONS.find((t) => t.name === 'answer_now_card')?.exposeInChat).not.toBe(false)
     expect(isChatAgentTool('get_now_cards')).toBe(true)
     expect(isChatAgentTool('answer_now_card')).toBe(true)
     const block = buildChatAgentToolDescriptionBlock()
@@ -215,23 +219,6 @@ describe('MCP tool registry exposure', () => {
       required: ['card_id', 'answer'],
       additionalProperties: false,
     })
-  })
-
-  it('keeps a tool out of the in-app agent only through the explicit exposeInChat flag', () => {
-    const flagged = MCP_TOOL_DEFINITIONS.filter((t) => t.exposeInChat === false).map((t) => t.name)
-    expect(flagged).toEqual([
-      'capture_thought',
-      ...CAPTURE_REVIEW_TOOLS,
-      ...BOARD_TOOLS,
-      'update_idea',
-    ])
-    // the chat toolset is exactly every definition not flagged — no second, name-based list
-    expect(CHAT_AGENT_TOOL_NAMES).toEqual(
-      MCP_TOOL_DEFINITIONS.filter((t) => t.exposeInChat !== false).map((t) => t.name),
-    )
-    for (const t of MCP_TOOL_DEFINITIONS) {
-      expect(isChatAgentTool(t.name), t.name).toBe(t.exposeInChat !== false)
-    }
   })
 
   it('does not register removed chat-only tools', () => {

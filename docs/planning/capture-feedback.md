@@ -374,11 +374,8 @@ in the user's own tenant.
     `thought_id must be a uuid`; `verdict must be up or down`; `reason must be a string`;
     `reason must be at most 2000 characters`; `reason is only allowed with verdict down`. After
     that: `Thought not found` (unknown, or another user's) and the label-failed sentence.
-  - **Exposure.** Both tools are in `MCP_CLIENT_TOOL_NAMES` (HTTP MCP) and carry
-    `exposeInChat: false`, the registry flag that keeps a definition out of the in-app Ask/chat
-    agent. The flag replaced the earlier name-based exclusions (`capture_thought`, the board
-    tools), so there is one mechanism. The operator decided the vote in the app lives only in the
-    Capture strip and the Mesh row.
+  - **Exposure.** Both tools are in `MCP_CLIENT_TOOL_NAMES` (HTTP MCP) and, like every
+    registered tool, in the in-app Ask agent (the earlier `exposeInChat: false` flag was removed).
   - **Tests.** Unit specs for the arguments, the shapes, the `about` builder per part kind, every
     status note, the `mcp` mapping and the exposure; the agent test-drive
     (`capture-review-test-drive.spec.ts`: a real MCP client and server over an in-memory transport,

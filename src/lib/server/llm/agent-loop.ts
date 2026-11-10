@@ -41,8 +41,8 @@ const MAX_PARSE_RETRIES = 3
 const MAX_REQUIRED_TOOL_REASKS = 2
 
 /** Mutation / write tools — a final answer after these does not require answer_question.
- *  capture_thought is deliberately absent: Ask never stores a new thought on its own.
- *  store_thoughts is the one Ask write, guarded server-side on a confirmed proposal. */
+ *  store_thoughts is guarded server-side on a confirmed proposal; capture_thought is an explicit
+ *  user-requested capture. */
 const AGENT_WRITE_TOOLS = new Set([
   'edit_thought',
   'delete_thought',
@@ -61,11 +61,15 @@ const AGENT_WRITE_TOOLS = new Set([
   'merge_projects',
   'delete_project',
   'store_thoughts',
+  'capture_thought',
+  'rate_capture',
+  'share_idea',
+  'vote_idea',
+  'update_idea',
+  'forget_idea',
 ])
 
 const REMOVED_TOOL_HINTS: Record<string, string> = {
-  capture_thought:
-    'capture_thought is not available here — Ask never stores a thought on its own: thoughts worth keeping are shown with propose_thoughts and stored with store_thoughts only after the user confirms (plain capturing happens on the Capture page). For any question call answer_question; for notes use the text-file tools.',
   list_temporal_events:
     'That tool was removed. For agendas/todos/deadlines use list_projects and get_project_timeline; for memory questions use answer_question.',
   manage_temporal_event:
@@ -98,10 +102,9 @@ const TOOL_DESCRIPTION_BLOCK = buildChatAgentToolDescriptionBlock()
 
 /**
  * Thin chat agent: MCP thought tools plus chat-only text-note tools, with streaming visual feedback.
- * No router or classifiers. The ask surface never captures on its own: capture_thought is not in
- * the loop's toolset (CHAT_AGENT_TOOL_NAMES) — a stray capture call is rejected with a steering
- * hint. Thoughts worth keeping are proposed (propose_thoughts) and stored (store_thoughts) only
- * after the user confirms; Jev decides per turn what is worth keeping and whether a reply is a
+ * No router or classifiers. Ask has every MCP tool: an explicit user request to capture calls
+ * capture_thought directly. Thoughts Ask judges worth keeping without being asked are proposed
+ * (propose_thoughts) and stored (store_thoughts) only after the user confirms; Jev decides per turn what is worth keeping and whether a reply is a
  * confirm, and the server guard (ask-proposal-tools.ts) enforces it.
  */
 export const AGENT_SYSTEM_PROMPT = [
@@ -121,7 +124,7 @@ export const AGENT_SYSTEM_PROMPT = [
   "- What to do next: when the user asks what to do next, what to work on, or anything that amounts to it (any language), call get_now_cards — not answer_question — and answer with one of those cards, choosing among them by what the user says about their situation (the time they have, how tired they are). Never invent a different task. Call answer_now_card only when the user explicitly says so (for example \"mark the bike one done\", \"not now\", \"drop it\"), with the card id from get_now_cards and the answer that fits the card; never answer a card on your own initiative. If get_now_cards returns clear or limit, say so plainly and suggest no task.",
   '- Any other question (how/what/when/who/why, any language): call answer_question — never answer a question from your own knowledge.',
   '- retrieve_thoughts is for browsing/listing recent thoughts, not for answering questions.',
-  "- Thoughts worth keeping: this surface never stores anything on its own. When the turn context says [capture_worthy: yes] (or the user asks to change an open proposal), first do what the user asked, then call propose_thoughts with one or more self-contained thoughts in the user's own voice (what they said about themselves or their life — never your answers). The system shows the proposed thoughts to the user: do not list them yourself and never say they are saved. Only store_thoughts stores, and only when the turn context says [proposal_reply: confirm] — call it with that proposal_id and nothing else. If the user wants a change, call propose_thoughts again with the full revised list. When the context says [capture_worthy: no] or [proposal_reply: unrelated], propose and store nothing.",
+  "- Thoughts worth keeping: when the user explicitly asks to save / capture / remember / note something as a thought (any language), call capture_thought with their text directly — no proposal. Otherwise this surface never stores anything on its own. When the turn context says [capture_worthy: yes] (or the user asks to change an open proposal), first do what the user asked, then call propose_thoughts with one or more self-contained thoughts in the user's own voice (what they said about themselves or their life — never your answers). The system shows the proposed thoughts to the user: do not list them yourself and never say they are saved. Never say something is saved unless capture_thought or store_thoughts succeeded this turn. Only store_thoughts stores a proposal, and only when the turn context says [proposal_reply: confirm] — call it with that proposal_id and nothing else. If the user wants a change, call propose_thoughts again with the full revised list. When the context says [capture_worthy: no] or [proposal_reply: unrelated], propose and store nothing.",
   '- Notes tab documents (shopping lists, titled notes, notebooks, checklists) are text notes — create and edit them with the text-file tools. They are not memory thoughts.',
   '- Create a NEW note/list only: create_text_file with title and/or body (title-only is fine for an empty new list). Use create only when the user wants a fresh document, not when amending one that already exists.',
   '- Add / append / change content on a referenced note (e.g. "add milk to my shopping list"): search_text_files or list_text_files to find text_file_id, then append_text_file (or get_text_file + update_text_file for a full rewrite). Never create_text_file for additive requests on an existing named note/list.',
@@ -479,6 +482,27 @@ function requiredToolSucceeded(tool: string, result: unknown): boolean {
   return false
 }
 
+/**
+ * A successful capture_thought (explicit user request to save) satisfies a propose_thoughts
+ * requirement: the thought is stored, so no proposal is owed. store_thoughts has no substitute.
+ */
+function requiredToolSatisfied(
+  required: NonNullable<AskTurnPlan['requiredTool']>,
+  tool: string,
+  result: unknown,
+): boolean {
+  if (tool === required) return requiredToolSucceeded(tool, result)
+  if (required === 'propose_thoughts' && tool === 'capture_thought') {
+    return (
+      !!result &&
+      typeof result === 'object' &&
+      !('error' in result) &&
+      typeof (result as { thoughtId?: unknown }).thoughtId === 'string'
+    )
+  }
+  return false
+}
+
 function requiredToolHint(tool: NonNullable<AskTurnPlan['requiredTool']>): string {
   return tool === 'propose_thoughts'
     ? "This turn is not finished: the user's message also holds thoughts worth keeping. Call propose_thoughts now with the self-contained thoughts (in the user's own voice). Do not repeat the answer — it is already recorded."
@@ -688,11 +712,7 @@ export async function agentChat(input: {
         const proposed = readProposalFromResult(outcome.result)
         if (proposed) proposal = proposed
       }
-      if (
-        requiredTool &&
-        parsed.tool === requiredTool &&
-        requiredToolSucceeded(parsed.tool, outcome.result)
-      ) {
+      if (requiredTool && requiredToolSatisfied(requiredTool, parsed.tool, outcome.result)) {
         requiredToolRan = true
       }
 

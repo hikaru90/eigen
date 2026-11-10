@@ -50,12 +50,6 @@ export type McpToolDefinition = {
   handler: McpToolHandler
   /** When false, tool is not exposed to HTTP MCP clients (in-app chat agent still has access). */
   exposeInMcp?: boolean
-  /**
-   * When false, the in-app ask/chat agent does not get this tool: not in its toolset, its catalog
-   * or its dispatch (HTTP MCP clients are unaffected). The one mechanism that keeps a definition
-   * out of the agent loop; there is no second, name-based list.
-   */
-  exposeInChat?: boolean
 }
 
 const MCP_CLIENT_TOOL_NAMES = new Set([
@@ -123,7 +117,6 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"raw": "string (required)", "captured_at": "string (optional ISO-8601)", "as_user": "boolean (optional — true for human capture)", "author": "string (optional — rarely needed; MCP key labels automatically)"}',
     handler: runCaptureThoughtTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('capture_thought'),
-    exposeInChat: false,
   },
   {
     name: 'answer_question',
@@ -289,7 +282,6 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     agentArgumentSchema: '{"thought_id": "string (required) — UUID"}',
     handler: runGetCaptureReviewTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('get_capture_review'),
-    exposeInChat: false,
   },
   {
     name: 'rate_capture',
@@ -316,7 +308,6 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"thought_id": "string (required) — UUID", "verdict": "up|down (required)", "reason": "string (optional, only with down, max 2000 chars) — what was wrong; applied as an edit"}',
     handler: runRateCaptureTool,
     exposeInMcp: MCP_CLIENT_TOOL_NAMES.has('rate_capture'),
-    exposeInChat: false,
   },
   {
     name: 'get_now_cards',
@@ -604,7 +595,6 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     agentArgumentSchema: '{"status": "requested|in-progress|shipped (optional)"}',
     handler: runListBoardTool,
     exposeInMcp: false,
-    exposeInChat: false,
   },
   {
     name: 'share_idea',
@@ -626,7 +616,6 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"title": "string (required)", "mine_is_different": "boolean (optional)"}',
     handler: runShareIdeaTool,
     exposeInMcp: false,
-    exposeInChat: false,
   },
   {
     name: 'vote_idea',
@@ -644,7 +633,6 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     agentArgumentSchema: '{"idea_id": "string UUID (required)", "direction": "-1|0|1 (required)"}',
     handler: runVoteIdeaTool,
     exposeInMcp: false,
-    exposeInChat: false,
   },
   {
     name: 'forget_idea',
@@ -659,7 +647,6 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     agentArgumentSchema: '{"idea_id": "string UUID (required)"}',
     handler: runForgetIdeaTool,
     exposeInMcp: false,
-    exposeInChat: false,
   },
   {
     name: 'update_idea',
@@ -680,7 +667,6 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
       '{"idea_id": "string UUID (required)", "title": "string (optional)", "status": "requested|in-progress|shipped|rejected (optional)", "note": "string|null (optional)"}',
     handler: runUpdateIdeaTool,
     exposeInMcp: false,
-    exposeInChat: false,
   },
   {
     name: 'create_text_file',
@@ -915,19 +901,11 @@ export const MCP_EXPOSED_TOOL_MAP = new Map<string, McpToolHandler>(
 export const MCP_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name)
 
 /**
- * Tools the in-app ask/chat loop may call: every definition not marked `exposeInChat: false`.
- * capture_thought is deliberately excluded so nothing typed into Ask is stored on its own
- * (deterministic surface boundary — no string heuristics deciding "is this a question"). Ask keeps
- * thoughts only through propose_thoughts → store_thoughts, and the server guard stores only what
- * the user confirmed. Capturing belongs to the Capture surface and to HTTP MCP clients, both of
- * which keep capture_thought. The shared board and the capture review tools (get_capture_review,
- * rate_capture) are HTTP MCP only: the vote in the app lives in the Capture strip and the Mesh row.
- * get_now_cards and answer_now_card are both in Ask like every MCP tool; Ask answers a card only
- * when the user says so (system prompt rule in agent-loop.ts).
+ * Tools the in-app ask/chat loop may call: every registered tool. Ask is a wrapper around the MCP
+ * tools; an explicit user request (capture, rate a capture, board tools, ...) is done by the matching
+ * tool. What Ask judges worth keeping on its own still goes propose_thoughts → store_thoughts.
  */
-export const CHAT_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.filter(
-  (t) => t.exposeInChat !== false,
-).map((t) => t.name)
+export const CHAT_AGENT_TOOL_NAMES = MCP_TOOL_DEFINITIONS.map((t) => t.name)
 
 /** HTTP MCP client surface (minimal memory CRUD). */
 export const MCP_CLIENT_EXPOSED_TOOL_NAMES = MCP_EXPOSED_TOOL_DEFINITIONS.map((t) => t.name)
@@ -940,7 +918,7 @@ export function isAgentTool(name: string): boolean {
   return MCP_TOOL_MAP.has(name)
 }
 
-/** Gate for the ask/chat loop's toolset (capture_thought excluded). */
+/** Gate for the ask/chat loop's toolset (every registered tool). */
 export function isChatAgentTool(name: string): boolean {
   return CHAT_AGENT_TOOL_NAMES.includes(name)
 }
