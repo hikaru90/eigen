@@ -70,9 +70,9 @@ test.describe('Lightning questions on Yarn', () => {
     const nowBox = await now.boundingBox()
     const labelBox = await label.boundingBox()
     expect(nowBox!.y + nowBox!.height).toBeLessThanOrEqual(labelBox!.y)
-    await expect(page.getByRole('tab', { name: 'Yarn' })).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Threads' })).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Patterns' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Yarn', exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Threads', exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Patterns', exact: true })).toBeVisible()
   })
 
   test('Done brings the next card; Undo brings the first back', async ({ page }) => {
