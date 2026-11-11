@@ -56,11 +56,14 @@ Edit `.env` and add the AI and PayPal values. All AI inference runs through Open
 operator's service key and bills users' Eigen credits; models are pinned in
 `src/lib/server/billing/platform-llm.ts`.
 
-| Variable                                                      | Source                                                    |
-| ------------------------------------------------------------- | --------------------------------------------------------- |
-| `OPENROUTER_BASE_URL`                                         | `https://openrouter.ai/api/v1`                            |
-| `SERVICE_API_KEY_OPENROUTER`                                  | [OpenRouter](https://openrouter.ai) service account key   |
-| `PAYPAL_API_BASE`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | [PayPal Developer](https://developer.paypal.com) REST app |
+| Variable                                                      | Source                                                                                       |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `OPENROUTER_BASE_URL`                                         | `https://openrouter.ai/api/v1`                                                               |
+| `SERVICE_API_KEY_OPENROUTER`                                  | [OpenRouter](https://openrouter.ai) service account key                                      |
+| `DECISION_SHADOW_ENABLED`                                     | `true` (Jev required — the server refuses to start without it)                               |
+| `DECISION_SHADOW_MODEL`                                       | `typesafe/jev-1.13`                                                                          |
+| `OPENROUTER_API_KEY`                                          | OpenRouter key for Jev (separate var from `SERVICE_API_KEY_OPENROUTER`; may be the same key) |
+| `PAYPAL_API_BASE`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | [PayPal Developer](https://developer.paypal.com) REST app                                    |
 
 `install.sh` already sets: `BETTER_AUTH_SECRET`, `TENANT_MASTER_KEY`, `POSTGRES_PASSWORD`, `EIGEN_APP_DB_PASSWORD`, `ADMIN_CONSOLIDATION_KEY`, `DATABASE_URL` (`@db` host), `CONSOLIDATION_INTERNAL_URL`, `VAPID_*` (when Node is available locally), `POSTHOG_SOURCEMAPS_REQUIRED=0`. Missing `VAPID_*` / `ADMIN_CONSOLIDATION_KEY` values are generated automatically on first app container start (`entrypoint.sh` → `ensure-deploy-secrets.mjs`).
 
@@ -100,12 +103,12 @@ docker compose up -d app
 
 ## 6. Firewall
 
-| Setup                   | Open ports                                                                             |
-| ----------------------- | -------------------------------------------------------------------------------------- |
-| Caddy TLS               | `80`, `443`                                                                            |
-| Direct (no proxy)       | `3000`                                                                                 |
+| Setup                   | Open ports                                                                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| Caddy TLS               | `80`, `443`                                                                                         |
+| Direct (no proxy)       | `3000`                                                                                              |
 | Drizzle Gateway         | Prefer HTTPS via Traefik (`studio.eigenmesh.xyz` → `4983`); always set `DRIZZLE_GATEWAY_MASTERPASS` |
-| **Never in production** | `5432` (remove `ports: ['5432:5432']` from `docker-compose.yaml` for the `db` service) |
+| **Never in production** | `5432` (remove `ports: ['5432:5432']` from `docker-compose.yaml` for the `db` service)              |
 
 ### Drizzle Gateway (self-hosted Studio)
 
@@ -138,15 +141,15 @@ sudo ufw enable
 
 ## Troubleshooting
 
-| Symptom                              | Likely cause                                       | Fix                                                                                                      |
-| ------------------------------------ | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Symptom                                                                      | Likely cause                                                                                                         | Fix                                                                                                                        |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | "Cross-site POST form submissions are forbidden" on voice capture / any POST | Deployed `ORIGIN` ≠ browser URL (e.g. left at the dev value `http://localhost:5173`), or proxy headers not forwarded | Set `ORIGIN` to the exact public URL incl. `https://`; keep `PROTOCOL_HEADER`/`HOST_HEADER` wired in `docker-compose.yaml` |
-| Docker build fails on PostHog        | `POSTHOG_SOURCEMAPS_REQUIRED=1` without `phx_` key | Keep `POSTHOG_SOURCEMAPS_REQUIRED=0` (install.sh default) or set `POSTHOG_CLI_API_KEY` at **build** time |
-| App cannot reach DB                  | Wrong host in `.env`                               | Use `@db:5432` in `DATABASE_URL` for Compose; compose also constructs URLs from `POSTGRES_*`             |
-| EUrouter placeholder errors at start | Docker build placeholders in runtime env           | Set real `LLM_BASE_URL` and rule UUIDs (not `00000000-…`)                                                |
-| Capture fails / LLM not configured   | Wallet empty or OpenRouter service key missing     | Settings → LLM; see [payments.md](../payments.md)                                                        |
-| Encrypt/decrypt errors               | Missing or rotated `TENANT_MASTER_KEY`             | [Tenant encryption runbook](./tenant-envelope-encryption.md)                                             |
-| OAuth redirect mismatch              | `ORIGIN` ≠ browser URL                             | Set `ORIGIN` to exact public URL including `https://`                                                    |
+| Docker build fails on PostHog                                                | `POSTHOG_SOURCEMAPS_REQUIRED=1` without `phx_` key                                                                   | Keep `POSTHOG_SOURCEMAPS_REQUIRED=0` (install.sh default) or set `POSTHOG_CLI_API_KEY` at **build** time                   |
+| App cannot reach DB                                                          | Wrong host in `.env`                                                                                                 | Use `@db:5432` in `DATABASE_URL` for Compose; compose also constructs URLs from `POSTGRES_*`                               |
+| EUrouter placeholder errors at start                                         | Docker build placeholders in runtime env                                                                             | Set real `LLM_BASE_URL` and rule UUIDs (not `00000000-…`)                                                                  |
+| Capture fails / LLM not configured                                           | Wallet empty or OpenRouter service key missing                                                                       | Settings → LLM; see [payments.md](../payments.md)                                                                          |
+| Encrypt/decrypt errors                                                       | Missing or rotated `TENANT_MASTER_KEY`                                                                               | [Tenant encryption runbook](./tenant-envelope-encryption.md)                                                               |
+| OAuth redirect mismatch                                                      | `ORIGIN` ≠ browser URL                                                                                               | Set `ORIGIN` to exact public URL including `https://`                                                                      |
 
 ### Manual migration (only if entrypoint failed)
 

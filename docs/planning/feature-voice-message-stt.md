@@ -159,6 +159,8 @@ really dictates in those languages.
 **Layer 2 — LLM judge on the server** (`src/lib/server/llm/stt-judge.ts`, called by
 `POST /api/capture/transcribe` after a non-empty transcript):
 
+- The server refuses to start without the Jev config (startup check in `src/lib/server/ops/required-config.ts`).
+
 - One enforced Decisions question (`runEnforcedBoundedDecisions`, surface `transcribe`, kind
   `transcript_check`, choices `dictation` | `artefact`), `state` = samples of the user's own recent
   writing (the last 6 thoughts with author `user`, each cut to 160 characters) plus the transcript.

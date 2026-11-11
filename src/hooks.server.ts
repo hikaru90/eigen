@@ -22,9 +22,11 @@ import { authSql } from '$lib/server/db/auth-db'
 import { startJobQueueTicker } from '$lib/server/job-queue/ticker'
 import { startNotificationDispatchTicker } from '$lib/server/memory/notification-dispatch-ticker'
 import { shouldCaptureServerError } from '$lib/server/observability/server-error-capture'
+import { assertDecisionModelConfigured } from '$lib/server/ops/required-config'
 import { logOpsStartupDiagnostics } from '$lib/server/ops/startup-diagnostics'
 
 if (!building) {
+  assertDecisionModelConfigured()
   logOpsStartupDiagnostics()
   startJobQueueTicker()
   startNotificationDispatchTicker()

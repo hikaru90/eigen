@@ -34,12 +34,12 @@ On your first visit to Capture, a **Welcome to Eigen** overlay walks you through
 
 The tour has **four steps**:
 
-| Step | Topic         | What you do                                                            |
-| ---- | ------------- | ---------------------------------------------------------------------- |
-| 1    | **Welcome**   | What Eigen is and what happens next                                    |
-| 2    | **Credits**   | PayPal top-up (platform credits)                                       |
-| 3    | **Grounding** | Start the getting-to-know-you chat at `/grounding`                     |
-| 4    | **Ready**     | **Get started** (only when credits and grounding are complete)         |
+| Step | Topic         | What you do                                                    |
+| ---- | ------------- | -------------------------------------------------------------- |
+| 1    | **Welcome**   | What Eigen is and what happens next                            |
+| 2    | **Credits**   | PayPal top-up (platform credits)                               |
+| 3    | **Grounding** | Start the getting-to-know-you chat at `/grounding`             |
+| 4    | **Ready**     | **Get started** (only when credits and grounding are complete) |
 
 Both **credits** (for platform billing) and **grounding** are required before your first capture.
 
@@ -84,12 +84,12 @@ See also [Overview & quick start](./README.md) for Docker Compose commands and C
 
 Create only the accounts that match how you want billing and auth to work.
 
-| Account                                              | When you need it                                         | What it is used for                                                                                                                                    |
-| ---------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **[OpenRouter](https://openrouter.ai)**              | All AI inference                                         | Chat, embeddings, and dictation STT on the service key (`OPENROUTER_BASE_URL`, `SERVICE_API_KEY_OPENROUTER`).                                            |
-| **[PayPal Developer](https://developer.paypal.com)** | Wallet top-ups (platform credits)                        | In-app credit purchases (`PAYPAL_API_BASE`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`).                         |
-| **Google Cloud OAuth client**                        | Optional social sign-in                                  | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — callback `{ORIGIN}/api/auth/callback/google`.                                                             |
-| **GitHub OAuth app**                                 | Optional social sign-in                                  | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — callback `{ORIGIN}/api/auth/callback/github`.                                                             |
+| Account                                              | When you need it                  | What it is used for                                                                                           |
+| ---------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **[OpenRouter](https://openrouter.ai)**              | All AI inference                  | Chat, embeddings, and dictation STT on the service key (`OPENROUTER_BASE_URL`, `SERVICE_API_KEY_OPENROUTER`). |
+| **[PayPal Developer](https://developer.paypal.com)** | Wallet top-ups (platform credits) | In-app credit purchases (`PAYPAL_API_BASE`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`).                      |
+| **Google Cloud OAuth client**                        | Optional social sign-in           | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — callback `{ORIGIN}/api/auth/callback/google`.                    |
+| **GitHub OAuth app**                                 | Optional social sign-in           | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — callback `{ORIGIN}/api/auth/callback/github`.                    |
 
 You do **not** need separate accounts for Postgres, pgvector, or Apache AGE — those run inside the Compose stack.
 
@@ -117,6 +117,9 @@ All AI inference runs through OpenRouter on your service key and bills users' Ei
 | ---------------------------- | --------------------------------------------------------------------------------- |
 | `OPENROUTER_BASE_URL`        | OpenRouter API origin, e.g. `https://openrouter.ai/api/v1`                        |
 | `SERVICE_API_KEY_OPENROUTER` | OpenRouter service key — every chat, embedding, and dictation call                |
+| `DECISION_SHADOW_ENABLED`    | `true` — Jev decision model is required; the server refuses to start without it   |
+| `DECISION_SHADOW_MODEL`      | Jev model id, e.g. `typesafe/jev-1.13`                                            |
+| `OPENROUTER_API_KEY`         | OpenRouter key Jev calls (separate from `SERVICE_API_KEY_OPENROUTER`; may match)  |
 | `PAYPAL_API_BASE`            | `https://api-m.sandbox.paypal.com` (sandbox) or `https://api-m.paypal.com` (live) |
 | `PAYPAL_CLIENT_ID`           | PayPal REST app client ID                                                         |
 | `PAYPAL_CLIENT_SECRET`       | PayPal REST app secret                                                            |
@@ -183,22 +186,22 @@ Direct them to:
 
 ## Quick reference: who configures what
 
-| Concern                                             | Managed (end user)        | Self-hosted (operator) | Self-hosted (end user) |
-| --------------------------------------------------- | ------------------------- | ---------------------- | ---------------------- |
-| Docker / Postgres / AGE                             | Eigen                     | You                    | —                      |
-| `BETTER_AUTH_SECRET`, `TENANT_MASTER_KEY`, `ORIGIN` | Eigen                     | You                    | —                      |
-| Service gateway keys (`SERVICE_API_KEY_*`)          | Eigen                     | You                    | —                      |
-| PayPal (wallet top-ups)                             | Eigen (if offered)        | You (optional)         | Pays via PayPal UI     |
-| Welcome tour                                        | Yes                       | —                      | Yes                    |
-| Capture / Activity / Chat                           | Yes                       | —                      | Yes                    |
+| Concern                                             | Managed (end user) | Self-hosted (operator) | Self-hosted (end user) |
+| --------------------------------------------------- | ------------------ | ---------------------- | ---------------------- |
+| Docker / Postgres / AGE                             | Eigen              | You                    | —                      |
+| `BETTER_AUTH_SECRET`, `TENANT_MASTER_KEY`, `ORIGIN` | Eigen              | You                    | —                      |
+| Service gateway keys (`SERVICE_API_KEY_*`)          | Eigen              | You                    | —                      |
+| PayPal (wallet top-ups)                             | Eigen (if offered) | You (optional)         | Pays via PayPal UI     |
+| Welcome tour                                        | Yes                | —                      | Yes                    |
+| Capture / Activity / Chat                           | Yes                | —                      | Yes                    |
 
 ---
 
 ## Troubleshooting
 
-| Symptom                                | Likely cause                                                                                                                                                                            |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Capture fails with LLM not configured  | Wallet empty or OpenRouter service key missing — check **Settings → LLM**. See [`docs/payments.md`](../payments.md) for `insufficient_credits` (402) and balance troubleshooting. |
-| PayPal button missing on Credits tab   | Operator has not set `PAYPAL_*` env vars.                                                                                                                                               |
-| OAuth sign-in fails                    | Callback URL must match `{ORIGIN}/api/auth/callback/<provider>`.                                                                                                                        |
-| Encrypt/decrypt errors after deploy    | `TENANT_MASTER_KEY` missing or changed without re-encryption — see [tenant encryption runbook](./docs/operations/tenant-envelope-encryption.md).                                        |
+| Symptom                               | Likely cause                                                                                                                                                                      |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Capture fails with LLM not configured | Wallet empty or OpenRouter service key missing — check **Settings → LLM**. See [`docs/payments.md`](../payments.md) for `insufficient_credits` (402) and balance troubleshooting. |
+| PayPal button missing on Credits tab  | Operator has not set `PAYPAL_*` env vars.                                                                                                                                         |
+| OAuth sign-in fails                   | Callback URL must match `{ORIGIN}/api/auth/callback/<provider>`.                                                                                                                  |
+| Encrypt/decrypt errors after deploy   | `TENANT_MASTER_KEY` missing or changed without re-encryption — see [tenant encryption runbook](./docs/operations/tenant-envelope-encryption.md).                                  |
