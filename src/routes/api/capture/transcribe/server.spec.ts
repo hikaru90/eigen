@@ -2,15 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { STT_CLIP_MAX_AUDIO_BYTES } from '$lib/server/llm/stt-audio'
 import { POST } from './+server'
 
-const { transcribeAudioMock, judgeTranscriptMock, loadLanguagesMock } = vi.hoisted(() => ({
+const { transcribeAudioMock, judgeTranscriptMock, loadSamplesMock } = vi.hoisted(() => ({
   transcribeAudioMock: vi.fn(),
   judgeTranscriptMock: vi.fn(),
-  loadLanguagesMock: vi.fn(),
+  loadSamplesMock: vi.fn(),
 }))
 
 vi.mock('$lib/server/llm/stt-judge', () => ({
   judgeTranscript: judgeTranscriptMock,
-  loadUserSpeechLanguages: loadLanguagesMock,
+  loadUserWritingSamples: loadSamplesMock,
 }))
 
 vi.mock('$lib/server/llm/stt-client', () => ({
@@ -34,8 +34,8 @@ describe('POST /api/capture/transcribe', () => {
     transcribeAudioMock.mockReset()
     judgeTranscriptMock.mockReset()
     judgeTranscriptMock.mockResolvedValue('dictation')
-    loadLanguagesMock.mockReset()
-    loadLanguagesMock.mockResolvedValue({ writing: 'de', ui: 'en' })
+    loadSamplesMock.mockReset()
+    loadSamplesMock.mockResolvedValue(['Morgen Zahnarzt anrufen', 'ship the release notes'])
     vi.spyOn(console, 'error').mockImplementation(() => {})
   })
 
@@ -144,8 +144,9 @@ describe('POST /api/capture/transcribe', () => {
       expect(judgeTranscriptMock).toHaveBeenCalledWith({
         userId: 'u1',
         transcript: 'Ich muss Milch kaufen',
-        languages: { writing: 'de', ui: 'en' },
+        writingSamples: ['Morgen Zahnarzt anrufen', 'ship the release notes'],
       })
+      expect(loadSamplesMock).toHaveBeenCalledWith('u1')
     })
 
     it('returns "" when the judge says the transcript is an artefact', async () => {
@@ -173,9 +174,9 @@ describe('POST /api/capture/transcribe', () => {
       expect(body.transcript).toBeUndefined()
     })
 
-    it('failing to read the user\'s languages is a 502 too, with no judge call', async () => {
+    it("failing to read the user's writing samples is a 502 too, with no judge call", async () => {
       transcribeAudioMock.mockResolvedValue('some text')
-      loadLanguagesMock.mockRejectedValue(new Error('db down'))
+      loadSamplesMock.mockRejectedValue(new Error('db down'))
       const res = await call(audioRequest(12))
       expect(res.status).toBe(502)
       expect(judgeTranscriptMock).not.toHaveBeenCalled()

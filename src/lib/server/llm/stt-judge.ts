@@ -1,6 +1,4 @@
-import { eq } from 'drizzle-orm'
-import { getDb } from '$lib/server/db'
-import { userPreference } from '$lib/server/db/schema'
+import { listThoughts } from '$lib/server/capture/service'
 import { runEnforcedBoundedDecisions } from './decision-plane'
 
 /**
@@ -10,19 +8,29 @@ import { runEnforcedBoundedDecisions } from './decision-plane'
  * (Layer 1) let through: foreign-script fragments, repeated syllables, subtitle-credit
  * phrases. Whether a transcript is plausibly this user's real dictation is a question about
  * meaning, so it is decided by the Decisions model (surface `transcribe`, kind
- * `transcript_check`) — never by a regex, a script range or a word list, which would also
- * break someone really dictating in Korean, Chinese or Japanese.
+ * `transcript_check`) — never by a regex, a script range or a word list.
+ *
+ * Evidence for the user's languages is samples of the user's OWN recent writing (the last
+ * user-authored thoughts, cut short). The language settings are never sent: they are NOT NULL
+ * DEFAULT 'en' and say nothing about the languages a user speaks, so they made every user look
+ * English-only. Agent-authored (MCP) thoughts are never samples. No writing on record → the
+ * state says so and the judge decides on recognition patterns alone.
  */
 
 export const TRANSCRIPT_CHECK_CRITERIA = {
   dictation:
-    'The text is plausibly what this user really said: a coherent utterance in a language the user speaks or writes (including Korean, Chinese or Japanese when those are the user\'s languages), also short, informal, mixed-language or unfinished speech.',
+    "The text is plausibly what this user really said: a coherent utterance, also short, informal, mixed-language or unfinished speech, in a language that fits the user's own writing, or in any language when none of their writing is shown.",
   artefact:
-    'The text is more likely an artefact of speech recognition on silence or noise than real speech by this user: a fragment in a script or language the user does not use, repeated syllables or words, a stock subtitle or credit phrase (thanks for watching, subtitles by...), or a stray filler word with no content.',
+    "The text is more likely an artefact of speech recognition on silence or noise: repeated syllables or words with no content, a stock subtitle or credit phrase (thanks for watching, subtitles by ...), a stray filler word with no content, or a fragment in a language or script that none of the user's own writing uses.",
 } as const
 
-const TRANSCRIPT_CHECK_INSTRUCTIONS =
-  'A speech recognition model transcribed a voice message from this user. Is the text plausibly real dictation by this user, or an artefact of recognition on silence or noise? A user who really dictates in Korean, Chinese or Japanese must pass when those are among their languages.'
+export const TRANSCRIPT_CHECK_INSTRUCTIONS =
+  "A speech recognition model transcribed a voice message from this user. Is the text plausibly real dictation by this user, or an artefact of recognition on silence or noise? When samples of the user's own recent writing are shown, they show which languages this user uses; they are a sample, not a complete list, and their content is not what is judged."
+
+/** How many of the user's own recent thoughts are shown to the judge. */
+export const WRITING_SAMPLE_LIMIT = 6
+/** Each sample is cut to this many characters: enough to show the language, no more. */
+export const WRITING_SAMPLE_MAX_CHARS = 160
 
 const QUESTION_ID = 'transcript'
 
@@ -31,42 +39,29 @@ export const STT_JUDGE_ATTEMPTS = 3
 
 export type TranscriptVerdict = 'dictation' | 'artefact'
 
-/** What is known about the user's languages; null = nothing on record. */
-export type UserSpeechLanguages = {
-  /** The language set in settings (`preferredLanguage`). */
-  writing: string | null
-  /** The interface locale (`preferredUiLocale`). */
-  ui: string | null
+/** The user's own recent writing (decrypted, user-authored only), trimmed and cut short. */
+export async function loadUserWritingSamples(userId: string): Promise<string[]> {
+  const rows = await listThoughts(userId, {
+    fields: 'snippet',
+    limit: WRITING_SAMPLE_LIMIT,
+    authorFilter: 'user',
+  })
+  return rows
+    .map((row) => (row.normalizedText ?? '').trim())
+    .filter((text) => text !== '')
+    .map((text) => text.slice(0, WRITING_SAMPLE_MAX_CHARS))
 }
 
-/** Reads the user's language settings. No row = nothing on record (stated to the judge, not defaulted). */
-export async function loadUserSpeechLanguages(userId: string): Promise<UserSpeechLanguages> {
-  const [row] = await getDb()
-    .select({
-      writing: userPreference.preferredLanguage,
-      ui: userPreference.preferredUiLocale,
-    })
-    .from(userPreference)
-    .where(eq(userPreference.userId, userId))
-    .limit(1)
-  return { writing: row?.writing ?? null, ui: row?.ui ?? null }
-}
-
-/** The Decisions `state`: the languages on record, then the transcript. Never persisted. */
+/** The Decisions `state`: samples of the user's own writing, then the transcript. Never persisted. */
 export function buildTranscriptCheckState(input: {
   transcript: string
-  languages: UserSpeechLanguages
+  writingSamples: string[]
 }): string {
-  const { writing, ui } = input.languages
-  const known = [
-    writing ? `language set in settings: ${writing}` : null,
-    ui ? `interface language: ${ui}` : null,
-  ].filter((line): line is string => line !== null)
-  const languageBlock =
-    known.length > 0
-      ? `Languages known for this user (codes):\n${known.join('\n')}`
-      : 'No language is on record for this user.'
-  return `${languageBlock}\n\nTranscript to judge:\n${input.transcript}`
+  const writingBlock =
+    input.writingSamples.length > 0
+      ? `Recent writing by this user (samples):\n${input.writingSamples.map((s) => `- ${s}`).join('\n')}`
+      : 'No writing by this user is on record yet.'
+  return `${writingBlock}\n\nTranscript to judge:\n${input.transcript}`
 }
 
 /**
@@ -78,7 +73,7 @@ export function buildTranscriptCheckState(input: {
 export async function judgeTranscript(input: {
   userId: string
   transcript: string
-  languages: UserSpeechLanguages
+  writingSamples: string[]
 }): Promise<TranscriptVerdict> {
   const state = buildTranscriptCheckState(input)
   let lastError: unknown

@@ -1,9 +1,12 @@
 import type { RequestHandler } from './$types'
 import { error, json } from '@sveltejs/kit'
-import { insufficientCreditsPayload, isInsufficientCreditsError } from '$lib/server/billing/insufficient-credits'
+import {
+  insufficientCreditsPayload,
+  isInsufficientCreditsError,
+} from '$lib/server/billing/insufficient-credits'
 import { STT_CLIP_MAX_AUDIO_BYTES, sttFormatFromMime } from '$lib/server/llm/stt-audio'
 import { transcribeAudio } from '$lib/server/llm/stt-client'
-import { judgeTranscript, loadUserSpeechLanguages } from '$lib/server/llm/stt-judge'
+import { judgeTranscript, loadUserWritingSamples } from '$lib/server/llm/stt-judge'
 import { readAudioUpload } from '../audio-upload'
 
 /** What the client is told when the provider failed all its attempts; the cause stays in the log. */
@@ -16,7 +19,8 @@ const TRANSCRIBE_FAILED_MESSAGE = 'Transcription failed'
  * never stored and never logged — only the transcript leaves this handler.
  *
  * Silence never becomes text: a non-empty transcript is then judged by the Decisions model
- * (Layer 2, `stt-judge.ts`) with the user's known languages. An artefact of recognition on
+ * (Layer 2, `stt-judge.ts`), shown samples of the user's own recent writing (never the
+ * language settings). An artefact of recognition on
  * silence or noise answers `""`, which the client shows as "no speech". A failed judge (after
  * its own 3 attempts) is a 502 like any failed transcription — the clip stays retryable, the
  * text is never passed through unjudged.
@@ -38,7 +42,7 @@ export const POST: RequestHandler = async (event) => {
     const verdict = await judgeTranscript({
       userId: user.id,
       transcript,
-      languages: await loadUserSpeechLanguages(user.id),
+      writingSamples: await loadUserWritingSamples(user.id),
     })
     return json({ transcript: verdict === 'artefact' ? '' : transcript })
   } catch (err) {

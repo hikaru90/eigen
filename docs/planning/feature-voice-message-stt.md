@@ -160,12 +160,15 @@ really dictates in those languages.
 `POST /api/capture/transcribe` after a non-empty transcript):
 
 - One enforced Decisions question (`runEnforcedBoundedDecisions`, surface `transcribe`, kind
-  `transcript_check`, choices `dictation` | `artefact`), `state` = the user's known languages
-  (`user_preference.preferred_language` and `preferred_ui_locale`; no row → the state says no
-  language is on record) plus the transcript. The question: plausibly real dictation by this user,
-  or an artefact of recognition on silence/noise (foreign-script fragments the user does not use,
-  repeated syllables, subtitle-credit phrases)? A user who really dictates in Korean, Chinese or
-  Japanese passes when those are among their languages.
+  `transcript_check`, choices `dictation` | `artefact`), `state` = samples of the user's own recent
+  writing (the last 6 thoughts with author `user`, each cut to 160 characters) plus the transcript.
+  When no writing is on record the state says so and the judge decides on recognition patterns
+  alone. The language settings (`preferred_language`, `preferred_ui_locale`) are never sent: they
+  are defaulted (`'en'`) and say nothing about the languages a user speaks. Agent-authored (MCP)
+  thoughts are never samples. The question: plausibly real dictation by this user, or an artefact
+  of recognition on silence/noise (fragments in a language or script none of the user's writing
+  uses, repeated syllables, subtitle-credit phrases)? Short, informal or mixed-language speech
+  that fits the user's writing passes.
 - `artefact` → `200 { transcript: "" }` (the client shows "No speech detected"); `dictation` →
   the transcript. An empty transcript is not judged (no call).
 - The call is retried up to exactly 3 times; then the endpoint answers the existing `502
@@ -179,4 +182,12 @@ Acceptance: Given a clip with no speech-level sound, then nothing is uploaded an
 written. Given a click only, same. Given speech, then it is uploaded. Given an undecodable clip,
 then it is uploaded with a warning. Given the model answers an artefact, then the field gets
 nothing. Given a failed judge, then 502 and Retry.
+- Given recent thoughts in German and English, when German or mixed speech is transcribed, then the
+  transcript is kept.
+- Given recent writing in German/English, when the transcript is a Chinese or Korean fragment, a
+  subtitle credit or repeated syllables, then the field gets nothing.
+- Given no writing on record, then the state says so and the judge decides on recognition patterns
+  alone.
+- Given any user, the state never contains `preferred_language` or the UI locale.
+- Given agent-written (MCP) thoughts, they are not samples.
 
